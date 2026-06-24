@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MixForge 0.3 — Diagnose Then Route — Workin' With AI</title>
+<style>
+  /* ============================================================
+     MIXFORGE 0.3 — DIAGNOSE, THEN ROUTE
+     Lineage: 0.1 proved notes→move→approve→hear. 0.2 became the
+     glass-box master (real measurement, full chain, free WAV).
+     0.3 grows the BRAIN: it now tells MIX problems apart from
+     MASTER problems and fixes each at the right layer.
+
+       MIX-stage routes (new):
+         · mid/side EQ — vocals/kick/bass live in the CENTER (mid),
+           width lives in the SIDES. Surgery on one without the other.
+         · de-esser — a band-split compressor that only turns down
+           sibilance when it flares, not all the time.
+         · stem fix — flagged when only true separation can isolate
+           the problem. Unlocks with the Pro separation pipeline.
+       MASTER-stage routes (from 0.2):
+         · bus EQ · glue compression · loudness to −14 LUFS + limiter
+
+     LANDR and eMastered only see a stereo file and only push it
+     louder. This app sees WHERE the problem lives. That's the moat.
+     ============================================================ */
+
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg:#100c08; --panel:#1c1611; --panel-2:#261d15;
+    --copper:#b87333; --copper-lt:#d4904a; --cream:#ece3d4;
+    --muted:#8a7c6a; --line:#3a2e22; --go:#6f9e57; --reject:#a05545;
+    --mixc:#7a9bc4;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    background: radial-gradient(circle at 20% -10%, rgba(184,115,51,.10), transparent 45%), var(--bg);
+    color:var(--cream); font-family:'Oswald',sans-serif; font-weight:300;
+    min-height:100vh; padding:32px 20px 80px; letter-spacing:.3px;
+  }
+  .wrap { max-width:760px; margin:0 auto; }
+  header { margin-bottom:28px; border-bottom:1px solid var(--line); padding-bottom:18px; }
+  .kicker { color:var(--copper); font-size:13px; letter-spacing:3px; text-transform:uppercase; }
+  h1 { font-family:'Bebas Neue',sans-serif; font-size:56px; line-height:.9; letter-spacing:1px; margin:4px 0 6px; }
+  h1 .ver { color:var(--copper); }
+  .tagline { color:var(--muted); font-size:15px; max-width:580px; }
+
+  .step { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:18px; }
+  .step-head { display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+  .num { font-family:'Bebas Neue',sans-serif; background:var(--copper); color:var(--bg); width:30px; height:30px; border-radius:6px; display:grid; place-items:center; font-size:20px; }
+  .step-title { font-size:18px; font-weight:500; letter-spacing:1px; text-transform:uppercase; }
+  .step-sub { color:var(--muted); font-size:13px; margin:-10px 0 12px 42px; }
+
+  .drop { border:1.5px dashed var(--line); border-radius:8px; padding:26px; text-align:center; cursor:pointer; transition:border-color .2s, background .2s; }
+  .drop:hover { border-color:var(--copper); background:rgba(184,115,51,.05); }
+  .drop.loaded { border-style:solid; border-color:var(--go); }
+  .drop .hint { color:var(--muted); font-size:14px; }
+  .drop .fname { color:var(--copper-lt); font-size:15px; margin-top:6px; }
+
+  textarea { width:100%; min-height:84px; resize:vertical; background:var(--bg); color:var(--cream); border:1px solid var(--line); border-radius:8px; padding:12px 14px; font-family:'Oswald',sans-serif; font-size:15px; font-weight:300; line-height:1.5; }
+  textarea:focus { outline:none; border-color:var(--copper); }
+  textarea::placeholder { color:var(--muted); }
+
+  .btn { font-family:'Bebas Neue',sans-serif; letter-spacing:1.5px; border:none; border-radius:7px; padding:13px 22px; font-size:19px; cursor:pointer; transition:transform .1s, filter .2s; }
+  .btn:active { transform:translateY(1px); }
+  .btn:disabled { opacity:.4; cursor:not-allowed; }
+  .btn-copper { background:var(--copper); color:var(--bg); }
+  .btn-copper:hover:not(:disabled) { filter:brightness(1.1); }
+  .btn-ghost { background:transparent; color:var(--copper-lt); border:1px solid var(--copper); }
+  .btn-ghost:hover:not(:disabled) { background:rgba(184,115,51,.1); }
+  .btn-row { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; align-items:center; }
+
+  .meas { display:none; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:10px; margin-top:14px; }
+  .meas.show { display:grid; }
+  .stat { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .stat .lab { color:var(--muted); font-size:11px; letter-spacing:1.5px; text-transform:uppercase; }
+  .stat .val { font-family:'Bebas Neue',sans-serif; font-size:26px; color:var(--copper-lt); }
+  .bands { display:none; margin-top:12px; }
+  .bands.show { display:block; }
+  .band-row { display:flex; align-items:center; gap:10px; margin:5px 0; font-size:13px; }
+  .band-name { width:92px; color:var(--muted); text-align:right; }
+  .band-bar-bg { flex:1; height:10px; background:var(--bg); border-radius:5px; overflow:hidden; border:1px solid var(--line); }
+  .band-bar { height:100%; background:linear-gradient(90deg,var(--copper),var(--copper-lt)); border-radius:5px; }
+  .band-db { width:56px; color:var(--copper-lt); }
+
+  .chain { display:none; }
+  .chain.show { display:block; }
+  .group-head { display:flex; align-items:center; gap:10px; margin:20px 0 4px; }
+  .group-head .gt { font-family:'Bebas Neue',sans-serif; font-size:21px; letter-spacing:2px; }
+  .group-head .gl { flex:1; height:1px; background:var(--line); }
+  .group-head.mix .gt { color:var(--mixc); }
+  .group-head.master .gt { color:var(--copper); }
+  .group-sub { color:var(--muted); font-size:12.5px; margin-bottom:4px; }
+
+  .card { background:var(--panel-2); border:1px solid var(--line); border-left:4px solid var(--copper); border-radius:8px; padding:16px 18px; margin-top:12px; transition:opacity .2s, border-color .2s; }
+  .card.mix { border-left-color:var(--mixc); }
+  .card.rejected { opacity:.45; border-left-color:var(--reject); }
+  .card.approved.master { border-left-color:var(--go); }
+  .card.approved.mix { border-left-color:var(--go); }
+  .card-top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+  .badge { display:inline-block; font-size:10.5px; letter-spacing:1.5px; text-transform:uppercase; padding:2px 9px; border-radius:11px; border:1px solid var(--line); color:var(--muted); margin-right:6px; }
+  .badge.route { border-color:var(--copper); color:var(--copper-lt); }
+  .badge.lock { border-color:var(--mixc); color:var(--mixc); }
+  .card .move { font-size:21px; font-family:'Bebas Neue',sans-serif; letter-spacing:1px; margin:5px 0 2px; }
+  .card .detected { color:var(--cream); font-size:13px; }
+  .card .detected b { color:var(--copper-lt); font-weight:500; }
+  .why-btn { background:none; border:none; color:var(--copper-lt); font-family:'Oswald'; font-size:13px; cursor:pointer; text-decoration:underline; padding:0; margin-top:6px; }
+  .why { display:none; color:var(--muted); font-size:13.5px; line-height:1.55; margin-top:8px; border-top:1px dashed var(--line); padding-top:8px; }
+  .why.open { display:block; }
+  .approve-row { display:flex; gap:8px; }
+  .pill { font-family:'Oswald'; font-size:13px; padding:6px 14px; border-radius:20px; border:1px solid var(--line); background:var(--bg); color:var(--muted); cursor:pointer; }
+  .pill.on-approve { background:rgba(111,158,87,.18); border-color:var(--go); color:#a8c995; }
+  .pill.on-reject { background:rgba(160,85,69,.18); border-color:var(--reject); color:#cf9183; }
+  .tweak { margin-top:10px; }
+  .tweak label { font-size:12px; color:var(--muted); display:block; margin-bottom:4px; }
+  input[type=range] { width:100%; accent-color:var(--copper); }
+  .tweak-val { color:var(--copper-lt); font-weight:500; }
+  .stem-note { margin-top:10px; font-size:13px; color:var(--muted); background:var(--bg); border:1px dashed var(--line); border-radius:7px; padding:10px 12px; line-height:1.5; }
+  .stem-note b { color:var(--mixc); font-weight:500; }
+  .fb-toggle { display:flex; gap:8px; align-items:center; font-size:13px; color:var(--muted); cursor:pointer; margin-top:8px; user-select:none; }
+  .fb-toggle input { accent-color:var(--copper); width:15px; height:15px; }
+
+  .play-row { display:flex; gap:10px; align-items:center; margin-top:18px; flex-wrap:wrap; }
+  .toggle { display:flex; gap:8px; align-items:center; font-size:14px; color:var(--muted); cursor:pointer; user-select:none; }
+  .toggle input { accent-color:var(--copper); width:16px; height:16px; }
+  .meter-wrap { margin-top:14px; display:none; }
+  .meter-wrap.show { display:block; }
+  .meter-bg { height:14px; background:var(--bg); border:1px solid var(--line); border-radius:7px; overflow:hidden; position:relative; }
+  .meter { height:100%; width:0%; background:linear-gradient(90deg,#6f9e57,var(--copper-lt) 75%,#c4564a 92%); transition:width .08s linear; }
+  .meter-target { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--cream); opacity:.6; }
+  .meter-lab { display:flex; justify-content:space-between; color:var(--muted); font-size:11px; margin-top:4px; letter-spacing:1px; }
+  .meter-now { color:var(--copper-lt); }
+
+  .status { color:var(--muted); font-size:14px; margin-top:10px; min-height:20px; }
+  .status.err { color:#c46a5a; }
+  .status.ok { color:var(--go); }
+  .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--line); border-top-color:var(--copper); border-radius:50%; animation:spin .7s linear infinite; vertical-align:middle; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  footer { text-align:center; color:var(--muted); font-size:12px; margin-top:30px; letter-spacing:1px; line-height:1.8; }
+  footer .copper { color:var(--copper); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="kicker">Workin' With AI · The Forge Stack</div>
+    <h1>MIXFORGE <span class="ver">0.3</span></h1>
+    <p class="tagline">Diagnose, then route. Now it knows the difference between a mix problem and a mastering problem — and fixes each at the right layer. Mid/side surgery. De-essing. Transparent mastering. Still glass. Still yours.</p>
+  </header>
+
+  <!-- STEP 1 -->
+  <div class="step">
+    <div class="step-head"><div class="num">1</div><div class="step-title">Load your mix</div></div>
+    <div class="drop" id="drop">
+      <div class="hint">Click to choose your full stereo mix (WAV / MP3)</div>
+      <div class="fname" id="fname"></div>
+    </div>
+    <input type="file" id="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.aiff,.aif" hidden>
+  </div>
+
+  <!-- STEP 2 -->
+  <div class="step">
+    <div class="step-head"><div class="num">2</div><div class="step-title">Notes (optional)</div></div>
+    <p class="step-sub">Paste Release Forge's notes here if you have them. Leave blank and the diagnosis works from measurements alone.</p>
+    <textarea id="notes" placeholder="e.g. Vocal feels buried in the chorus and the esses are sharp. Low end is woolly."></textarea>
+    <div class="btn-row">
+      <button class="btn btn-copper" id="analyze" disabled>Diagnose →</button>
+    </div>
+    <div class="status" id="status"></div>
+
+    <div class="meas" id="meas">
+      <div class="stat"><div class="lab">Loudness</div><div class="val" id="mLufs">—</div><div class="lab">LUFS (int.)</div></div>
+      <div class="stat"><div class="lab">Peak</div><div class="val" id="mPeak">—</div><div class="lab">dBFS</div></div>
+      <div class="stat"><div class="lab">Dynamics</div><div class="val" id="mCrest">—</div><div class="lab">crest dB</div></div>
+      <div class="stat"><div class="lab">Stereo corr.</div><div class="val" id="mCorr">—</div><div class="lab">+1 mono-safe</div></div>
+    </div>
+    <div class="bands" id="bands"></div>
+  </div>
+
+  <!-- STEP 3 -->
+  <div class="step">
+    <div class="step-head"><div class="num">3</div><div class="step-title">Diagnosis — routed to the right layer</div></div>
+    <p class="step-sub">Blue cards are mix-stage fixes (surgical). Copper cards are master-stage (the bus). Approve, tweak, or reject every one.</p>
+    <p class="tagline" id="chainHint" style="font-size:14px;">Your diagnosis appears here.</p>
+
+    <div class="chain" id="chain"></div>
+
+    <div class="play-row" id="playRow" style="display:none;">
+      <button class="btn btn-copper" id="play">▶ Play</button>
+      <button class="btn btn-ghost" id="export">⬇ Export WAV — free</button>
+      <label class="toggle"><input type="checkbox" id="bypass"> Bypass (original)</label>
+      <label class="toggle"><input type="checkbox" id="auto"> Auto mode</label>
+    </div>
+
+    <div class="meter-wrap" id="meterWrap">
+      <div class="meter-bg">
+        <div class="meter" id="meter"></div>
+        <div class="meter-target" style="left:78%;" title="−14 LUFS streaming target"></div>
+      </div>
+      <div class="meter-lab"><span>−40</span><span class="meter-now" id="meterNow">— (momentary)</span><span>0</span></div>
+    </div>
+    <div class="status" id="status2"></div>
+  </div>
+
+  <footer>
+    MIXFORGE 0.3 · DIAGNOSE, THEN ROUTE<br>
+    lineage: <span class="copper">0.1</span> proved the loop · <span class="copper">0.2</span> glass-box chain + free WAV · <span class="copper">0.3</span> mix-vs-master brain, M/S surgery, de-ess, stem routes<br>
+    inherits stem engine from <span class="copper">AuraMix</span> · reads <span class="copper">Release Forge</span> · © 2026 Workin' With AI
+  </footer>
+
+</div>
+
+<script>
+/* ============================================================
+   PART 1 — MEASUREMENT (the senses)
+   Everything from 0.2 (BS.1770 LUFS, peak, FFT bands) PLUS the
+   new diagnostic senses 0.3 needs to tell mix from master:
+
+   · MID/SIDE split: mid = (L+R)/2 holds whatever sits center —
+     usually vocal, kick, bass. side = (L−R)/2 holds the width.
+     Comparing band energy mid-vs-side tells us WHERE a problem
+     lives, not just that it exists.
+   · SIBILANCE FLARES: frame-by-frame ratio of 5.5–9 kHz to the
+     body of the mix. Esses are spiky — a high flare count means
+     "de-ess" beats "shelf cut."
+   · CREST FACTOR: peak minus average level ≈ how dynamic it is.
+   · STEREO CORRELATION: +1 = mono-safe, near 0/negative = phase
+     trouble that no master can fix.
+   ============================================================ */
+
+let audioCtx = null, buffer = null, source = null, analyser = null;
+let playing = false, findings = [], liveRegistry = [];
+let measured = null;
+let rawFile = null;          // the original file bytes, kept for upload
+let stemBuffers = {};        // separated stems we've fetched, by stem name
+
+/* ---- MixForge cloud config (live MixForge Supabase project) ----
+   The publishable key is SAFE in browser code by design — it only
+   permits what the storage policy allows (uploading to the audio
+   bucket). The Music.ai key is NOT here; it lives server-side in
+   the Edge Function as a secret. */
+const SUPA_URL = "https://xbzypzgnwgrmmvtrmdzl.supabase.co";
+const SUPA_KEY = "sb_publishable_lhVBmqHvnAiAUR7Q7L_aQQ_BZH05ZGj";
+
+const $ = id => document.getElementById(id);
+const BANDS = [
+  { name:"Sub", lo:20, hi:60 }, { name:"Bass", lo:60, hi:250 },
+  { name:"Low-mids", lo:250, hi:500 }, { name:"Mids", lo:500, hi:2000 },
+  { name:"Presence", lo:2000, hi:5000 }, { name:"Air", lo:5000, hi:16000 }
+];
+
+$('drop').addEventListener('click', () => $('file').click());
+$('file').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  rawFile = f;               // keep raw bytes for the upload step
+  stemBuffers = {};          // reset stems from any previous file
+  uploadOriginal._url = null;
+  $('fname').textContent = f.name;
+  $('drop').classList.add('loaded');
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  buffer = await audioCtx.decodeAudioData(await f.arrayBuffer());
+  $('analyze').disabled = false;
+});
+
+/* ============================================================
+   STEM SEPARATION PIPELINE (the real thing — cloud powered)
+   1. Upload the original file to the Supabase 'audio' bucket
+      (public, so Music.ai can fetch it by URL).
+   2. Call the separate-stem Edge Function with ONE stem name.
+      It runs the Music.ai job server-side (key stays secret) and
+      returns the isolated stem's URL.
+   3. Fetch + decode that stem into an AudioBuffer we can play and,
+      later, recombine. This PROVES the loop end to end.
+   ============================================================ */
+async function uploadOriginal() {
+  if (uploadOriginal._url) return uploadOriginal._url; // one upload per file
+  const safe = (rawFile.name || "mix.wav").replace(/[^a-z0-9._-]/gi, "_");
+  const path = `uploads/${Date.now()}-${safe}`;
+  const res = await fetch(`${SUPA_URL}/storage/v1/object/${path}`, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${SUPA_KEY}`, "apikey": SUPA_KEY },
+    body: rawFile
+  });
+  if (!res.ok) throw new Error("Upload failed (" + res.status + "): " + (await res.text()));
+  uploadOriginal._url = `${SUPA_URL}/storage/v1/object/public/${path}`;
+  return uploadOriginal._url;
+}
+
+async function separateStem(stem, onStatus) {
+  if (stemBuffers[stem]) return stemBuffers[stem]; // cache
+  onStatus("Uploading your mix to the cloud…");
+  const audioUrl = await uploadOriginal();
+  onStatus("Separating the " + stem + " stem… (~30–60s)");
+  const res = await fetch(`${SUPA_URL}/functions/v1/separate-stem`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SUPA_KEY}`, "apikey": SUPA_KEY },
+    body: JSON.stringify({ audioUrl, stem })
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "separation failed");
+  onStatus("Fetching the isolated stem…");
+  const stemBytes = await (await fetch(data.stemUrl)).arrayBuffer();
+  const stemBuf = await audioCtx.decodeAudioData(stemBytes);
+  stemBuffers[stem] = stemBuf;
+  return stemBuf;
+}
+
+let stemSource = null;
+function playBuffer(buf) {
+  if (stemSource) { try { stemSource.stop(); } catch(e){} stemSource = null; }
+  stemSource = audioCtx.createBufferSource();
+  stemSource.buffer = buf;
+  stemSource.connect(audioCtx.destination);
+  stemSource.start();
+}
+
+/* ---- RECOMBINE: put the stem back at a chosen level ----
+   result = (original − stem) + stem × gain
+          = original + stem × (gain − 1)
+   gain 1.0 (0 dB) = untouched original
+   gain 0   (−inf) = instrumental (stem removed) — karaoke / sync use
+   gain >1  (+dB)  = stem louder in the mix (e.g. lift a buried vocal)
+   Pure level math — no EQ, so no separation artifacts beyond the
+   subtract itself. This is the cleanest possible stem-level fix. */
+function makeRecombined(orig, stem, gainDb) {
+  const g = Math.pow(10, gainDb/20);
+  const n = Math.min(orig.length, stem.length);
+  const ch = orig.numberOfChannels;
+  const out = audioCtx.createBuffer(ch, n, orig.sampleRate);
+  for (let c=0;c<ch;c++){
+    const o=orig.getChannelData(c);
+    const s=stem.getChannelData(Math.min(c, stem.numberOfChannels-1));
+    const d=out.getChannelData(c);
+    for (let i=0;i<n;i++) d[i] = o[i] + s[i]*(g-1);
+  }
+  return out;
+}
+
+/* reusable chunked WAV download (same safe encoder as the master export) */
+async function downloadWav(rendered, filename, onStatus) {
+  const ch=rendered.numberOfChannels, len=rendered.length, sr=rendered.sampleRate;
+  const ab=new ArrayBuffer(44+len*ch*2), v=new DataView(ab);
+  const wstr=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));};
+  wstr(0,'RIFF');v.setUint32(4,ab.byteLength-8,true);wstr(8,'WAVE');wstr(12,'fmt ');
+  v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,ch,true);
+  v.setUint32(24,sr,true);v.setUint32(28,sr*ch*2,true);v.setUint16(32,ch*2,true);
+  v.setUint16(34,16,true);wstr(36,'data');v.setUint32(40,len*ch*2,true);
+  const out=new Int16Array(ab,44), chans=[];
+  for (let c=0;c<ch;c++)chans.push(rendered.getChannelData(c));
+  const CHUNK=262144;
+  for (let start=0;start<len;start+=CHUNK){
+    const end=Math.min(start+CHUNK,len);
+    for (let c=0;c<ch;c++){const d=chans[c];for(let i=start;i<end;i++){const s=Math.max(-1,Math.min(1,d[i]));out[i*ch+c]=s<0?s*0x8000:s*0x7FFF;}}
+    if (onStatus) onStatus('Encoding… '+Math.round(end/len*100)+'%');
+    await new Promise(r=>setTimeout(r,0));
+  }
+  const url=URL.createObjectURL(new Blob([ab],{type:'audio/wav'}));
+  const a=document.createElement('a');
+  a.href=url;a.download=filename;document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},30000);
+}
+
+/* ---- BS.1770 LUFS (same as 0.2) ---- */
+function biquadProcess(input, c) {
+  const out = new Float32Array(input.length);
+  let x1=0,x2=0,y1=0,y2=0;
+  for (let i=0;i<input.length;i++){
+    const x=input[i], y=c.b0*x+c.b1*x1+c.b2*x2-c.a1*y1-c.a2*y2;
+    x2=x1;x1=x;y2=y1;y1=y;out[i]=y;
+  }
+  return out;
+}
+function kWeightCoefs(fs) {
+  const f0=1681.974450955533,G=3.999843853973347,Q=0.7071752369554196;
+  const K=Math.tan(Math.PI*f0/fs),Vh=Math.pow(10,G/20),Vb=Math.pow(Vh,0.4996667741545416);
+  let a0=1+K/Q+K*K;
+  const shelf={b0:(Vh+Vb*K/Q+K*K)/a0,b1:2*(K*K-Vh)/a0,b2:(Vh-Vb*K/Q+K*K)/a0,a1:2*(K*K-1)/a0,a2:(1-K/Q+K*K)/a0};
+  const f1=38.13547087602444,Q1=0.5003270373238773,K1=Math.tan(Math.PI*f1/fs);
+  a0=1+K1/Q1+K1*K1;
+  const hp={b0:1/a0,b1:-2/a0,b2:1/a0,a1:2*(K1*K1-1)/a0,a2:(1-K1/Q1+K1*K1)/a0};
+  return {shelf,hp};
+}
+function measureLUFS(buf) {
+  const fs=buf.sampleRate,{shelf,hp}=kWeightCoefs(fs);
+  const chans=[];
+  for (let c=0;c<Math.min(buf.numberOfChannels,2);c++)
+    chans.push(biquadProcess(biquadProcess(buf.getChannelData(c),shelf),hp));
+  const block=Math.floor(0.4*fs),hop=Math.floor(0.1*fs),loud=[];
+  for (let s=0;s+block<=chans[0].length;s+=hop){
+    let sum=0;
+    for (const ch of chans){let q=0;for(let i=s;i<s+block;i++)q+=ch[i]*ch[i];sum+=q/block;}
+    loud.push(-0.691+10*Math.log10(sum+1e-12));
+  }
+  let g=loud.filter(l=>l>-70);
+  if(!g.length)return -70;
+  const avg=a=>10*Math.log10(a.reduce((x,l)=>x+Math.pow(10,(l+0.691)/10),0)/a.length)-0.691;
+  const rel=avg(g)-10;
+  g=g.filter(l=>l>rel);
+  return g.length?avg(g):-70;
+}
+function measurePeak(buf) {
+  let p=0;
+  for (let c=0;c<buf.numberOfChannels;c++){
+    const d=buf.getChannelData(c);
+    for (let i=0;i<d.length;i+=4){const a=Math.abs(d[i]);if(a>p)p=a;}
+  }
+  return 20*Math.log10(p+1e-12);
+}
+
+/* ---- FFT (same radix-2 as 0.2) ---- */
+function fft(re, im) {
+  const n=re.length;
+  for (let i=1,j=0;i<n;i++){
+    let bit=n>>1;
+    for(;j&bit;bit>>=1)j^=bit;
+    j^=bit;
+    if(i<j){[re[i],re[j]]=[re[j],re[i]];[im[i],im[j]]=[im[j],im[i]];}
+  }
+  for (let len=2;len<=n;len<<=1){
+    const ang=-2*Math.PI/len,wr=Math.cos(ang),wi=Math.sin(ang);
+    for (let i=0;i<n;i+=len){
+      let cr=1,ci=0;
+      for (let k=0;k<len/2;k++){
+        const ur=re[i+k],ui=im[i+k];
+        const vr=re[i+k+len/2]*cr-im[i+k+len/2]*ci;
+        const vi=re[i+k+len/2]*ci+im[i+k+len/2]*cr;
+        re[i+k]=ur+vr;im[i+k]=ui+vi;re[i+k+len/2]=ur-vr;im[i+k+len/2]=ui-vi;
+        const ncr=cr*wr-ci*wi;ci=cr*wi+ci*wr;cr=ncr;
+      }
+    }
+  }
+}
+
+/* ---- spectralScan: bands + sibilance flares on ANY signal ----
+   One pass of ~120 FFT snapshots gives us both the average band
+   balance AND the per-frame sibilance behavior. */
+function spectralScan(data, fs) {
+  const N=2048;
+  const snaps=120, step=Math.max(1,Math.floor((data.length-N)/snaps));
+  const acc=new Float32Array(N/2);
+  const hann=new Float32Array(N);
+  for (let i=0;i<N;i++)hann[i]=0.5*(1-Math.cos(2*Math.PI*i/(N-1)));
+  const kOf=hz=>Math.max(1,Math.min(N/2-1,Math.round(hz*N/fs)));
+  const sib0=kOf(5500),sib1=kOf(9000),ref0=kOf(300),ref1=kOf(4000);
+  const ratios=[];
+  let count=0;
+  for (let s=0;s+N<data.length;s+=step){
+    const re=new Float32Array(N),im=new Float32Array(N);
+    for (let i=0;i<N;i++)re[i]=data[s+i]*hann[i];
+    fft(re,im);
+    let sib=0,ref=0;
+    for (let k=0;k<N/2;k++){
+      const m=re[k]*re[k]+im[k]*im[k];
+      acc[k]+=m;
+      if(k>=sib0&&k<=sib1)sib+=m;
+      if(k>=ref0&&k<=ref1)ref+=m;
+    }
+    if (ref>1e-9) ratios.push(10*Math.log10(sib/ref+1e-12));
+    count++;
+  }
+  const bands=BANDS.map(b=>{
+    const k0=kOf(b.lo),k1=kOf(b.hi);
+    let e=0;for(let k=k0;k<=k1;k++)e+=acc[k];
+    return {name:b.name,lo:b.lo,hi:b.hi,db:10*Math.log10(e/((k1-k0+1)*count)+1e-12)};
+  });
+  // sibilance: how spiky is the ess band vs its own typical level?
+  const sorted=[...ratios].sort((a,b)=>a-b);
+  const med=sorted[Math.floor(sorted.length/2)]??-60;
+  const p95=sorted[Math.floor(sorted.length*0.95)]??med;
+  const flares=ratios.filter(r=>r>med+8).length;
+  return { bands, sib:{ medianDb:med, p95Db:p95, flares, framesTotal:ratios.length } };
+}
+
+/* ---- the new senses: mid/side, correlation, crest ---- */
+function measureAdvanced(buf) {
+  const fs=buf.sampleRate;
+  const L=buf.getChannelData(0);
+  const R=buf.numberOfChannels>1?buf.getChannelData(1):L;
+  const n=L.length;
+  const M=new Float32Array(n),S=new Float32Array(n);
+  for (let i=0;i<n;i++){M[i]=(L[i]+R[i])*0.5;S[i]=(L[i]-R[i])*0.5;}
+
+  const midScan=spectralScan(M,fs);
+  const sideScan=spectralScan(S,fs);
+
+  // stereo correlation, frame-averaged
+  let corrSum=0,frames=0;
+  const F=4096;
+  for (let s=0;s+F<n;s+=F*4){
+    let lr=0,ll=0,rr=0;
+    for (let i=s;i<s+F;i++){lr+=L[i]*R[i];ll+=L[i]*L[i];rr+=R[i]*R[i];}
+    const d=Math.sqrt(ll*rr);
+    if (d>1e-9){corrSum+=lr/d;frames++;}
+  }
+  const correlation=frames?corrSum/frames:1;
+
+  // crest factor on the mid signal: peak dB − RMS dB
+  let pk=0,sq=0,cnt=0;
+  for (let i=0;i<n;i+=2){const a=Math.abs(M[i]);if(a>pk)pk=a;sq+=M[i]*M[i];cnt++;}
+  const crest=20*Math.log10((pk+1e-12)/(Math.sqrt(sq/cnt)+1e-12));
+
+  return { midBands:midScan.bands, sideBands:sideScan.bands, sib:midScan.sib, correlation, crest };
+}
+
+/* ============================================================
+   PART 2 — DIAGNOSE: measure everything, then build findings.
+   Each finding carries:
+     layer  — "mix" or "master" (which stage owns the problem)
+     route  — which tool fixes it:
+              ms-eq | deess | stem  (mix layer)
+              bus-eq | compressor | loudness  (master layer)
+   AI does the diagnosis when reachable; the rule-based brain
+   below covers offline. Same glass box either way.
+   ============================================================ */
+$('analyze').addEventListener('click', async () => {
+  setStatus('status','<span class="spinner"></span> Measuring — loudness, spectrum, mid/side, sibilance…','');
+  $('analyze').disabled=true;
+  await new Promise(r=>setTimeout(r,30));
+
+  try {
+    const lufs=measureLUFS(buffer);
+    const peak=measurePeak(buffer);
+    const adv=measureAdvanced(buffer);
+    measured={lufs,peak,...adv};
+
+    $('mLufs').textContent=lufs.toFixed(1);
+    $('mPeak').textContent=peak.toFixed(1);
+    $('mCrest').textContent=adv.crest.toFixed(1);
+    $('mCorr').textContent=adv.correlation.toFixed(2);
+    $('meas').classList.add('show');
+    const maxDb=Math.max(...adv.midBands.map(b=>b.db));
+    $('bands').innerHTML='<div class="group-sub" style="margin-top:8px;">Center (mid) channel — where vocal, kick & bass live:</div>'+
+      adv.midBands.map(b=>
+      `<div class="band-row"><div class="band-name">${b.name}</div>
+       <div class="band-bar-bg"><div class="band-bar" style="width:${Math.max(4,100+(b.db-maxDb)*2.2)}%"></div></div>
+       <div class="band-db">${b.db.toFixed(1)} dB</div></div>`).join('');
+    $('bands').classList.add('show');
+
+    setStatus('status','<span class="spinner"></span> Diagnosing — mix vs master…','');
+
+    const notes=$('notes').value.trim();
+    const fmtBands=bs=>bs.map(b=>`${b.name}:${b.db.toFixed(1)}`).join(' ');
+    const prompt=`You are a mix doctor. Classify each problem as MIX-stage or MASTER-stage and route it to the right tool. Real measurements of a stereo mix:
+- Integrated loudness: ${lufs.toFixed(1)} LUFS (streaming target -14). Sample peak: ${peak.toFixed(1)} dBFS.
+- Crest factor (mid): ${adv.crest.toFixed(1)} dB (under ~9 = already squashed; over ~20 = very dynamic).
+- Stereo correlation: ${adv.correlation.toFixed(2)} (+1 mono-safe; under ~0.2 = phase trouble).
+- MID channel bands (dB): ${fmtBands(adv.midBands)}
+- SIDE channel bands (dB): ${fmtBands(adv.sideBands)}
+- Sibilance (5.5-9k vs 300-4k on mid): median ${adv.sib.medianDb.toFixed(1)} dB, 95th pct ${adv.sib.p95Db.toFixed(1)} dB, ${adv.sib.flares} flare frames of ${adv.sib.framesTotal}.
+${notes?`Artist notes: """${notes}"""`:'No artist notes — measurements only.'}
+
+Routes and when to use them:
+- "ms-eq" (MIX): problem lives in the center (buried vocal presence, center mud) or the sides (wide mud, harsh width). params {"target":"mid"|"side","filterType":"peaking"|"highshelf"|"lowshelf"|"highpass","frequency":Hz,"gain":dB,"q":0.7-2}
+- "deess" (MIX): sibilance FLARES (spiky, not constant). params {"frequency":Hz center 5500-8000,"threshold":dB -45..-15}
+- "stem" (MIX): ONLY when no bus tool can isolate it (one instrument tangled with another in the same band). params {"stem":"vocal"|"bass"|"drums"|"other","suggestedMove":"...", "busFallback": optional ms-eq params object that approximates the fix}
+- "bus-eq" (MASTER): overall tonal balance. params like ms-eq without target.
+- "compressor" (MASTER): glue, only if crest > ~14 and material wants it. params {"threshold":dB,"ratio":1.5-4,"attack":s,"release":s}
+- "loudness" (MASTER): ALWAYS include, last. params {"gainDb":dB toward -14,"limit":true}
+
+PHILOSOPHY: preserve dynamics, never slam. 2-6 findings total. Only what the numbers justify.
+Respond ONLY a JSON array, no fences. Each: {"problem":"short title","layer":"mix"|"master","route":"...","detected":"one sentence citing the numbers","why":"2-3 teaching sentences","params":{...}}`;
+
+    let aiFailReason=null;
+    try {
+      const res=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1500,messages:[{role:"user",content:prompt}]})
+      });
+      const data=await res.json();
+      if (data&&data.error) throw new Error("API said: "+(data.error.message||JSON.stringify(data.error)));
+      if (!data||!Array.isArray(data.content)) throw new Error("API response had no content (status "+res.status+") — likely running outside a deployed environment");
+      const text=data.content.map(i=>i.type==="text"?i.text:"").join("");
+      const parsed=JSON.parse(text.replace(/```json|```/g,"").trim());
+      if (!Array.isArray(parsed)||!parsed.length) throw new Error("AI returned an empty diagnosis");
+      findings=parsed;
+    } catch (aiErr) {
+      console.error(aiErr);
+      aiFailReason=aiErr.message||"unknown";
+      findings=ruleBasedDiagnosis(lufs,peak,adv);
+    }
+
+    findings.forEach(f=>{f.state="approved";if(f.route==="stem")f.state="info";});
+    renderFindings();
+    if (aiFailReason) setStatus('status',"AI unavailable here ("+aiFailReason+") — diagnosis built by the offline rule brain. Deploy to Vercel for the full AI diagnosis.",'');
+    else setStatus('status','Diagnosis ready — review every routed fix below.','ok');
+  } catch (err) {
+    console.error(err);
+    setStatus('status',"Analysis failed: "+(err.message||'unknown error'),'err');
+  } finally {
+    $('analyze').disabled=false;
+  }
+});
+
+/* ---- the offline rule brain: same routing logic, no AI ---- */
+function ruleBasedDiagnosis(lufs, peak, adv) {
+  const mid=n=>adv.midBands.find(b=>b.name===n).db;
+  const side=n=>adv.sideBands.find(b=>b.name===n).db;
+  const out=[];
+
+  // center mud: low-mids piled up vs mids on the MID channel → mix, M/S cut
+  const centerMud=mid("Low-mids")-mid("Mids");
+  if (centerMud>8) out.push({
+    problem:"Muddy center", layer:"mix", route:"ms-eq",
+    detected:`Mid-channel low-mids sit ${centerMud.toFixed(1)} dB above the mids — congestion right where the vocal and bass overlap.`,
+    why:"The 250-500Hz zone in the CENTER is where bass body, vocal warmth and guitar wool all stack up. Cutting it on the mid channel only cleans the congestion without thinning the stereo width at all.",
+    params:{target:"mid",filterType:"peaking",frequency:320,gain:-Math.min(4,(centerMud-7)),q:1.1}
+  });
+
+  // buried vocal: presence weak on mid vs its low-mids → mix, M/S presence lift
+  const vocalGap=mid("Low-mids")-mid("Presence");
+  if (vocalGap>16) out.push({
+    problem:"Buried vocal presence", layer:"mix", route:"ms-eq",
+    detected:`Mid-channel presence (2-5k) reads ${vocalGap.toFixed(1)} dB under the low-mids — the intelligibility zone is getting swallowed.`,
+    why:"Vocals live center, and the 3-5kHz band is where words become understandable. Lifting it on the mid channel pushes the vocal forward without brightening cymbals and width on the sides.",
+    params:{target:"mid",filterType:"peaking",frequency:3800,gain:Math.min(3.5,(vocalGap-15)*0.5+1.5),q:1.0}
+  });
+
+  // sibilance flares → mix, de-ess
+  if (adv.sib.flares>adv.sib.framesTotal*0.06 && (adv.sib.p95Db-adv.sib.medianDb)>7) out.push({
+    problem:"Sharp sibilance", layer:"mix", route:"deess",
+    detected:`${adv.sib.flares} sibilance flares across ${adv.sib.framesTotal} frames, spiking ${(adv.sib.p95Db-adv.sib.medianDb).toFixed(1)} dB above the typical level.`,
+    why:"Esses are spikes, not a constant tone — a static EQ cut would dull the whole top end to catch a few moments. A de-esser is a compressor that only watches the ess band and only turns it down when it flares.",
+    params:{frequency:6800,threshold:-30}
+  });
+
+  // side mud: low-mids heavy on sides → mix, side cut
+  const sideMud=side("Low-mids")-side("Mids");
+  if (sideMud>9) out.push({
+    problem:"Wooly stereo sides", layer:"mix", route:"ms-eq",
+    detected:`Side-channel low-mids run ${sideMud.toFixed(1)} dB over the side mids — width is carrying mud instead of shimmer.`,
+    why:"Low frequencies in the sides eat headroom and smear the low end without adding useful width. Cleaning low-mids out of the sides tightens the mix and the center bass gets clearer for free.",
+    params:{target:"side",filterType:"lowshelf",frequency:300,gain:-3,q:0.8}
+  });
+
+  // phase trouble → genuinely a stem/mix-session problem; flag honestly
+  if (adv.correlation<0.2) out.push({
+    problem:"Phase / correlation trouble", layer:"mix", route:"stem",
+    detected:`Average stereo correlation is ${adv.correlation.toFixed(2)} — parts of this mix are fighting themselves and may cancel in mono.`,
+    why:"When correlation drops this low, two copies of something (often a doubled track, wide synth, or mic pair) are out of phase. No master-bus move can fix it — it has to be addressed on the source track, or at minimum per-stem.",
+    params:{stem:"other",suggestedMove:"Inspect doubled/wide tracks for phase flips; check the mix in mono"}
+  });
+
+  // overall sub vs bass on mid → master bus trim (same as 0.2 logic)
+  const subOver=mid("Sub")-mid("Bass");
+  if (subOver>2.5) out.push({
+    problem:"Excess sub weight", layer:"master", route:"bus-eq",
+    detected:`Sub band reads ${subOver.toFixed(1)} dB above the bass band — energy below 60Hz is eating headroom.`,
+    why:"Energy below 60Hz mostly can't be heard on phones and earbuds, but it still eats loudness headroom. A gentle shelf trim makes the master translate better without changing how the bass feels.",
+    params:{filterType:"lowshelf",frequency:55,gain:-Math.min(4,(subOver-1.5)),q:0.8}
+  });
+
+  // dull air → master bus lift
+  const airDrop=mid("Presence")-mid("Air");
+  if (airDrop>9) out.push({
+    problem:"Dull top end", layer:"master", route:"bus-eq",
+    detected:`Air band sits ${airDrop.toFixed(1)} dB below presence — the top is reading closed.`,
+    why:"Above 5kHz lives shimmer and detail. A small shelf there opens the master without harshness, because we're boosting above the harsh zone, not in it.",
+    params:{filterType:"highshelf",frequency:7500,gain:Math.min(3,(airDrop-8)*0.8+1),q:0.7}
+  });
+
+  // glue only if very dynamic
+  if (adv.crest>20) out.push({
+    problem:"Loose dynamics", layer:"master", route:"compressor",
+    detected:`Crest factor is ${adv.crest.toFixed(1)} dB — very dynamic; sections may jump apart on small speakers.`,
+    why:"Gentle glue compression (low ratio, slow attack) nudges the loudest moments toward the body of the song so it holds together on every system, while leaving the punch alone.",
+    params:{threshold:-24,ratio:2,attack:0.03,release:0.25}
+  });
+
+  // loudness, always last
+  const delta=-14-lufs;
+  out.push({
+    problem: delta<0?"Hotter than streaming target":"Below streaming target",
+    layer:"master", route:"loudness",
+    move: delta<0?"Trim to −14 LUFS":"Lift toward −14 LUFS with limiting",
+    detected:`Integrated loudness is ${lufs.toFixed(1)} LUFS — ${Math.abs(delta).toFixed(1)} dB ${delta<0?"above":"below"} the −14 target.`,
+    why: delta<0
+      ?"Streaming services turn loud masters DOWN to −14 at playback, so extra loudness buys nothing and costs punch. Trimming back lets the dynamics breathe at the same playback volume."
+      :"We lift toward the target with a limiter catching only peaks, and we stop at the target — anything louder just gets turned back down by the platform.",
+    params:{gainDb:Math.max(-12,Math.min(10,delta)),limit:true}
+  });
+
+  return out;
+}
+
+/* ============================================================
+   PART 3 — THE ROUTING BOARD: findings grouped by layer
+   ============================================================ */
+const ROUTE_LABEL={ "ms-eq":"Mid/Side EQ", "deess":"De-esser", "stem":"Stem Fix", "bus-eq":"Bus EQ", "compressor":"Glue Comp", "loudness":"Loudness" };
+
+function renderFindings() {
+  $('chainHint').style.display='none';
+  const c=$('chain');
+  c.innerHTML='';
+  const groups=[
+    {key:"mix", title:"MIX-STAGE PROBLEMS", sub:"Fixed surgically — center vs sides, flare-only de-essing, or routed to stems.", cls:"mix"},
+    {key:"master", title:"MASTER-STAGE", sub:"The bus: tonal balance, glue, loudness to the streaming target.", cls:"master"}
+  ];
+  for (const g of groups) {
+    const items=findings.filter(f=>f.layer===g.key);
+    if (!items.length) continue;
+    c.insertAdjacentHTML('beforeend',
+      `<div class="group-head ${g.cls}"><div class="gt">${g.title}</div><div class="gl"></div></div>
+       <div class="group-sub">${g.sub}</div>`);
+    for (const f of items) {
+      const i=findings.indexOf(f);
+      c.insertAdjacentHTML('beforeend', cardHTML(f,i));
+    }
+  }
+  c.classList.add('show');
+  $('playRow').style.display='flex';
+  $('meterWrap').classList.add('show');
+
+  c.querySelectorAll('.pill').forEach(p=>p.addEventListener('click',()=>{
+    findings[+p.dataset.i].state=p.dataset.act;
+    renderFindings();
+    if (playing) restartPlayback();
+  }));
+  c.querySelectorAll('.why-btn').forEach(b=>b.addEventListener('click',()=>{
+    $('why-'+b.dataset.why).classList.toggle('open');
+  }));
+  c.querySelectorAll('input[type=range]').forEach(s=>s.addEventListener('input',()=>{
+    const i=+s.dataset.i,key=s.dataset.key;
+    findings[i].params[key]=parseFloat(s.value);
+    s.closest('.tweak').querySelector('.tweak-val').textContent=fmtVal(key,parseFloat(s.value));
+    updateLiveParams();
+  }));
+  c.querySelectorAll('.fb-check').forEach(t=>t.addEventListener('change',()=>{
+    findings[+t.dataset.i].useFallback=t.checked;
+    if (playing) restartPlayback();
+  }));
+
+  // ---- Separate button: runs the real cloud stem separation ----
+  c.querySelectorAll('[data-sep]').forEach(b=>b.addEventListener('click', async ()=>{
+    const i=+b.dataset.sep, stem=b.dataset.stem;
+    const stat=$('sepstat-'+i);
+    b.disabled=true;
+    const setS=(msg,kind)=>{ stat.innerHTML='<span class="spinner"></span> '+msg; stat.className='status'+(kind?' '+kind:''); };
+    try {
+      if (!rawFile) throw new Error("Load a mix first");
+      await separateStem(stem, (m)=>setS(m,''));
+      stat.innerHTML='Done — the '+stem+' is isolated. Hear it solo, or adjust its level in the mix below.';
+      stat.className='status ok';
+      const pb=c.querySelector('[data-playstem="'+stem+'"]');
+      if (pb) pb.style.display='inline-block';
+      const ctl=$('stemctl-'+i);
+      if (ctl) ctl.style.display='block';   // reveal recombine controls
+    } catch(err){
+      console.error(err);
+      stat.innerHTML='Separation failed: '+(err.message||err);
+      stat.className='status err';
+    } finally { b.disabled=false; }
+  }));
+  c.querySelectorAll('[data-playstem]').forEach(b=>b.addEventListener('click', ()=>{
+    const stem=b.dataset.playstem;
+    if (stemBuffers[stem]){ stopPlayback(); playBuffer(stemBuffers[stem]); }
+  }));
+  // stem level slider — live label
+  c.querySelectorAll('[id^="stemgain-"]').forEach(s=>s.addEventListener('input', ()=>{
+    const i=s.id.split('-')[1], g=parseFloat(s.value);
+    $('stemgainval-'+i).textContent=(g>=0?'+':'')+g.toFixed(1)+' dB'+(g<=-24?'  (instrumental)':'');
+  }));
+  // hear the recombined / fixed mix
+  c.querySelectorAll('[data-hearfix]').forEach(b=>b.addEventListener('click', ()=>{
+    const i=b.dataset.hearfix, stem=b.dataset.stem;
+    if (!stemBuffers[stem]) return;
+    const g=parseFloat($('stemgain-'+i).value);
+    stopPlayback();
+    playBuffer(makeRecombined(buffer, stemBuffers[stem], g<=-24?-120:g));
+  }));
+  // export the recombined / fixed mix (or instrumental)
+  c.querySelectorAll('[data-exportfix]').forEach(b=>b.addEventListener('click', async ()=>{
+    const i=b.dataset.exportfix, stem=b.dataset.stem;
+    if (!stemBuffers[stem]) return;
+    const g=parseFloat($('stemgain-'+i).value);
+    const fstat=$('fixstat-'+i);
+    fstat.className='status'; fstat.innerHTML='<span class="spinner"></span> Rendering…';
+    const name = g<=-24 ? 'mixforge-instrumental.wav' : 'mixforge-fixed-mix.wav';
+    try {
+      await downloadWav(makeRecombined(buffer, stemBuffers[stem], g<=-24?-120:g), name,
+        (m)=>{ fstat.innerHTML='<span class="spinner"></span> '+m; });
+      fstat.className='status ok'; fstat.textContent='Exported '+name+'.';
+    } catch(err){ fstat.className='status err'; fstat.textContent='Export failed: '+(err.message||err); }
+  }));
+
+  if ($('auto').checked) startPlayback();
+}
+
+function cardHTML(f,i) {
+  const isStem=f.route==="stem";
+  const stateCls=isStem?"":f.state;
+  const badge=`<span class="badge route">${ROUTE_LABEL[f.route]||f.route}</span>`+
+    (isStem?`<span class="badge lock">Pro pipeline</span>`:"");
+  const approve=isStem?"":`
+    <div class="approve-row">
+      <button class="pill ${f.state==='approved'?'on-approve':''}" data-i="${i}" data-act="approved">✓ Keep</button>
+      <button class="pill ${f.state==='rejected'?'on-reject':''}" data-i="${i}" data-act="rejected">✕ Reject</button>
+    </div>`;
+  const stemName = ({vocal:'vocals',vocals:'vocals',bass:'bass',drums:'drums',guitars:'guitars',guitar:'guitars',keys:'keys',piano:'keys',other:'other'})[f.params.stem] || 'vocals';
+  const stemNote=isStem?`
+    <div class="stem-note"><b>Routed to real stem separation.</b> ${f.params.suggestedMove?("Suggested: "+f.params.suggestedMove+". "):""}This needs the <b>${stemName}</b> isolated as its own track — the cloud separation pipeline does it for real.</div>
+    <div class="btn-row">
+      <button class="btn btn-copper" data-sep="${i}" data-stem="${stemName}" style="font-size:16px;padding:10px 18px;">⚡ Separate the ${stemName} →</button>
+      <button class="btn btn-ghost" data-playstem="${stemName}" style="display:none;font-size:16px;padding:10px 18px;">▶ Hear isolated ${stemName}</button>
+    </div>
+    <div class="status" id="sepstat-${i}" style="margin-top:6px;"></div>
+    <div id="stemctl-${i}" style="display:none;margin-top:12px;">
+      <div class="tweak">
+        <label>Adjust the ${stemName} level in the mix: <span class="tweak-val" id="stemgainval-${i}">0.0 dB</span></label>
+        <input type="range" id="stemgain-${i}" min="-24" max="6" step="0.5" value="0">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-copper" data-hearfix="${i}" data-stem="${stemName}" style="font-size:16px;padding:10px 18px;">▶ Hear fixed mix</button>
+        <button class="btn btn-ghost" data-exportfix="${i}" data-stem="${stemName}" style="font-size:16px;padding:10px 18px;">⬇ Export fixed mix</button>
+      </div>
+      <div class="stem-note">Slide all the way down for a clean instrumental (karaoke / sync-ready). <b>0 dB</b> = your original. Up = a louder, more present ${stemName}.</div>
+      <div class="status" id="fixstat-${i}"></div>
+    </div>
+    ${f.params.busFallback?`<label class="fb-toggle"><input type="checkbox" class="fb-check" data-i="${i}" ${f.useFallback?'checked':''}> Or apply the bus approximation now (no separation)</label>`:""}`:"";
+  return `<div class="card ${f.layer} ${stateCls}">
+    <div class="card-top">
+      <div>
+        <div>${badge}</div>
+        <div class="move">${f.move||f.problem}</div>
+        <div class="detected">Detected: <b>${f.detected}</b></div>
+      </div>
+      ${approve}
+    </div>
+    ${isStem?stemNote:tweakControl(f,i)}
+    <button class="why-btn" data-why="${i}">Why this move? →</button>
+    <div class="why" id="why-${i}">${f.why}</div>
+  </div>`;
+}
+
+function tweakControl(f,i) {
+  if (f.route==='ms-eq'||f.route==='bus-eq')
+    return `<div class="tweak"><label>Fine-tune gain: <span class="tweak-val">${fmtVal('gain',f.params.gain)}</span></label>
+      <input type="range" min="-12" max="12" step="0.5" value="${f.params.gain}" data-i="${i}" data-key="gain"></div>`;
+  if (f.route==='deess')
+    return `<div class="tweak"><label>Fine-tune threshold (lower = more de-essing): <span class="tweak-val">${fmtVal('threshold',f.params.threshold)}</span></label>
+      <input type="range" min="-50" max="-10" step="1" value="${f.params.threshold}" data-i="${i}" data-key="threshold"></div>`;
+  if (f.route==='compressor')
+    return `<div class="tweak"><label>Fine-tune threshold: <span class="tweak-val">${fmtVal('threshold',f.params.threshold)}</span></label>
+      <input type="range" min="-50" max="0" step="1" value="${f.params.threshold}" data-i="${i}" data-key="threshold"></div>`;
+  return `<div class="tweak"><label>Fine-tune gain (− trims, + boosts): <span class="tweak-val">${fmtVal('gainDb',f.params.gainDb)}</span></label>
+    <input type="range" min="-12" max="18" step="0.1" value="${f.params.gainDb}" data-i="${i}" data-key="gainDb"></div>`;
+}
+const fmtVal=(k,v)=>(k==='threshold')?v.toFixed(0)+' dB':(v>=0?'+':'')+v.toFixed(1)+' dB';
+
+/* ============================================================
+   PART 4 — THE ROUTED AUDIO GRAPH
+   Build order: M/S surgery → de-ess → bus EQ → glue → loudness.
+
+   The M/S block is the new trick. Web Audio has no native
+   mid/side mode, so we BUILD the matrix from gain nodes:
+     encode:  mid = 0.5·L + 0.5·R     side = 0.5·L − 0.5·R
+     (filter mid and side separately)
+     decode:  L = mid + side          R = mid − side
+   Pure math, perfectly reversible — if no filters are applied
+   the signal passes through untouched.
+
+   The de-esser is a band-split compressor: one bandpass feeds a
+   fast compressor (the watched ess band), an identical bandpass
+   inverted against the dry signal leaves "everything else."
+   Recombined, only the flares get turned down.
+   ============================================================ */
+function makeFilter(ctx,p){
+  const n=ctx.createBiquadFilter();
+  n.type=p.filterType; n.frequency.value=p.frequency;
+  n.Q.value=p.q||1; n.gain.value=p.gain||0;
+  return n;
+}
+function msBlock(ctx, midMoves, sideMoves) {
+  const split=ctx.createChannelSplitter(2);
+  const merge=ctx.createChannelMerger(2);
+  const g=v=>{const x=ctx.createGain();x.gain.value=v;return x;};
+  const midSum=g(1), sideSum=g(1);
+  // encode
+  const l5=g(0.5), r5=g(0.5), l5b=g(0.5), rNeg=g(-0.5);
+  split.connect(l5,0); l5.connect(midSum);
+  split.connect(r5,1); r5.connect(midSum);
+  split.connect(l5b,0); l5b.connect(sideSum);
+  split.connect(rNeg,1); rNeg.connect(sideSum);
+  // filter chains
+  let midHead=midSum;
+  for (const f of midMoves){const n=makeFilter(ctx,f.params);n._finding=f;n._key='gain';liveRegistry.push(n);midHead.connect(n);midHead=n;}
+  let sideHead=sideSum;
+  for (const f of sideMoves){const n=makeFilter(ctx,f.params);n._finding=f;n._key='gain';liveRegistry.push(n);sideHead.connect(n);sideHead=n;}
+  // decode: L = M + S, R = M − S
+  const mToL=g(1), sToL=g(1), mToR=g(1), sToR=g(-1);
+  midHead.connect(mToL); mToL.connect(merge,0,0);
+  sideHead.connect(sToL); sToL.connect(merge,0,0);
+  midHead.connect(mToR); mToR.connect(merge,0,1);
+  sideHead.connect(sToR); sToR.connect(merge,0,1);
+  return {input:split, output:merge};
+}
+function deessBlock(ctx, f) {
+  const inG=ctx.createGain();
+  const out=ctx.createGain();
+  const mkBp=()=>{const b=ctx.createBiquadFilter();b.type='bandpass';b.frequency.value=f.params.frequency;b.Q.value=1.2;return b;};
+  // "everything else" = dry − bandpass copy (identical filters stay phase-coherent)
+  const bpInv=mkBp(); const inv=ctx.createGain(); inv.gain.value=-1;
+  inG.connect(out);
+  inG.connect(bpInv); bpInv.connect(inv); inv.connect(out);
+  // watched band → fast compressor → back in
+  const bp=mkBp();
+  const comp=ctx.createDynamicsCompressor();
+  comp.threshold.value=f.params.threshold; comp.ratio.value=8;
+  comp.attack.value=0.002; comp.release.value=0.08; comp.knee.value=3;
+  comp._finding=f; comp._key='threshold'; liveRegistry.push(comp);
+  inG.connect(bp); bp.connect(comp); comp.connect(out);
+  return {input:inG, output:out};
+}
+function buildGraph(ctx) {
+  liveRegistry=[];
+  const ok=f=>f.state==='approved'||(f.route==='stem'&&f.useFallback&&f.params.busFallback);
+  const act=findings.filter(ok);
+  const blocks=[];
+
+  // stem fallbacks become temporary M/S moves
+  const fallbackMoves=act.filter(f=>f.route==='stem').map(f=>({params:f.params.busFallback,state:'approved',route:'ms-eq'}));
+  const msAll=[...act.filter(f=>f.route==='ms-eq'),...fallbackMoves];
+  const midMoves=msAll.filter(f=>(f.params.target||'mid')==='mid');
+  const sideMoves=msAll.filter(f=>f.params.target==='side');
+  if (midMoves.length||sideMoves.length) blocks.push(msBlock(ctx,midMoves,sideMoves));
+
+  for (const f of act.filter(x=>x.route==='deess')) blocks.push(deessBlock(ctx,f));
+  for (const f of act.filter(x=>x.route==='bus-eq')){
+    const n=makeFilter(ctx,f.params);n._finding=f;n._key='gain';liveRegistry.push(n);
+    blocks.push({input:n,output:n});
+  }
+  for (const f of act.filter(x=>x.route==='compressor')){
+    const n=ctx.createDynamicsCompressor();
+    n.threshold.value=f.params.threshold;n.ratio.value=f.params.ratio;
+    n.attack.value=f.params.attack;n.release.value=f.params.release;n.knee.value=6;
+    n._finding=f;n._key='threshold';liveRegistry.push(n);
+    blocks.push({input:n,output:n});
+  }
+  for (const f of act.filter(x=>x.route==='loudness')){
+    const g=ctx.createGain();
+    g.gain.value=Math.pow(10,(f.params.gainDb||0)/20);
+    g._finding=f;g._key='gainDb';liveRegistry.push(g);
+    blocks.push({input:g,output:g});
+    if (f.params.limit){
+      const lim=ctx.createDynamicsCompressor();
+      lim.threshold.value=-1.5;lim.ratio.value=20;
+      lim.attack.value=0.001;lim.release.value=0.1;lim.knee.value=0;
+      blocks.push({input:lim,output:lim});
+    }
+  }
+  return blocks;
+}
+function updateLiveParams() {
+  for (const n of liveRegistry){
+    const f=n._finding;
+    if (!f) continue;
+    if (n._key==='gain'&&n.frequency) n.gain.value=f.params.gain;
+    if (n._key==='threshold'&&n.threshold) n.threshold.value=f.params.threshold;
+    if (n._key==='gainDb'&&n.gain&&!n.threshold) n.gain.value=Math.pow(10,f.params.gainDb/20);
+  }
+}
+
+$('play').addEventListener('click',()=>playing?stopPlayback():startPlayback());
+$('bypass').addEventListener('change',()=>{if(playing)restartPlayback();});
+
+function startPlayback() {
+  if (!buffer) return;
+  stopPlayback();
+  source=audioCtx.createBufferSource();
+  source.buffer=buffer;
+  analyser=audioCtx.createAnalyser();
+  analyser.fftSize=2048;
+  let head=source;
+  const blocks=$('bypass').checked?[]:buildGraph(audioCtx);
+  for (const b of blocks){head.connect(b.input);head=b.output;}
+  head.connect(analyser);
+  analyser.connect(audioCtx.destination);
+  source.onended=()=>{playing=false;$('play').textContent='▶ Play';};
+  source.start();
+  playing=true;
+  $('play').textContent='■ Stop';
+  meterLoop();
+}
+function restartPlayback(){stopPlayback();startPlayback();}
+function stopPlayback(){
+  if (source){try{source.stop();}catch(e){}source.disconnect();source=null;}
+  playing=false;
+  $('play').textContent='▶ Play';
+}
+function meterLoop(){
+  if (!playing||!analyser) return;
+  const buf=new Float32Array(analyser.fftSize);
+  analyser.getFloatTimeDomainData(buf);
+  let sum=0;
+  for (let i=0;i<buf.length;i++)sum+=buf[i]*buf[i];
+  const db=10*Math.log10(sum/buf.length+1e-12);
+  const pct=Math.max(0,Math.min(100,(db+40)/40*100));
+  $('meter').style.width=pct+'%';
+  $('meterNow').textContent=db.toFixed(1)+' dB (momentary)';
+  requestAnimationFrame(meterLoop);
+}
+
+/* ============================================================
+   PART 5 — FREE WAV EXPORT (chunked + mobile-safe, from 0.2.1)
+   ============================================================ */
+$('export').addEventListener('click', async () => {
+  if (!buffer) return;
+  $('export').disabled=true;
+  stopPlayback();
+  setStatus('status2','<span class="spinner"></span> Rendering your master… (this can take a moment on long songs)','');
+  try {
+    const off=new OfflineAudioContext(buffer.numberOfChannels,buffer.length,buffer.sampleRate);
+    const src=off.createBufferSource();
+    src.buffer=buffer;
+    let head=src;
+    for (const b of buildGraph(off)){head.connect(b.input);head=b.output;}
+    head.connect(off.destination);
+    src.start();
+    const rendered=await off.startRendering();
+
+    const ch=rendered.numberOfChannels,len=rendered.length,sr=rendered.sampleRate;
+    const ab=new ArrayBuffer(44+len*ch*2);
+    const v=new DataView(ab);
+    const wstr=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));};
+    wstr(0,'RIFF');v.setUint32(4,ab.byteLength-8,true);wstr(8,'WAVE');wstr(12,'fmt ');
+    v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,ch,true);
+    v.setUint32(24,sr,true);v.setUint32(28,sr*ch*2,true);v.setUint16(32,ch*2,true);
+    v.setUint16(34,16,true);wstr(36,'data');v.setUint32(40,len*ch*2,true);
+
+    const out=new Int16Array(ab,44);
+    const chans=[];
+    for (let c=0;c<ch;c++)chans.push(rendered.getChannelData(c));
+    const CHUNK=262144;
+    for (let start=0;start<len;start+=CHUNK){
+      const end=Math.min(start+CHUNK,len);
+      for (let c=0;c<ch;c++){
+        const d=chans[c];
+        for (let i=start;i<end;i++){
+          const s=Math.max(-1,Math.min(1,d[i]));
+          out[i*ch+c]=s<0?s*0x8000:s*0x7FFF;
+        }
+      }
+      setStatus('status2','<span class="spinner"></span> Encoding… '+Math.round(end/len*100)+'%','');
+      await new Promise(r=>setTimeout(r,0));
+    }
+
+    const url=URL.createObjectURL(new Blob([ab],{type:'audio/wav'}));
+    const a=document.createElement('a');
+    a.href=url;a.download='mixforge-master.wav';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},30000);
+    setStatus('status2','Master exported. It was always your song.','ok');
+  } catch (err) {
+    console.error(err);
+    setStatus('status2','Export failed: '+(err.message||'unknown error')+' — try again.','err');
+  } finally {
+    $('export').disabled=false;
+  }
+});
+
+function setStatus(id,html,kind){
+  const s=$(id);
+  s.innerHTML=html;
+  s.className='status'+(kind?' '+kind:'');
+}
+</script>
+</body>
+</html>
