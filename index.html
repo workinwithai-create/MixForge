@@ -567,17 +567,17 @@ Respond ONLY a JSON array, no fences. Each: {"problem":"short title","layer":"mi
 
     let aiFailReason=null;
     try {
-      const res=await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1500,messages:[{role:"user",content:prompt}]})
+      // Call our Vercel proxy (/api/analyze) which holds the API key server-side.
+      // Falls back to the rule brain if the proxy isn't available (local preview).
+      const res=await fetch('/api/analyze',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({prompt})
       });
       const data=await res.json();
-      if (data&&data.error) throw new Error("API said: "+(data.error.message||JSON.stringify(data.error)));
-      if (!data||!Array.isArray(data.content)) throw new Error("API response had no content (status "+res.status+") — likely running outside a deployed environment");
-      const text=data.content.map(i=>i.type==="text"?i.text:"").join("");
-      const parsed=JSON.parse(text.replace(/```json|```/g,"").trim());
-      if (!Array.isArray(parsed)||!parsed.length) throw new Error("AI returned an empty diagnosis");
+      if (!data.ok) throw new Error(data.error||'proxy returned error');
+      const parsed=JSON.parse(data.text.replace(/```json|```/g,'').trim());
+      if (!Array.isArray(parsed)||!parsed.length) throw new Error('AI returned an empty diagnosis');
       findings=parsed;
     } catch (aiErr) {
       console.error(aiErr);
