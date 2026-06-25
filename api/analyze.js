@@ -23,19 +23,22 @@ export default async function handler(req, res) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': key,
+        'x-api-key': key.trim(),
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 1500,
         messages: [{ role: 'user', content: prompt }]
       })
     });
 
     const data = await response.json();
-    if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-    if (!data.content || !Array.isArray(data.content)) throw new Error('Unexpected Claude response');
+    // Surface the FULL Anthropic error so we can see exactly what's wrong
+    if (!response.ok || data.error) {
+      throw new Error('Anthropic error ' + response.status + ': ' + JSON.stringify(data.error || data));
+    }
+    if (!data.content || !Array.isArray(data.content)) throw new Error('Unexpected Claude response: ' + JSON.stringify(data));
 
     const text = data.content.map(b => b.type === 'text' ? b.text : '').join('');
     return res.status(200).json({ ok: true, text });
