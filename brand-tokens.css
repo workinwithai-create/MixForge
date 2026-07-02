@@ -1,0 +1,23 @@
+/* ==========================================================
+   WorkinWithAI brand tokens · v1 — VARIABLES ONLY
+   For apps that need the palette available without any
+   visual override (e.g. app UIs pending their redesign pass).
+   Full base styles + Nav/Footer classes live in brand.css.
+   ========================================================== */
+:root {
+  /* ground */
+  --wwa-walnut-deep: #1A120C;
+  --wwa-walnut:      #241811;
+  --wwa-walnut-raised:#2E2016;
+  --wwa-walnut-edge: #3D2B1D;
+  /* metal */
+  --wwa-copper:      #B87333;   /* pipe */
+  --wwa-copper-hi:   #E8B870;   /* polished */
+  /* paper & ink */
+  --wwa-text:        #EFE3D0;
+  --wwa-text-dim:    #B9A88F;
+  --wwa-ink-faint:   #7A6A55;
+  /* accents */
+  --wwa-patina:      #5E8C7B;
+  --wwa-danger:      #C4573B;
+}
