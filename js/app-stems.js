@@ -58,7 +58,7 @@ async function buildStemPlans() {
 function describeOperation(op) {
   if (op.type === 'eq') return `${op.filterType || 'peaking'} · ${Math.round(Number(op.frequency) || 1000)} Hz · ${(Number(op.gain) || 0) >= 0 ? '+' : ''}${(Number(op.gain) || 0).toFixed(1)} dB`;
   if (op.type === 'highpass') return `high-pass · ${Math.round(Number(op.frequency) || 20)} Hz`;
-  if (op.type === 'deess') return `${Math.round(Number(op.frequency) || 6800)} Hz · threshold ${Math.round(Number(op.threshold) || -30)} dB`;
+  if (op.type === 'deess') return `${Math.round(Number(op.frequency) || 6800)} Hz · conservative parallel control`;
   if (op.type === 'compressor') return `${Number(op.ratio || 2).toFixed(1)}:1 · threshold ${Math.round(Number(op.threshold) || -24)} dB`;
   if (op.type === 'gain') return `${Number(op.gainDb || 0) >= 0 ? '+' : ''}${Number(op.gainDb || 0).toFixed(1)} dB`;
   return op.type;
@@ -93,17 +93,6 @@ function makeFilter(ctx, op) {
   return node;
 }
 
-function deessBlock(ctx, op) {
-  const input = ctx.createGain(), output = ctx.createGain();
-  const makeBand = () => { const n = ctx.createBiquadFilter(); n.type = 'bandpass'; n.frequency.value = clamp(Number(op.frequency) || 6800, 4500, 10000); n.Q.value = 1.2; return n; };
-  const subtractBand = makeBand(), invert = ctx.createGain(); invert.gain.value = -1;
-  input.connect(output); input.connect(subtractBand); subtractBand.connect(invert); invert.connect(output);
-  const watchedBand = makeBand(), comp = ctx.createDynamicsCompressor();
-  comp.threshold.value = clamp(Number(op.threshold) || -30, -50, -10); comp.ratio.value = 8; comp.attack.value = 0.002; comp.release.value = 0.08; comp.knee.value = 3;
-  input.connect(watchedBand); watchedBand.connect(comp); comp.connect(output);
-  return { input, output };
-}
-
 async function renderProcessedBuffer(sourceBuffer, operations) {
   if (!OfflineCtx) throw new Error('Offline audio rendering is not supported in this browser.');
   const off = new OfflineCtx(sourceBuffer.numberOfChannels, sourceBuffer.length, sourceBuffer.sampleRate);
@@ -113,14 +102,20 @@ async function renderProcessedBuffer(sourceBuffer, operations) {
     if (op.type === 'eq' || op.type === 'highpass') {
       const node = makeFilter(off, op); head.connect(node); head = node;
     } else if (op.type === 'deess') {
-      const block = deessBlock(off, op); head.connect(block.input); head = block.output;
+      // The former phase-subtraction de-esser could cancel vocals and guitars.
+      // Use a gentle high-shelf reduction; the parallel rebuild below limits it further.
+      const node = off.createBiquadFilter();
+      node.type = 'highshelf';
+      node.frequency.value = clamp(Number(op.frequency) || 6800, 4500, 10000);
+      node.gain.value = -1.5;
+      head.connect(node); head = node;
     } else if (op.type === 'compressor') {
       const comp = off.createDynamicsCompressor();
-      comp.threshold.value = clamp(Number(op.threshold) || -24, -60, 0); comp.ratio.value = clamp(Number(op.ratio) || 2, 1, 12);
-      comp.attack.value = clamp(Number(op.attack) || 0.03, 0, 1); comp.release.value = clamp(Number(op.release) || 0.15, 0.01, 1); comp.knee.value = clamp(Number(op.knee) || 4, 0, 30);
+      comp.threshold.value = clamp(Number(op.threshold) || -24, -60, 0); comp.ratio.value = clamp(Number(op.ratio) || 2, 1, 6);
+      comp.attack.value = clamp(Number(op.attack) || 0.03, 0.005, 1); comp.release.value = clamp(Number(op.release) || 0.15, 0.03, 1); comp.knee.value = clamp(Number(op.knee) || 4, 0, 30);
       head.connect(comp); head = comp;
     } else if (op.type === 'gain') {
-      const gain = off.createGain(); gain.gain.value = dbToGain(clamp(Number(op.gainDb) || 0, -18, 18)); head.connect(gain); head = gain;
+      const gain = off.createGain(); gain.gain.value = dbToGain(clamp(Number(op.gainDb) || 0, -3, 3)); head.connect(gain); head = gain;
     }
   }
   head.connect(off.destination); src.start();
@@ -133,18 +128,35 @@ function cloneBuffer(buffer) {
   return out;
 }
 
+function bufferRms(buffer) {
+  let sum = 0, count = 0;
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const data = buffer.getChannelData(c);
+    const step = Math.max(1, Math.floor(data.length / 250000));
+    for (let i = 0; i < data.length; i += step) { sum += data[i] * data[i]; count++; }
+  }
+  return Math.sqrt(sum / Math.max(1, count));
+}
+
 async function rebuildCorrectedMix() {
   const out = cloneBuffer(state.original);
+  const wet = 0.28;
   for (const [stem, originalStem] of Object.entries(state.stemBuffers)) {
     const plan = state.stemPlans[stem];
     if (!plan) continue;
     const processed = await renderProcessedBuffer(originalStem, plan.operations);
+    const rawRms = bufferRms(originalStem);
+    const fixedRms = bufferRms(processed);
+    const levelMatch = fixedRms > 1e-8 ? clamp(rawRms / fixedRms, dbToGain(-2), dbToGain(2)) : 1;
     const length = Math.min(out.length, originalStem.length, processed.length);
     for (let c = 0; c < out.numberOfChannels; c++) {
       const dest = out.getChannelData(c);
       const raw = originalStem.getChannelData(Math.min(c, originalStem.numberOfChannels - 1));
       const fixed = processed.getChannelData(Math.min(c, processed.numberOfChannels - 1));
-      for (let i = 0; i < length; i++) dest[i] += fixed[i] - raw[i];
+      for (let i = 0; i < length; i++) {
+        const repaired = raw[i] * (1 - wet) + fixed[i] * levelMatch * wet;
+        dest[i] += repaired - raw[i];
+      }
     }
     await sleep(0);
   }
@@ -153,11 +165,11 @@ async function rebuildCorrectedMix() {
 
 $('rebuildBtn').addEventListener('click', async () => {
   $('rebuildBtn').disabled = true;
-  setStatus('rebuildStatus', 'Rendering repaired stems back into the original mix…', 'busy');
+  setStatus('rebuildStatus', 'Rendering level-matched parallel repairs while preserving the original vocals and instruments…', 'busy');
   try {
     state.corrected = await rebuildCorrectedMix();
     state.correctedMetrics = measureBuffer(state.corrected);
-    setStatus('rebuildStatus', 'Corrective mix rebuilt. Preparing the mastering chain from the repaired audio—not the flawed source.', 'ok');
+    setStatus('rebuildStatus', 'Corrective mix rebuilt with source-preservation safeguards. Preparing the mastering chain.', 'ok');
     prepareMastering();
     $('masterPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (error) {
