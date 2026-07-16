@@ -5,111 +5,58 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#0d0f12">
   <title>MixForge — Release Pipeline</title>
-  <link rel="stylesheet" href="/styles.css?v=1.0.2">
+  <link rel="stylesheet" href="/styles.css?v=1.0.3">
 </head>
 <body>
   <main class="shell">
     <header class="hero">
       <div class="eyebrow">Workin' With AI · The Forge Stack</div>
-      <h1>MixForge <span>1.0.2</span></h1>
+      <h1>MixForge <span>1.0.3</span></h1>
       <p>Audit the mix, isolate the problem stems, repair only what is holding the song back, rebuild the mix, then master and verify it for release.</p>
-      <div class="pipeline" aria-label="MixForge pipeline">
-        <span>Audit</span><b>→</b><span>Isolate</span><b>→</b><span>Repair</span><b>→</b><span>Rebuild</span><b>→</b><span>Master</span><b>→</b><span>Verify</span>
-      </div>
+      <div class="pipeline" aria-label="MixForge pipeline"><span>Audit</span><b>→</b><span>Isolate</span><b>→</b><span>Repair</span><b>→</b><span>Rebuild</span><b>→</b><span>Master</span><b>→</b><span>Verify</span></div>
     </header>
-
     <section class="panel" id="loadPanel">
       <div class="panel-title"><span>1</span><div><h2>Load the stereo mix</h2><p>WAV is best. MP3, M4A, AIFF and other browser-supported audio files also work.</p></div></div>
-      <button class="dropzone" id="dropzone" type="button">
-        <strong>Choose a mix or drop it here</strong>
-        <small id="fileMeta">No file loaded</small>
-      </button>
+      <button class="dropzone" id="dropzone" type="button"><strong>Choose a mix or drop it here</strong><small id="fileMeta">No file loaded</small></button>
       <input id="fileInput" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.aif,.aiff,.caf,.flac,.ogg" hidden>
       <label class="field-label" for="notes">Mix notes <em>optional</em></label>
       <textarea id="notes" placeholder="Example: the vocal feels buried in the chorus, the low end is cloudy, and the cymbals feel sharp."></textarea>
       <div class="controls-grid">
-        <label>Release loudness target
-          <select id="targetLufs">
-            <option value="-14">Dynamic / acoustic · −14 LUFS</option>
-            <option value="-12" selected>Balanced release · −12 LUFS</option>
-            <option value="-10">Modern loud · −10 LUFS</option>
-            <option value="-9">Dense / aggressive · −9 LUFS</option>
-          </select>
-        </label>
-        <label>Export depth
-          <select id="bitDepth">
-            <option value="24" selected>24-bit WAV</option>
-            <option value="16">16-bit WAV</option>
-          </select>
-        </label>
+        <label>Release loudness target<select id="targetLufs"><option value="-14">Dynamic / acoustic · −14 LUFS</option><option value="-12" selected>Balanced release · −12 LUFS</option><option value="-10">Modern loud · −10 LUFS</option><option value="-9">Dense / aggressive · −9 LUFS</option></select></label>
+        <label>Export depth<select id="bitDepth"><option value="24" selected>24-bit WAV</option><option value="16">16-bit WAV</option></select></label>
       </div>
-      <div class="actions">
-        <button class="primary" id="auditBtn" disabled>Run professional mix audit</button>
-      </div>
+      <div class="actions"><button class="primary" id="auditBtn" disabled>Run professional mix audit</button></div>
       <div class="status" id="auditStatus" aria-live="polite"></div>
     </section>
-
     <section class="panel hidden" id="auditPanel">
       <div class="panel-title"><span>2</span><div><h2>Professional audit</h2><p>Measured defects and translation risks are separated from mastering decisions.</p></div></div>
-      <div class="score-row">
-        <div class="score"><strong id="readinessScore">—</strong><span>release readiness</span></div>
-        <p id="auditSummary"></p>
-      </div>
-      <div class="metrics" id="mixMetrics"></div>
-      <div class="findings" id="auditFindings"></div>
-      <div class="actions hidden" id="separateActions">
-        <button class="primary" id="separateBtn">Separate required stems</button>
-        <small id="stemListLabel"></small>
-      </div>
+      <div class="score-row"><div class="score"><strong id="readinessScore">—</strong><span>release readiness</span></div><p id="auditSummary"></p></div>
+      <div class="metrics" id="mixMetrics"></div><div class="findings" id="auditFindings"></div>
+      <div class="actions hidden" id="separateActions"><button class="primary" id="separateBtn">Separate required stems</button><small id="stemListLabel"></small></div>
       <div class="status" id="separationStatus" aria-live="polite"></div>
     </section>
-
     <section class="panel hidden" id="stemPanel">
       <div class="panel-title"><span>3</span><div><h2>Stem repair lab</h2><p>Each isolated stem is measured independently, repaired, and returned to the original mix as a phase-aligned delta.</p></div></div>
-      <div class="stem-grid" id="stemGrid"></div>
-      <div class="actions">
-        <button class="primary" id="rebuildBtn">Apply stem repairs and rebuild mix</button>
-      </div>
-      <div class="status" id="rebuildStatus" aria-live="polite"></div>
+      <div class="stem-grid" id="stemGrid"></div><div class="actions"><button class="primary" id="rebuildBtn">Apply stem repairs and rebuild mix</button></div><div class="status" id="rebuildStatus" aria-live="polite"></div>
     </section>
-
     <section class="panel hidden" id="masterPanel">
       <div class="panel-title"><span>4</span><div><h2>Release master</h2><p>Broad tonal balance, controlled dynamics, loudness, look-ahead limiting, and final verification.</p></div></div>
-      <div class="metrics" id="correctedMetrics"></div>
-      <div class="master-chain" id="masterChain"></div>
-      <div class="actions">
-        <button class="secondary" id="renderMasterBtn">Render release master</button>
-      </div>
-      <div class="status" id="masterStatus" aria-live="polite"></div>
-      <div class="preview hidden" id="previewBox">
-        <div class="preview-select">
-          <label><input type="radio" name="preview" value="original"> Original</label>
-          <label><input type="radio" name="preview" value="corrected"> Corrected mix</label>
-          <label><input type="radio" name="preview" value="master" checked> Release master</label>
-        </div>
-        <button class="primary" id="playBtn">▶ Play preview</button>
-        <div class="meter"><i id="meterFill"></i></div>
-      </div>
+      <div class="metrics" id="correctedMetrics"></div><div class="master-chain" id="masterChain"></div><div class="actions"><button class="secondary" id="renderMasterBtn">Render release master</button></div><div class="status" id="masterStatus" aria-live="polite"></div>
+      <div class="preview hidden" id="previewBox"><div class="preview-select"><label><input type="radio" name="preview" value="original"> Original</label><label><input type="radio" name="preview" value="corrected"> Corrected mix</label><label><input type="radio" name="preview" value="master" checked> Release master</label></div><button class="primary" id="playBtn">▶ Play preview</button><div class="meter"><i id="meterFill"></i></div></div>
     </section>
-
     <section class="panel hidden" id="verifyPanel">
       <div class="panel-title"><span>5</span><div><h2>Release verification</h2><p>Final loudness, peak safety, stereo compatibility, and export checks.</p></div></div>
-      <div class="metrics" id="finalMetrics"></div>
-      <div class="verification" id="verificationList"></div>
-      <div class="actions">
-        <button class="primary" id="exportBtn">Download release WAV</button>
-      </div>
-      <div class="status" id="exportStatus" aria-live="polite"></div>
+      <div class="metrics" id="finalMetrics"></div><div class="verification" id="verificationList"></div><div class="actions"><button class="primary" id="exportBtn">Download release WAV</button></div><div class="status" id="exportStatus" aria-live="polite"></div>
     </section>
-
-    <footer>MixForge 1.0.2 · The mix is repaired before it is mastered · © 2026 Workin' With AI</footer>
+    <footer>MixForge 1.0.3 · The mix is repaired before it is mastered · © 2026 Workin' With AI</footer>
   </main>
-  <script src="/js/app-init.js?v=1.0.2" defer></script>
-  <script src="/js/app-metrics.js?v=1.0.2" defer></script>
-  <script src="/js/app-audit.js?v=1.0.2" defer></script>
-  <script src="/js/app-upload.js?v=1.0.2" defer></script>
-  <script src="/js/app-stems.js?v=1.0.2" defer></script>
-  <script src="/js/app-master.js?v=1.0.2" defer></script>
-  <script src="/js/app-export.js?v=1.0.2" defer></script>
+  <script src="/js/app-init.js?v=1.0.3" defer></script>
+  <script src="/js/app-metrics.js?v=1.0.3" defer></script>
+  <script src="/js/app-audit.js?v=1.0.3" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js" defer></script>
+  <script src="/js/app-upload.js?v=1.0.3" defer></script>
+  <script src="/js/app-stems.js?v=1.0.3" defer></script>
+  <script src="/js/app-master.js?v=1.0.3" defer></script>
+  <script src="/js/app-export.js?v=1.0.3" defer></script>
 </body>
 </html>
