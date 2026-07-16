@@ -163,10 +163,12 @@ function installTransport() {
     await seekTransport(target);
   };
   seek.addEventListener('change', commitSeek);
-  seek.addEventListener('pointerup', commitSeek);
 
+  // Capture phase runs before the older app-master change listener. This keeps
+  // the exact position and playing state while switching A/B/C preview sources.
   document.addEventListener('change', async (event) => {
     if (!event.target.matches('input[name="preview"]')) return;
+    event.stopImmediatePropagation();
     const position = transportPosition();
     const wasPlaying = Boolean(state.source);
     stopTransport({ preservePosition: true });
@@ -174,7 +176,7 @@ function installTransport() {
     transportState.offset = clamp(position, 0, transportState.duration);
     updateTransportUI();
     if (wasPlaying) await startTransport(transportState.offset);
-  });
+  }, true);
 
   const observer = new MutationObserver(() => {
     if (!preview.classList.contains('hidden')) updateTransportUI();
