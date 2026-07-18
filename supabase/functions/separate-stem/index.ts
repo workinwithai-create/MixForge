@@ -3,6 +3,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 const ALLOWED_STEMS = new Set(["vocals", "bass", "drums", "guitars", "keys", "other"]);
 const ALLOWED_ORIGINS = [
   /^https:\/\/mix\.workinwithai\.com$/,
+  /^https:\/\/mixforge\.workinwithai\.com$/,
   /^https:\/\/mix-forge(?:-[a-z0-9-]+)?\.vercel\.app$/,
   /^https:\/\/[a-z0-9-]+-release-forge\.vercel\.app$/,
   /^http:\/\/localhost(?::\d+)?$/,
