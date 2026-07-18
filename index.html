@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#0d0f12">
   <title>MixForge — Forensic Mix Engineer</title>
-  <link rel="stylesheet" href="/styles.css?v=2.0.4">
-  <link rel="stylesheet" href="/forensics.css?v=2.0.4">
-  <link rel="stylesheet" href="/transport.css?v=2.0.4">
-  <link rel="stylesheet" href="/signal-integrity.css?v=2.0.4">
+  <link rel="stylesheet" href="/styles.css?v=2.1.0">
+  <link rel="stylesheet" href="/forensics.css?v=2.1.0">
+  <link rel="stylesheet" href="/transport.css?v=2.1.0">
+  <link rel="stylesheet" href="/signal-integrity.css?v=2.1.0">
 </head>
 <body>
   <main class="shell">
     <header class="hero">
       <div class="eyebrow">Workin' With AI · The Forge Stack</div>
-      <h1>MixForge <span>2.0.4</span></h1>
+      <h1>MixForge <span>2.1.0</span></h1>
       <p>Observe the stereo evidence, form source hypotheses, isolate only what must be tested, confirm the cause, make the smallest safe repair, and verify the complete release.</p>
       <div class="pipeline" aria-label="MixForge pipeline"><span>Observe</span><b>→</b><span>Hypothesize</span><b>→</b><span>Isolate</span><b>→</b><span>Confirm</span><b>→</b><span>Repair</span><b>→</b><span>Verify</span></div>
     </header>
@@ -43,27 +43,29 @@
       <div class="stem-grid" id="stemGrid"></div><div class="actions"><button class="primary" id="rebuildBtn">Apply selected repairs and rebuild mix</button></div><div class="status" id="rebuildStatus" aria-live="polite"></div>
     </section>
     <section class="panel hidden" id="masterPanel">
-      <div class="panel-title"><span>4</span><div><h2>Release master</h2><p>Level-matched tonal balance, controlled dynamics, loudness, limiting, and regression-aware final processing.</p></div></div>
+      <div class="panel-title"><span>4</span><div><h2>Release master</h2><p>Reference-bounded tonal balance, controlled dynamics, loudness, limiting, true-peak safety, and regression-aware final processing.</p></div></div>
       <div class="metrics" id="correctedMetrics"></div><div class="master-chain" id="masterChain"></div><div class="actions"><button class="secondary" id="renderMasterBtn">Render release master</button></div><div class="status" id="masterStatus" aria-live="polite"></div>
-      <div class="preview hidden" id="previewBox"><div class="preview-select"><label><input type="radio" name="preview" value="original"> Original</label><label><input type="radio" name="preview" value="corrected"> Corrected mix</label><label><input type="radio" name="preview" value="master" checked> Release master</label></div><button class="primary" id="playBtn">▶ Play level-matched preview</button><div class="meter"><i id="meterFill"></i></div></div>
+      <div class="preview hidden" id="previewBox"><div class="preview-select"><label><input type="radio" name="preview" value="original"> Original</label><label><input type="radio" name="preview" value="corrected"> Corrected mix</label><label><input type="radio" name="preview" value="master" checked> Release master</label></div><button class="primary" id="playBtn">▶ Play selected preview</button><div class="meter"><i id="meterFill"></i></div></div>
     </section>
     <section class="panel hidden" id="verifyPanel">
-      <div class="panel-title"><span>5</span><div><h2>Release verification and translation</h2><p>Loudness, sample and estimated true peak, mono, dynamics, repair regression, bandwidth-limited playback, sub translation, and export checks.</p></div></div>
+      <div class="panel-title"><span>5</span><div><h2>Release verification and translation</h2><p>Integrated loudness, EBU-style loudness range, sample and interpolated true peak, mono, dynamics, aligned null monitoring, translation, and export checks.</p></div></div>
       <div class="metrics" id="finalMetrics"></div><div class="verification" id="verificationList"></div><div class="actions"><button class="primary" id="exportBtn">Download verified release WAV</button></div><div class="status" id="exportStatus" aria-live="polite"></div>
     </section>
-    <footer>MixForge 2.0.4 · Observe, confirm, repair, verify · © 2026 Workin' With AI</footer>
+    <footer>MixForge 2.1.0 · Measure honestly, repair conservatively, compare fairly · © 2026 Workin' With AI</footer>
   </main>
-  <script src="/js/app-init.js?v=2.0.4" defer></script>
-  <script src="/js/app-metrics.js?v=2.0.4" defer></script>
-  <script src="/js/app-audit.js?v=2.0.4" defer></script>
+  <script src="/js/app-init.js?v=2.1.0" defer></script>
+  <script src="/js/app-metrics.js?v=2.1.0" defer></script>
+  <script src="/js/app-audit.js?v=2.1.0" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js" defer></script>
-  <script src="/js/app-upload.js?v=2.0.4" defer></script>
-  <script src="/js/app-stems.js?v=2.0.4" defer></script>
-  <script src="/js/app-master.js?v=2.0.4" defer></script>
-  <script src="/js/app-transport.js?v=2.0.4" defer></script>
-  <script src="/js/app-forensics.js?v=2.0.4" defer></script>
-  <script src="/js/app-forensics-guard.js?v=2.0.4" defer></script>
-  <script src="/js/app-export.js?v=2.0.4" defer></script>
-  <script src="/js/app-signal-integrity.js?v=2.0.4" defer></script>
+  <script src="/js/app-upload.js?v=2.1.0" defer></script>
+  <script src="/js/app-stems.js?v=2.1.0" defer></script>
+  <script src="/js/app-master.js?v=2.1.0" defer></script>
+  <script src="/js/app-transport.js?v=2.1.0" defer></script>
+  <script src="/js/app-forensics.js?v=2.1.0" defer></script>
+  <script src="/js/app-forensics-guard.js?v=2.1.0" defer></script>
+  <script src="/js/app-mastering-grade.js?v=2.1.0" defer></script>
+  <script src="/js/app-export.js?v=2.1.0" defer></script>
+  <script src="/js/app-signal-integrity.js?v=2.1.0" defer></script>
+  <script src="/js/app-critical-listening.js?v=2.1.0" defer></script>
 </body>
 </html>
