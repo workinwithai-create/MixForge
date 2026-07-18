@@ -56,7 +56,7 @@ async function clientHash(req: Request) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function enforceUsageLimit(req: Request, requestedStemCount: number) {
+async function checkUsageLimit(req: Request, requestedStemCount: number) {
   const { supabaseUrl, serviceKey } = serverCredentials();
   const ipHash = await clientHash(req);
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -72,12 +72,17 @@ async function enforceUsageLimit(req: Request, requestedStemCount: number) {
   const hourly = usage.filter((row) => new Date(row.created_at).getTime() >= hourAgo).reduce((sum, row) => sum + Number(row.stem_count || 0), 0);
   if (hourly + requestedStemCount > HOURLY_STEM_LIMIT) throw new Error("Hourly stem-separation limit reached. Try again later.");
   if (daily + requestedStemCount > DAILY_STEM_LIMIT) throw new Error("Daily stem-separation limit reached. Try again tomorrow.");
+  return ipHash;
+}
+
+async function recordUsage(ipHash: string, requestedStemCount: number) {
+  const { supabaseUrl, serviceKey } = serverCredentials();
   const insertRes = await fetch(`${supabaseUrl}/rest/v1/mixforge_stem_usage`, {
     method: "POST",
     headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey, "Content-Type": "application/json", "Prefer": "return=minimal" },
     body: JSON.stringify({ ip_hash: ipHash, stem_count: requestedStemCount }),
   });
-  if (!insertRes.ok) throw new Error("Could not reserve separation usage");
+  if (!insertRes.ok) console.warn("Could not record successful separation usage");
 }
 
 async function signedSourceUrl(storagePath: string) {
@@ -106,11 +111,19 @@ async function removeSource(storagePath?: string) {
   }).catch(() => undefined);
 }
 
+function providerError(status: number, created: Record<string, unknown>) {
+  const raw = String(created?.message || created?.error || JSON.stringify(created));
+  if (/insufficient\s+credits?|credit\s+balance|not\s+enough\s+credits?/i.test(raw) || status === 402) {
+    return new Error("Music.ai credits are exhausted. Add credits to the Music.ai workspace before running stem separation again.");
+  }
+  return new Error(`Music.ai create failed (${status}): ${raw}`);
+}
+
 async function startJob(req: Request, storagePath: string, stems: string[]) {
   const musicKey = Deno.env.get("MUSICAI_KEY");
   const workflow = Deno.env.get("MUSICAI_WORKFLOW");
   if (!musicKey || !workflow) throw new Error("Server missing MUSICAI_KEY or MUSICAI_WORKFLOW secret");
-  await enforceUsageLimit(req, stems.length);
+  const ipHash = await checkUsageLimit(req, stems.length);
   const inputUrl = await signedSourceUrl(storagePath);
   const params: Record<string, unknown> = { inputUrl };
   for (const stem of stems) params[stem] = true;
@@ -120,8 +133,9 @@ async function startJob(req: Request, storagePath: string, stems: string[]) {
     body: JSON.stringify({ name: `MixForge corrective separation: ${stems.join(", ")}`, workflow, params }),
   });
   const created = await createRes.json().catch(() => ({}));
-  if (!createRes.ok) throw new Error(`Music.ai create failed (${createRes.status}): ${created?.message || JSON.stringify(created)}`);
+  if (!createRes.ok) throw providerError(createRes.status, created);
   if (!created.id) throw new Error("Music.ai did not return a job id");
+  await recordUsage(ipHash, stems.length);
   return created.id as string;
 }
 
@@ -161,21 +175,23 @@ serve(async (req) => {
   if (req.method !== "POST") return response(req, 405, { ok: false, error: "Method not allowed" });
   const origin = req.headers.get("origin") || "";
   if (!origin || !isAllowedOrigin(origin)) return response(req, 403, { ok: false, error: "Origin not allowed" });
+  let storagePath = "";
   try {
     const body = await req.json();
     const action = body?.action === "status" ? "status" : "start";
     const stems = safeStems(body?.stems);
     if (!stems.length) throw new Error("At least one valid stem is required");
+    storagePath = String(body?.storagePath || "");
     if (action === "start") {
-      const storagePath = String(body?.storagePath || "");
       const jobId = await startJob(req, storagePath, stems);
       return response(req, 200, { ok: true, status: "QUEUED", jobId, stems });
     }
     const jobId = String(body?.jobId || "");
     const result = await jobStatus(jobId, stems);
-    if (result.status === "SUCCEEDED" || result.status === "FAILED") await removeSource(String(body?.storagePath || ""));
+    if (result.status === "SUCCEEDED" || result.status === "FAILED") await removeSource(storagePath);
     return response(req, 200, { ok: true, ...result });
   } catch (error) {
+    if (storagePath) await removeSource(storagePath);
     console.error("MixForge separate-stem error", error);
     return response(req, 400, { ok: false, error: String(error?.message || error) });
   }
