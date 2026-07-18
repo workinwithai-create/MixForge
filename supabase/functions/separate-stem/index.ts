@@ -113,10 +113,11 @@ async function signedUploadUrl(storagePath: string) {
   const signRes = await fetch(`${supabaseUrl}/storage/v1/object/upload/sign/audio/${encodedPath(storagePath)}`, {
     method: "POST",
     headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey, "Content-Type": "application/json", "x-upsert": "true" },
+    body: JSON.stringify({}),
   });
   const signed = await signRes.json().catch(() => ({}));
   if (!signRes.ok) throw new Error(`Could not create stem upload URL (${signRes.status}): ${signed?.message || JSON.stringify(signed)}`);
-  const raw = signed.signedURL || signed.signedUrl;
+  const raw = signed.signedURL || signed.signedUrl || signed.url;
   if (!raw) throw new Error("Storage did not return a signed upload URL");
   if (String(raw).startsWith("http")) return String(raw);
   if (String(raw).startsWith("/storage/v1")) return `${supabaseUrl}${raw}`;
