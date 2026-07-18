@@ -149,7 +149,13 @@ separateRequiredStems = async function separateRequiredStemsFresh(stems, onProgr
     const started = await callStemFunction({ action: 'start', storagePath, stems });
     for (let attempt = 0; attempt < 90; attempt++) {
       await sleep(2500);
-      const status = await callStemFunction({ action: 'status', jobId: started.jobId, stems, storagePath });
+      const status = await callStemFunction({
+        action: 'status',
+        jobId: started.jobId,
+        stems,
+        storagePath,
+        outputPaths: started.outputPaths || {},
+      });
       if (status.status === 'SUCCEEDED') {
         state.storagePath = null;
         state._stemDecodesRemaining = stems.length;
