@@ -47,6 +47,13 @@ function serverCredentials() {
   return { supabaseUrl, serviceKey };
 }
 
+function runpodCredentials() {
+  const endpointId = Deno.env.get("RUNPOD_ENDPOINT_ID");
+  const apiKey = Deno.env.get("RUNPOD_API_KEY");
+  if (!endpointId || !apiKey) throw new Error("Low-cost RunPod separator is not configured yet.");
+  return { endpointId, apiKey };
+}
+
 async function clientHash(req: Request) {
   const { serviceKey } = serverCredentials();
   const forwarded = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
@@ -85,16 +92,15 @@ async function recordUsage(ipHash: string, requestedStemCount: number) {
   if (!insertRes.ok) console.warn("Could not record successful separation usage");
 }
 
-async function signedSourceUrl(storagePath: string) {
+async function signedDownloadUrl(storagePath: string, expiresIn = 3600) {
   const { supabaseUrl, serviceKey } = serverCredentials();
-  if (!/^uploads\/[a-zA-Z0-9._/-]+$/.test(storagePath) || storagePath.includes("..")) throw new Error("Invalid storage path");
   const signRes = await fetch(`${supabaseUrl}/storage/v1/object/sign/audio/${encodedPath(storagePath)}`, {
     method: "POST",
     headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey, "Content-Type": "application/json" },
-    body: JSON.stringify({ expiresIn: 3600 }),
+    body: JSON.stringify({ expiresIn }),
   });
   const signed = await signRes.json().catch(() => ({}));
-  if (!signRes.ok) throw new Error(`Could not sign source audio (${signRes.status}): ${signed?.message || JSON.stringify(signed)}`);
+  if (!signRes.ok) throw new Error(`Could not sign audio (${signRes.status}): ${signed?.message || JSON.stringify(signed)}`);
   const raw = signed.signedURL || signed.signedUrl;
   if (!raw) throw new Error("Storage did not return a signed URL");
   if (String(raw).startsWith("http")) return String(raw);
@@ -102,72 +108,82 @@ async function signedSourceUrl(storagePath: string) {
   return `${supabaseUrl}/storage/v1${String(raw).startsWith("/") ? "" : "/"}${raw}`;
 }
 
-async function removeSource(storagePath?: string) {
-  if (!storagePath) return;
+async function signedUploadUrl(storagePath: string) {
   const { supabaseUrl, serviceKey } = serverCredentials();
-  await fetch(`${supabaseUrl}/storage/v1/object/audio/${encodedPath(storagePath)}`, {
+  const signRes = await fetch(`${supabaseUrl}/storage/v1/object/upload/sign/audio/${encodedPath(storagePath)}`, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey, "Content-Type": "application/json", "x-upsert": "true" },
+  });
+  const signed = await signRes.json().catch(() => ({}));
+  if (!signRes.ok) throw new Error(`Could not create stem upload URL (${signRes.status}): ${signed?.message || JSON.stringify(signed)}`);
+  const raw = signed.signedURL || signed.signedUrl;
+  if (!raw) throw new Error("Storage did not return a signed upload URL");
+  if (String(raw).startsWith("http")) return String(raw);
+  if (String(raw).startsWith("/storage/v1")) return `${supabaseUrl}${raw}`;
+  return `${supabaseUrl}/storage/v1${String(raw).startsWith("/") ? "" : "/"}${raw}`;
+}
+
+async function removePaths(paths: string[]) {
+  if (!paths.length) return;
+  const { supabaseUrl, serviceKey } = serverCredentials();
+  await fetch(`${supabaseUrl}/storage/v1/object/audio`, {
     method: "DELETE",
-    headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey },
+    headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey, "Content-Type": "application/json" },
+    body: JSON.stringify({ prefixes: paths }),
   }).catch(() => undefined);
 }
 
-function providerError(status: number, created: Record<string, unknown>) {
-  const raw = String(created?.message || created?.error || JSON.stringify(created));
-  if (/insufficient\s+credits?|credit\s+balance|not\s+enough\s+credits?/i.test(raw) || status === 402) {
-    return new Error("Music.ai credits are exhausted. Add credits to the Music.ai workspace before running stem separation again.");
-  }
-  return new Error(`Music.ai create failed (${status}): ${raw}`);
-}
-
-async function startJob(req: Request, storagePath: string, stems: string[]) {
-  const musicKey = Deno.env.get("MUSICAI_KEY");
-  const workflow = Deno.env.get("MUSICAI_WORKFLOW");
-  if (!musicKey || !workflow) throw new Error("Server missing MUSICAI_KEY or MUSICAI_WORKFLOW secret");
+async function startRunPodJob(req: Request, storagePath: string, stems: string[]) {
+  if (!/^uploads\/[a-zA-Z0-9._/-]+$/.test(storagePath) || storagePath.includes("..")) throw new Error("Invalid storage path");
+  const { endpointId, apiKey } = runpodCredentials();
   const ipHash = await checkUsageLimit(req, stems.length);
-  const inputUrl = await signedSourceUrl(storagePath);
-  const params: Record<string, unknown> = { inputUrl };
-  for (const stem of stems) params[stem] = true;
-  const createRes = await fetch("https://api.music.ai/api/job", {
-    method: "POST",
-    headers: { "accept": "application/json", "Content-Type": "application/json", "Authorization": musicKey },
-    body: JSON.stringify({ name: `MixForge corrective separation: ${stems.join(", ")}`, workflow, params }),
-  });
-  const created = await createRes.json().catch(() => ({}));
-  if (!createRes.ok) throw providerError(createRes.status, created);
-  if (!created.id) throw new Error("Music.ai did not return a job id");
-  await recordUsage(ipHash, stems.length);
-  return created.id as string;
-}
-
-function findOutput(result: Record<string, unknown>, stem: string): string | null {
-  const direct = result?.[stem];
-  if (typeof direct === "string") return direct;
-  const variants = [stem, stem.replace(/s$/, ""), `${stem}Url`, `${stem}_url`];
-  for (const key of variants) if (typeof result?.[key] === "string") return result[key] as string;
-  for (const [key, value] of Object.entries(result || {})) {
-    if (key.toLowerCase().includes(stem.replace(/s$/, "").toLowerCase()) && typeof value === "string") return value;
+  const inputUrl = await signedDownloadUrl(storagePath, 3600);
+  const jobToken = crypto.randomUUID();
+  const outputPaths: Record<string, string> = {};
+  const uploadUrls: Record<string, string> = {};
+  for (const stem of stems) {
+    const path = `separated/${jobToken}/${stem}.wav`;
+    outputPaths[stem] = path;
+    uploadUrls[stem] = await signedUploadUrl(path);
   }
-  return null;
+
+  const runRes = await fetch(`https://api.runpod.ai/v2/${encodeURIComponent(endpointId)}/run`, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ input: { inputUrl, stems, uploadUrls } }),
+  });
+  const run = await runRes.json().catch(() => ({}));
+  if (!runRes.ok || !run.id) {
+    await removePaths(Object.values(outputPaths));
+    throw new Error(`RunPod start failed (${runRes.status}): ${run?.error || run?.message || JSON.stringify(run)}`);
+  }
+  await recordUsage(ipHash, stems.length);
+  return { jobId: String(run.id), outputPaths };
 }
 
-async function jobStatus(jobId: string, stems: string[]) {
-  const musicKey = Deno.env.get("MUSICAI_KEY");
-  if (!musicKey) throw new Error("Server missing MUSICAI_KEY secret");
-  if (!/^[a-zA-Z0-9_-]{6,160}$/.test(jobId)) throw new Error("Invalid job id");
-  const pollRes = await fetch(`https://api.music.ai/api/job/${encodeURIComponent(jobId)}`, {
-    headers: { "accept": "application/json", "Authorization": musicKey },
+async function runPodStatus(jobId: string, stems: string[], outputPaths: Record<string, string>) {
+  const { endpointId, apiKey } = runpodCredentials();
+  if (!/^[a-zA-Z0-9_-]{6,200}$/.test(jobId)) throw new Error("Invalid RunPod job id");
+  const statusRes = await fetch(`https://api.runpod.ai/v2/${encodeURIComponent(endpointId)}/status/${encodeURIComponent(jobId)}`, {
+    headers: { "Authorization": `Bearer ${apiKey}` },
   });
-  const job = await pollRes.json().catch(() => ({}));
-  if (!pollRes.ok) throw new Error(`Music.ai status failed (${pollRes.status}): ${job?.message || JSON.stringify(job)}`);
-  const status = String(job.status || "PROCESSING").toUpperCase();
-  if (status !== "SUCCEEDED") return { status, outputs: null, error: status === "FAILED" ? (job.error || "Music.ai job failed") : null };
-  const result = job.result && typeof job.result === "object" ? job.result as Record<string, unknown> : {};
+  const job = await statusRes.json().catch(() => ({}));
+  if (!statusRes.ok) throw new Error(`RunPod status failed (${statusRes.status}): ${job?.error || job?.message || JSON.stringify(job)}`);
+  const rawStatus = String(job.status || "IN_QUEUE").toUpperCase();
+  if (["IN_QUEUE", "IN_PROGRESS"].includes(rawStatus)) return { status: rawStatus, outputs: null, error: null };
+  if (rawStatus === "FAILED" || rawStatus === "CANCELLED" || job?.output?.error) {
+    await removePaths(Object.values(outputPaths));
+    return { status: "FAILED", outputs: null, error: String(job?.output?.error || job?.error || `RunPod job ${rawStatus.toLowerCase()}`) };
+  }
+  if (rawStatus !== "COMPLETED") return { status: rawStatus, outputs: null, error: null };
+
   const outputs: Record<string, string> = {};
   for (const stem of stems) {
-    const url = findOutput(result, stem);
-    if (url) outputs[stem] = url;
+    const path = outputPaths[stem];
+    if (!path) continue;
+    outputs[stem] = await signedDownloadUrl(path, 3600);
   }
-  return { status, outputs, error: null };
+  return { status: "SUCCEEDED", outputs, error: null };
 }
 
 serve(async (req) => {
@@ -183,15 +199,16 @@ serve(async (req) => {
     if (!stems.length) throw new Error("At least one valid stem is required");
     storagePath = String(body?.storagePath || "");
     if (action === "start") {
-      const jobId = await startJob(req, storagePath, stems);
-      return response(req, 200, { ok: true, status: "QUEUED", jobId, stems });
+      const started = await startRunPodJob(req, storagePath, stems);
+      return response(req, 200, { ok: true, status: "QUEUED", jobId: started.jobId, stems, outputPaths: started.outputPaths });
     }
     const jobId = String(body?.jobId || "");
-    const result = await jobStatus(jobId, stems);
-    if (result.status === "SUCCEEDED" || result.status === "FAILED") await removeSource(storagePath);
-    return response(req, 200, { ok: true, ...result });
+    const outputPaths = body?.outputPaths && typeof body.outputPaths === "object" ? body.outputPaths as Record<string, string> : {};
+    const result = await runPodStatus(jobId, stems, outputPaths);
+    if (result.status === "SUCCEEDED" || result.status === "FAILED") await removePaths(storagePath ? [storagePath] : []);
+    return response(req, 200, { ok: true, ...result, outputPaths });
   } catch (error) {
-    if (storagePath) await removeSource(storagePath);
+    if (storagePath) await removePaths([storagePath]);
     console.error("MixForge separate-stem error", error);
     return response(req, 400, { ok: false, error: String(error?.message || error) });
   }
