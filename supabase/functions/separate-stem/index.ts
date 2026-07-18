@@ -40,6 +40,14 @@ function encodedPath(path: string) {
   return path.split("/").map(encodeURIComponent).join("/");
 }
 
+function absoluteStorageUrl(supabaseUrl: string, raw: unknown) {
+  const value = String(raw || "");
+  if (!value) throw new Error("Storage did not return a signed URL");
+  if (value.startsWith("http")) return value;
+  if (value.startsWith("/storage/v1")) return `${supabaseUrl}${value}`;
+  return `${supabaseUrl}/storage/v1${value.startsWith("/") ? "" : "/"}${value}`;
+}
+
 function serverCredentials() {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -92,20 +100,33 @@ async function recordUsage(ipHash: string, requestedStemCount: number) {
   if (!insertRes.ok) console.warn("Could not record successful separation usage");
 }
 
-async function signedDownloadUrl(storagePath: string, expiresIn = 3600) {
+type SignOptions = { retries?: number; label?: string };
+
+async function signedDownloadUrl(storagePath: string, expiresIn = 3600, options: SignOptions = {}) {
   const { supabaseUrl, serviceKey } = serverCredentials();
-  const signRes = await fetch(`${supabaseUrl}/storage/v1/object/sign/audio/${encodedPath(storagePath)}`, {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey, "Content-Type": "application/json" },
-    body: JSON.stringify({ expiresIn }),
-  });
-  const signed = await signRes.json().catch(() => ({}));
-  if (!signRes.ok) throw new Error(`Could not sign audio (${signRes.status}): ${signed?.message || JSON.stringify(signed)}`);
-  const raw = signed.signedURL || signed.signedUrl;
-  if (!raw) throw new Error("Storage did not return a signed URL");
-  if (String(raw).startsWith("http")) return String(raw);
-  if (String(raw).startsWith("/storage/v1")) return `${supabaseUrl}${raw}`;
-  return `${supabaseUrl}/storage/v1${String(raw).startsWith("/") ? "" : "/"}${raw}`;
+  const retries = Math.max(0, Math.min(8, options.retries || 0));
+  const label = options.label || "audio object";
+  let lastStatus = 0;
+  let lastMessage = "Object not found";
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const signRes = await fetch(`${supabaseUrl}/storage/v1/object/sign/audio/${encodedPath(storagePath)}`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ expiresIn }),
+    });
+    const signed = await signRes.json().catch(() => ({}));
+    if (signRes.ok) return absoluteStorageUrl(supabaseUrl, signed.signedURL || signed.signedUrl || signed.url);
+
+    lastStatus = signRes.status;
+    lastMessage = String(signed?.message || signed?.error || JSON.stringify(signed));
+    const visibilityDelay = signRes.status === 400 && /object\s+not\s+found/i.test(lastMessage);
+    if (!visibilityDelay || attempt === retries) break;
+    const delay = Math.min(4000, 400 * (2 ** attempt));
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+
+  throw new Error(`Could not sign ${label} (${lastStatus}): ${lastMessage}`);
 }
 
 async function signedUploadUrl(storagePath: string) {
@@ -117,11 +138,7 @@ async function signedUploadUrl(storagePath: string) {
   });
   const signed = await signRes.json().catch(() => ({}));
   if (!signRes.ok) throw new Error(`Could not create stem upload URL (${signRes.status}): ${signed?.message || JSON.stringify(signed)}`);
-  const raw = signed.signedURL || signed.signedUrl || signed.url;
-  if (!raw) throw new Error("Storage did not return a signed upload URL");
-  if (String(raw).startsWith("http")) return String(raw);
-  if (String(raw).startsWith("/storage/v1")) return `${supabaseUrl}${raw}`;
-  return `${supabaseUrl}/storage/v1${String(raw).startsWith("/") ? "" : "/"}${raw}`;
+  return absoluteStorageUrl(supabaseUrl, signed.signedURL || signed.signedUrl || signed.url);
 }
 
 async function removePaths(paths: string[]) {
@@ -138,7 +155,7 @@ async function startRunPodJob(req: Request, storagePath: string, stems: string[]
   if (!/^uploads\/[a-zA-Z0-9._/-]+$/.test(storagePath) || storagePath.includes("..")) throw new Error("Invalid storage path");
   const { endpointId, apiKey } = runpodCredentials();
   const ipHash = await checkUsageLimit(req, stems.length);
-  const inputUrl = await signedDownloadUrl(storagePath, 3600);
+  const inputUrl = await signedDownloadUrl(storagePath, 3600, { retries: 7, label: "uploaded source" });
   const jobToken = crypto.randomUUID();
   const outputPaths: Record<string, string> = {};
   const uploadUrls: Record<string, string> = {};
@@ -181,8 +198,8 @@ async function runPodStatus(jobId: string, stems: string[], outputPaths: Record<
   const outputs: Record<string, string> = {};
   for (const stem of stems) {
     const path = outputPaths[stem];
-    if (!path) continue;
-    outputs[stem] = await signedDownloadUrl(path, 3600);
+    if (!path) throw new Error(`Missing output path for returned ${stem} stem`);
+    outputs[stem] = await signedDownloadUrl(path, 3600, { retries: 7, label: `returned ${stem} stem` });
   }
   return { status: "SUCCEEDED", outputs, error: null };
 }
