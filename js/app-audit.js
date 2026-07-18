@@ -194,14 +194,17 @@ $('separateBtn').addEventListener('click', async () => {
   setStatus('separationStatus', 'Preparing stem separation…', 'busy');
   try {
     const outputs = await separateRequiredStems(stems, (message) => setStatus('separationStatus', message, 'busy'));
-    const ctx = await ensureAudioContext();
+    // Separation can take several minutes. By the time it finishes, Safari's
+    // original tap permission has expired. Decoding does not need playback,
+    // so keep the AudioContext suspended and resume only from the Play button.
+    const ctx = await ensureAudioContext(false);
     for (const stem of stems) {
       const url = outputs?.[stem];
       if (!url) throw new Error(`The separation job did not return a ${stem} stem.`);
       setStatus('separationStatus', `Downloading and measuring ${stem}…`, 'busy');
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Could not download ${stem} (${response.status}).`);
-      const buffer = await ctx.decodeAudioData(await response.arrayBuffer());
+      const buffer = await decodeAudioDataSafe(ctx, await response.arrayBuffer());
       state.stemBuffers[stem] = buffer;
     }
     await buildStemPlans();
