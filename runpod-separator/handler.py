@@ -7,7 +7,7 @@ from pathlib import Path
 import requests
 import runpod
 
-ALLOWED_STEMS = {"vocals", "bass", "drums", "other"}
+ALLOWED_STEMS = {"vocals", "bass", "drums", "guitars", "keys", "other"}
 
 
 def download(url: str, destination: Path) -> None:
@@ -61,9 +61,10 @@ def handler(job):
         model_dir = output_dir / os.getenv("DEMUCS_MODEL", "htdemucs") / source.stem
         outputs = {}
         for stem in requested:
-            file_path = model_dir / f"{stem}.wav"
+            source_stem = stem if stem in {"vocals", "bass", "drums", "other"} else "other"
+            file_path = model_dir / f"{source_stem}.wav"
             if not file_path.exists():
-                return {"error": f"Missing {stem} output"}
+                return {"error": f"Missing {source_stem} output for requested {stem} stem"}
             signed_upload = upload_urls.get(stem)
             if not signed_upload:
                 return {"error": f"Missing upload URL for {stem}"}
