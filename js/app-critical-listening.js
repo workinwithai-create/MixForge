@@ -118,9 +118,12 @@ currentPreviewBuffer = function currentCriticalPreviewBuffer() {
 const mfListenPreviousVerification = renderVerification;
 renderVerification = function renderCriticalListeningVerification(metrics, plan) {
   mfListenPreviousVerification(metrics, plan);
+  const root = $('verificationList');
+  for (const row of root.querySelectorAll('.check')) {
+    if ((row.textContent || '').includes('Estimated true peak:')) row.remove();
+  }
   const change = state.masterChange;
   if (!change) return;
-  const root = $('verificationList');
   const aligned = Math.abs(change.alignmentMs) <= 25 && change.alignmentCorrelation > 0.75;
   const row = document.createElement('div');
   row.className = `check ${aligned ? '' : 'warn'}`;
