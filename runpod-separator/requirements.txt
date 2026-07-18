@@ -1,0 +1,5 @@
+runpod==1.7.13
+torch>=2.2.0
+torchaudio>=2.2.0
+demucs==4.0.1
+requests>=2.31.0
