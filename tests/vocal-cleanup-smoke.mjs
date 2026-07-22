@@ -71,6 +71,7 @@ const context = vm.createContext({
 });
 
 vm.runInContext(fs.readFileSync(new URL('../js/app-vocal-cleanup.js', import.meta.url), 'utf8'), context);
+vm.runInContext(fs.readFileSync(new URL('../js/app-vocal-cleanup-guard.js', import.meta.url), 'utf8'), context);
 
 const sampleRate = 48000;
 const length = sampleRate * 4;
@@ -127,5 +128,21 @@ for (let index = 0; index < cleanLead.length; index++) {
 context.cleanLead = cleanLead;
 const cleanAnalysis = vm.runInContext('mfAnalyzeVocalLayers(cleanLead, cleanLead, 92)', context);
 assert.equal(cleanAnalysis.defaultMode, 'preserve', 'a centered clean lead should default to Preserve');
+
+context.guardFrame = {
+  recommendation: 'reduce', netRisk: 0.95, allowRemove: false,
+  noiseScore: 0.96, confidence: 0.92, levelPosition: 0.8,
+  layerScore: 0.2, quietNonVocalNoise: false,
+};
+const brightLeadTarget = vm.runInContext('mfVocalFrameTarget(guardFrame, "reduce")', context);
+assert.equal(brightLeadTarget.centerGain, 1, 'bright/high-level lead articulation must remain center-locked');
+
+context.quietNoiseFrame = {
+  recommendation: 'remove', netRisk: 0.95, allowRemove: true,
+  noiseScore: 0.96, confidence: 0.92, levelPosition: 0.15,
+  layerScore: 0.1, quietNonVocalNoise: true,
+};
+const quietNoiseTarget = vm.runInContext('mfVocalFrameTarget(quietNoiseFrame, "remove")', context);
+assert.ok(quietNoiseTarget.centerGain < 1, 'quiet high-confidence non-vocal noise may be attenuated');
 
 console.log('MixForge vocal cleanup smoke tests passed');
