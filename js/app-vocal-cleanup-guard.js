@@ -78,6 +78,16 @@ mfVocalFrameTarget = function mfVocalFrameTargetGuarded(frame, mode) {
   return { ...target, centerGain: dbToGain(-reductionDb) };
 };
 
+const mfVocalGuardRenderUI = mfRenderVocalCleanupUI;
+mfRenderVocalCleanupUI = function mfRenderVocalCleanupUIGuarded() {
+  mfVocalGuardRenderUI();
+  const analysis = state.vocalCleanup?.analysis;
+  if (!analysis || analysis.stereo) return;
+  const card = mfVocalFindCard();
+  const summary = card?.querySelector('.vocal-cleanup-summary');
+  if (summary) summary.textContent = 'This vocal stem is mono. MixForge preserves the entire center path; vocal-layer reduction and removal remain unavailable.';
+};
+
 function mfVocalGuardRegressionMetrics(before, after) {
   return {
     lufsShift: after.lufs - before.lufs,
