@@ -1,10 +1,10 @@
 {
   "name": "mixforge",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --check js/app-mastering-grade.js && node --check js/app-critical-listening.js && node tests/mastering-grade-smoke.mjs"
+    "test": "node --check js/app-mastering-grade.js && node --check js/app-critical-listening.js && node --check js/app-vocal-cleanup.js && node tests/mastering-grade-smoke.mjs && node tests/vocal-cleanup-smoke.mjs"
   },
   "engines": {
     "node": "24.x"
