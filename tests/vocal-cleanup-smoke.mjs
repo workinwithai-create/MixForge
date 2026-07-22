@@ -66,7 +66,7 @@ const context = vm.createContext({
   mfEl: () => ({ append() {}, querySelector() { return null; }, remove() {}, className: '', innerHTML: '', textContent: '' }),
   document: { querySelectorAll: () => [] },
   $: () => null,
-  state: { stemBuffers: {}, stemPlans: {}, original: null },
+  state: { stemBuffers: {}, stemPlans: {}, original: null, vocalCleanupSource: null },
   forensicState: { reconstruction: null },
 });
 
@@ -101,7 +101,7 @@ const cleaned = result.buffer;
 
 function midSideEnergy(buffer, start = 0) {
   const left = buffer.getChannelData(0);
-  const right = buffer.getChannelData(1);
+  const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left;
   let mid = 0;
   let side = 0;
   for (let index = start; index < buffer.length; index++) {
@@ -129,10 +129,26 @@ context.cleanLead = cleanLead;
 const cleanAnalysis = vm.runInContext('mfAnalyzeVocalLayers(cleanLead, cleanLead, 92)', context);
 assert.equal(cleanAnalysis.defaultMode, 'preserve', 'a centered clean lead should default to Preserve');
 
+const monoLead = new FakeBuffer(1, sampleRate * 2, sampleRate);
+for (let index = 0; index < monoLead.length; index++) {
+  monoLead.data[0][index] = Math.sin(2 * Math.PI * 3800 * index / sampleRate) * 0.22;
+}
+context.monoLead = monoLead;
+const monoAnalysis = vm.runInContext('mfAnalyzeVocalLayers(monoLead, monoLead, 92)', context);
+assert.equal(monoAnalysis.defaultMode, 'preserve', 'mono vocals must always default to Preserve');
+assert.equal(monoAnalysis.removableSeconds, 0, 'mono vocal frames must never authorize removal');
+context.monoFrame = {
+  mono: true, recommendation: 'remove', netRisk: 1, allowRemove: true,
+  noiseScore: 1, confidence: 1, levelPosition: 0.1,
+  layerScore: 0, quietNonVocalNoise: true,
+};
+const monoTarget = vm.runInContext('mfVocalFrameTarget(monoFrame, "remove")', context);
+assert.equal(monoTarget.centerGain, 1, 'mono vocal center path must remain immutable');
+
 context.guardFrame = {
   recommendation: 'reduce', netRisk: 0.95, allowRemove: false,
   noiseScore: 0.96, confidence: 0.92, levelPosition: 0.8,
-  layerScore: 0.2, quietNonVocalNoise: false,
+  layerScore: 0.2, quietNonVocalNoise: false, mono: false,
 };
 const brightLeadTarget = vm.runInContext('mfVocalFrameTarget(guardFrame, "reduce")', context);
 assert.equal(brightLeadTarget.centerGain, 1, 'bright/high-level lead articulation must remain center-locked');
@@ -140,9 +156,44 @@ assert.equal(brightLeadTarget.centerGain, 1, 'bright/high-level lead articulatio
 context.quietNoiseFrame = {
   recommendation: 'remove', netRisk: 0.95, allowRemove: true,
   noiseScore: 0.96, confidence: 0.92, levelPosition: 0.15,
-  layerScore: 0.1, quietNonVocalNoise: true,
+  layerScore: 0.1, quietNonVocalNoise: true, mono: false,
 };
 const quietNoiseTarget = vm.runInContext('mfVocalFrameTarget(quietNoiseFrame, "remove")', context);
 assert.ok(quietNoiseTarget.centerGain < 1, 'quiet high-confidence non-vocal noise may be attenuated');
+
+const baseMix = new FakeBuffer(2, sampleRate, sampleRate);
+const rawVocal = new FakeBuffer(2, sampleRate, sampleRate);
+const extremeClean = new FakeBuffer(2, sampleRate, sampleRate);
+for (let index = 0; index < sampleRate; index++) {
+  const center = Math.sin(2 * Math.PI * 180 * index / sampleRate) * 0.15;
+  const side = Math.sin(2 * Math.PI * 520 * index / sampleRate) * 0.55;
+  rawVocal.data[0][index] = center + side;
+  rawVocal.data[1][index] = center - side;
+  baseMix.data[0][index] = rawVocal.data[0][index];
+  baseMix.data[1][index] = rawVocal.data[1][index];
+  extremeClean.data[0][index] = center;
+  extremeClean.data[1][index] = center;
+}
+context.baseMix = baseMix;
+context.rawVocal = rawVocal;
+context.extremeClean = extremeClean;
+const guardedMix = vm.runInContext('mfVocalMixCleanup(baseMix, rawVocal, extremeClean, "remove")', context);
+assert.ok(Math.abs(guardedMix.metrics.lufsShift) <= 0.8 + 1e-9, 'regression guard must enforce loudness limit after scaling');
+assert.ok(Math.abs(guardedMix.metrics.widthShift) <= 3.5 + 1e-9, 'regression guard must enforce width limit after scaling');
+assert.ok(guardedMix.metrics.correlationShift >= -0.04 - 1e-9, 'regression guard must enforce correlation limit after scaling');
+assert.ok(guardedMix.metrics.peakShift <= 0.25 + 1e-9, 'regression guard must enforce peak limit after scaling');
+assert.ok(guardedMix.metrics.limitedByRegressionGuard, 'extreme cleanup should be reduced or reverted by the guard');
+
+let stopped = 0;
+let disconnected = 0;
+context.state.vocalCleanupSource = {
+  stop() { stopped++; },
+  disconnect() { disconnected++; },
+  onended: () => {},
+};
+vm.runInContext('stopPreview()', context);
+assert.equal(stopped, 1, 'shared preview stop path must stop vocal candidate playback');
+assert.equal(disconnected, 1, 'shared preview stop path must disconnect vocal candidate playback');
+assert.equal(context.state.vocalCleanupSource, null, 'shared preview stop path must clear the vocal source');
 
 console.log('MixForge vocal cleanup smoke tests passed');
