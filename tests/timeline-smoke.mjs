@@ -75,4 +75,12 @@ assert.ok(['strong_improvement', 'partial_improvement'].includes(selfCheck.asses
 assert.ok(selfCheck.resolved.includes('clipping'), 'self-check should report clipping resolved');
 assert.ok(selfCheck.scoreAfter < selfCheck.scoreBefore, 'weighted issue load should fall');
 
+const indexHtml = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+assert.match(indexHtml, /id="problemTimeline"/, 'source Problem Timeline mount should exist');
+assert.match(indexHtml, /id="masterTimeline"/, 'master Problem Timeline mount should exist');
+const analysisScriptIndex = indexHtml.indexOf('/js/app-timeline-analysis.js');
+const uiScriptIndex = indexHtml.indexOf('/js/app-timeline-ui.js');
+assert.ok(analysisScriptIndex > 0 && uiScriptIndex > analysisScriptIndex, 'analysis must load before timeline UI');
+assert.ok(uiScriptIndex > indexHtml.indexOf('/js/app-vocal-cleanup-guard.js'), 'timeline hooks must install after existing guards');
+
 console.log('MixForge timeline smoke tests passed');
