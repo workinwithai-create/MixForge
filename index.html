@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/signal-integrity.css?v=2.3.0">
   <link rel="stylesheet" href="/vocal-cleanup.css?v=2.3.0">
   <link rel="stylesheet" href="/timeline.css?v=2.3.0">
+  <link rel="stylesheet" href="/targeted-repair.css?v=2.3.0">
 </head>
 <body>
   <main class="shell">
@@ -51,7 +52,7 @@
       <div class="preview hidden" id="previewBox"><div class="preview-select"><label><input type="radio" name="preview" value="original"> Original</label><label><input type="radio" name="preview" value="corrected"> Corrected mix</label><label><input type="radio" name="preview" value="master" checked> Release master</label></div><button class="primary" id="playBtn">▶ Play selected preview</button><div class="meter"><i id="meterFill"></i></div></div>
     </section>
     <section class="panel hidden" id="verifyPanel">
-      <div class="panel-title"><span>5</span><div><h2>Release verification, timeline self-check, and translation</h2><p>Integrated loudness, EBU-style loudness range, true peak, mono, dynamics, aligned null monitoring, exact remaining problem windows, and export checks.</p></div></div>
+      <div class="panel-title"><span>5</span><div><h2>Release verification, timeline self-check, and targeted repair</h2><p>Integrated loudness, EBU-style loudness range, true peak, mono, dynamics, exact remaining problem windows, bounded repair candidates, and export checks.</p></div></div>
       <div class="metrics" id="finalMetrics"></div><div class="verification" id="verificationList"></div>
       <section class="problem-timeline master-timeline" id="masterTimeline" aria-live="polite"></section>
       <div class="actions"><button class="primary" id="exportBtn">Download verified release WAV</button></div><div class="status" id="exportStatus" aria-live="polite"></div>
@@ -76,5 +77,7 @@
   <script src="/js/app-vocal-cleanup-guard.js?v=2.3.0" defer></script>
   <script src="/js/app-timeline-analysis.js?v=2.3.0" defer></script>
   <script src="/js/app-timeline-ui.js?v=2.3.0" defer></script>
+  <script src="/js/app-targeted-repair.js?v=2.3.0" defer></script>
+  <script src="/js/app-targeted-repair-guard.js?v=2.3.0" defer></script>
 </body>
 </html>
