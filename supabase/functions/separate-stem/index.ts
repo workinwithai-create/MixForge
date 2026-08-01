@@ -114,25 +114,28 @@ async function checkUsageLimit(req: Request, requestedStemCount: number) {
   if (!usageRes.ok || !Array.isArray(usage)) throw new Error("Could not verify separation usage limits");
   const hourAgo = Date.now() - 60 * 60 * 1000;
   const daily = usage.reduce((sum, row) => sum + Number(row.stem_count || 0), 0);
-  const hourly = usage.filter((row) => new Date(row.created_at).getTime() >= hourAgo).reduce((sum, row) => sum + Number(row.stem_count || 0), 0);
+  const hourly = usage
+    .filter((row) => new Date(row.created_at).getTime() >= hourAgo)
+    .reduce((sum, row) => sum + Number(row.stem_count || 0), 0);
   if (hourly + requestedStemCount > HOURLY_STEM_LIMIT) throw new Error("Hourly stem-separation limit reached. Try again later.");
   if (daily + requestedStemCount > DAILY_STEM_LIMIT) throw new Error("Daily stem-separation limit reached. Try again tomorrow.");
-  return ipHash;
 }
 
-async function recordUsage(ipHash: string, requestedStemCount: number) {
+async function recordSuccessfulUsage(jobId: string, ipHash: string, requestedStemCount: number) {
   const { supabaseUrl, serviceKey } = serverCredentials();
-  const insertRes = await fetch(`${supabaseUrl}/rest/v1/mixforge_stem_usage`, {
+  const query = new URL(`${supabaseUrl}/rest/v1/mixforge_stem_usage`);
+  query.searchParams.set("on_conflict", "job_id");
+  const insertRes = await fetch(query, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${serviceKey}`,
       "apikey": serviceKey,
       "Content-Type": "application/json",
-      "Prefer": "return=minimal",
+      "Prefer": "resolution=ignore-duplicates,return=minimal",
     },
-    body: JSON.stringify({ ip_hash: ipHash, stem_count: requestedStemCount }),
+    body: JSON.stringify({ job_id: jobId, ip_hash: ipHash, stem_count: requestedStemCount }),
   });
-  if (!insertRes.ok) console.warn("Could not record successful separation usage");
+  if (!insertRes.ok) console.warn("Could not record successful separation usage", insertRes.status);
 }
 
 type SignOptions = { retries?: number; label?: string };
@@ -181,7 +184,7 @@ async function removePaths(paths: string[]) {
 async function startRunPodJob(req: Request, storagePath: string, stems: string[]) {
   if (!/^uploads\/[a-zA-Z0-9._/-]+$/.test(storagePath) || storagePath.includes("..")) throw new Error("Invalid storage path");
   const { endpointId, apiKey } = runpodCredentials();
-  const ipHash = await checkUsageLimit(req, stems.length);
+  await checkUsageLimit(req, stems.length);
   const inputUrl = await signedDownloadUrl(storagePath, 3600, { retries: 7, label: "uploaded source" });
   const jobToken = crypto.randomUUID();
   const outputPaths: Record<string, string> = {};
@@ -201,11 +204,10 @@ async function startRunPodJob(req: Request, storagePath: string, stems: string[]
     await removePaths(Object.values(outputPaths));
     throw new Error(`RunPod start failed (${runRes.status}): ${run?.error || run?.message || JSON.stringify(run)}`);
   }
-  await recordUsage(ipHash, stems.length);
   return { jobId: String(run.id), outputPaths };
 }
 
-async function runPodStatus(jobId: string, stems: string[], outputPaths: Record<string, string>) {
+async function runPodStatus(req: Request, jobId: string, stems: string[], outputPaths: Record<string, string>) {
   const { endpointId, apiKey } = runpodCredentials();
   if (!/^[a-zA-Z0-9_-]{6,200}$/.test(jobId)) throw new Error("Invalid RunPod job id");
   const statusRes = await fetch(`https://api.runpod.ai/v2/${encodeURIComponent(endpointId)}/status/${encodeURIComponent(jobId)}`, {
@@ -218,18 +220,23 @@ async function runPodStatus(jobId: string, stems: string[], outputPaths: Record<
   if (rawStatus === "FAILED" || rawStatus === "CANCELLED" || job?.output?.error) {
     await removePaths(Object.values(outputPaths));
     const rawError = String(job?.output?.error || job?.error || `RunPod job ${rawStatus.toLowerCase()}`);
-    const helpfulError = /storage\/v1\/object\/upload\/sign|400 Client Error: Bad Request/i.test(rawError)
-      ? "The separator finished processing but its legacy storage upload was rejected. Retry now; new jobs use the compatible stem-upload bridge."
-      : rawError;
+    let helpfulError = rawError;
+    if (/functions\/v1\/stem-upload/i.test(rawError)) {
+      helpfulError = "The separator produced the stem, but the upload bridge rejected delivery. A newer bridge is now deployed; start a fresh source investigation.";
+    } else if (/storage\/v1\/object\/upload\/sign/i.test(rawError)) {
+      helpfulError = "The separator used an obsolete signed-storage upload. Start a fresh source investigation so the job receives the current upload bridge.";
+    }
     return { status: "FAILED", outputs: null, error: helpfulError };
   }
   if (rawStatus !== "COMPLETED") return { status: rawStatus, outputs: null, error: null };
+
   const outputs: Record<string, string> = {};
   for (const stem of stems) {
     const path = outputPaths[stem];
     if (!path) throw new Error(`Missing output path for returned ${stem} stem`);
     outputs[stem] = await signedDownloadUrl(path, 3600, { retries: 7, label: `returned ${stem} stem` });
   }
+  await recordSuccessfulUsage(jobId, await clientHash(req), stems.length);
   return { status: "SUCCEEDED", outputs, error: null };
 }
 
@@ -250,8 +257,10 @@ Deno.serve(async (req) => {
       return response(req, 200, { ok: true, status: "QUEUED", jobId: started.jobId, stems, outputPaths: started.outputPaths });
     }
     const jobId = String(body?.jobId || "");
-    const outputPaths = body?.outputPaths && typeof body.outputPaths === "object" ? body.outputPaths as Record<string, string> : {};
-    const result = await runPodStatus(jobId, stems, outputPaths);
+    const outputPaths = body?.outputPaths && typeof body.outputPaths === "object"
+      ? body.outputPaths as Record<string, string>
+      : {};
+    const result = await runPodStatus(req, jobId, stems, outputPaths);
     if (result.status === "SUCCEEDED" || result.status === "FAILED") await removePaths(storagePath ? [storagePath] : []);
     return response(req, 200, { ok: true, ...result, outputPaths });
   } catch (error) {
