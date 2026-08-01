@@ -9,11 +9,11 @@ const ALLOWED_ORIGINS = [
 const HOURLY_STEM_LIMIT = 12;
 const DAILY_STEM_LIMIT = 30;
 
-function isAllowedOrigin(origin: string) {
+function isAllowedOrigin(origin) {
   return ALLOWED_ORIGINS.some((pattern) => pattern.test(origin));
 }
 
-function cors(req: Request) {
+function cors(req) {
   const origin = req.headers.get("origin") || "";
   return {
     "Access-Control-Allow-Origin": isAllowedOrigin(origin) ? origin : "https://mix.workinwithai.com",
@@ -25,20 +25,20 @@ function cors(req: Request) {
   };
 }
 
-function response(req: Request, status: number, body: Record<string, unknown>) {
+function response(req, status, body) {
   return new Response(JSON.stringify(body), { status, headers: cors(req) });
 }
 
-function safeStems(value: unknown): string[] {
+function safeStems(value) {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter((stem): stem is string => typeof stem === "string" && ALLOWED_STEMS.has(stem)))].slice(0, 6);
+  return [...new Set(value.filter((stem) => typeof stem === "string" && ALLOWED_STEMS.has(stem)))].slice(0, 6);
 }
 
-function encodedPath(path: string) {
+function encodedPath(path) {
   return path.split("/").map(encodeURIComponent).join("/");
 }
 
-function absoluteStorageUrl(supabaseUrl: string, raw: unknown) {
+function absoluteStorageUrl(supabaseUrl, raw) {
   const value = String(raw || "");
   if (!value) throw new Error("Storage did not return a signed URL");
   if (value.startsWith("http")) return value;
@@ -60,37 +60,7 @@ function runpodCredentials() {
   return { endpointId, apiKey };
 }
 
-function base64UrlEncode(bytes: Uint8Array) {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-async function createWorkerUploadToken(storagePath: string, expiresIn = 7200) {
-  const { serviceKey } = serverCredentials();
-  const payload = base64UrlEncode(new TextEncoder().encode(JSON.stringify({
-    path: storagePath,
-    exp: Math.floor(Date.now() / 1000) + expiresIn,
-    nonce: crypto.randomUUID(),
-  })));
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(serviceKey),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload)));
-  return `${payload}.${base64UrlEncode(signature)}`;
-}
-
-async function workerUploadUrl(storagePath: string) {
-  const { supabaseUrl } = serverCredentials();
-  const token = await createWorkerUploadToken(storagePath);
-  return `${supabaseUrl}/functions/v1/stem-upload?token=${encodeURIComponent(token)}`;
-}
-
-async function clientHash(req: Request) {
+async function clientHash(req) {
   const { serviceKey } = serverCredentials();
   const forwarded = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   const address = forwarded || req.headers.get("cf-connecting-ip") || req.headers.get("x-real-ip") || "unknown";
@@ -99,7 +69,7 @@ async function clientHash(req: Request) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function checkUsageLimit(req: Request, requestedStemCount: number) {
+async function checkUsageLimit(req, requestedStemCount) {
   const { supabaseUrl, serviceKey } = serverCredentials();
   const ipHash = await clientHash(req);
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -121,7 +91,7 @@ async function checkUsageLimit(req: Request, requestedStemCount: number) {
   if (daily + requestedStemCount > DAILY_STEM_LIMIT) throw new Error("Daily stem-separation limit reached. Try again tomorrow.");
 }
 
-async function recordSuccessfulUsage(jobId: string, ipHash: string, requestedStemCount: number) {
+async function recordSuccessfulUsage(jobId, ipHash, requestedStemCount) {
   const { supabaseUrl, serviceKey } = serverCredentials();
   const query = new URL(`${supabaseUrl}/rest/v1/mixforge_stem_usage`);
   query.searchParams.set("on_conflict", "job_id");
@@ -138,11 +108,9 @@ async function recordSuccessfulUsage(jobId: string, ipHash: string, requestedSte
   if (!insertRes.ok) console.warn("Could not record successful separation usage", insertRes.status);
 }
 
-type SignOptions = { retries?: number; label?: string };
-
-async function signedDownloadUrl(storagePath: string, expiresIn = 3600, options: SignOptions = {}) {
+async function signedDownloadUrl(storagePath, expiresIn = 3600, options = {}) {
   const { supabaseUrl, serviceKey } = serverCredentials();
-  const retries = Math.max(0, Math.min(8, options.retries || 0));
+  const retries = Math.max(0, Math.min(8, Number(options.retries || 0)));
   const label = options.label || "audio object";
   let lastStatus = 0;
   let lastMessage = "Object not found";
@@ -167,7 +135,26 @@ async function signedDownloadUrl(storagePath: string, expiresIn = 3600, options:
   throw new Error(`Could not sign ${label} (${lastStatus}): ${lastMessage}`);
 }
 
-async function removePaths(paths: string[]) {
+async function signedUploadUrl(storagePath) {
+  const { supabaseUrl, serviceKey } = serverCredentials();
+  const signRes = await fetch(`${supabaseUrl}/storage/v1/object/upload/sign/audio/${encodedPath(storagePath)}`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${serviceKey}`,
+      "apikey": serviceKey,
+      "Content-Type": "application/json",
+      "x-upsert": "true",
+    },
+    body: JSON.stringify({}),
+  });
+  const signed = await signRes.json().catch(() => ({}));
+  if (!signRes.ok) {
+    throw new Error(`Could not create stem upload URL (${signRes.status}): ${signed?.message || signed?.error || JSON.stringify(signed)}`);
+  }
+  return absoluteStorageUrl(supabaseUrl, signed.signedURL || signed.signedUrl || signed.url);
+}
+
+async function removePaths(paths) {
   if (!paths.length) return;
   const { supabaseUrl, serviceKey } = serverCredentials();
   await fetch(`${supabaseUrl}/storage/v1/object/audio`, {
@@ -181,18 +168,20 @@ async function removePaths(paths: string[]) {
   }).catch(() => undefined);
 }
 
-async function startRunPodJob(req: Request, storagePath: string, stems: string[]) {
-  if (!/^uploads\/[a-zA-Z0-9._/-]+$/.test(storagePath) || storagePath.includes("..")) throw new Error("Invalid storage path");
+async function startRunPodJob(req, storagePath, stems) {
+  if (!/^uploads\/[a-zA-Z0-9._/-]+$/.test(storagePath) || storagePath.includes("..")) {
+    throw new Error("Invalid storage path");
+  }
   const { endpointId, apiKey } = runpodCredentials();
   await checkUsageLimit(req, stems.length);
   const inputUrl = await signedDownloadUrl(storagePath, 3600, { retries: 7, label: "uploaded source" });
   const jobToken = crypto.randomUUID();
-  const outputPaths: Record<string, string> = {};
-  const uploadUrls: Record<string, string> = {};
+  const outputPaths = {};
+  const uploadUrls = {};
   for (const stem of stems) {
     const path = `separated/${jobToken}/${stem}.wav`;
     outputPaths[stem] = path;
-    uploadUrls[stem] = await workerUploadUrl(path);
+    uploadUrls[stem] = await signedUploadUrl(path);
   }
   const runRes = await fetch(`https://api.runpod.ai/v2/${encodeURIComponent(endpointId)}/run`, {
     method: "POST",
@@ -207,7 +196,7 @@ async function startRunPodJob(req: Request, storagePath: string, stems: string[]
   return { jobId: String(run.id), outputPaths };
 }
 
-async function runPodStatus(req: Request, jobId: string, stems: string[], outputPaths: Record<string, string>) {
+async function runPodStatus(req, jobId, stems, outputPaths) {
   const { endpointId, apiKey } = runpodCredentials();
   if (!/^[a-zA-Z0-9_-]{6,200}$/.test(jobId)) throw new Error("Invalid RunPod job id");
   const statusRes = await fetch(`https://api.runpod.ai/v2/${encodeURIComponent(endpointId)}/status/${encodeURIComponent(jobId)}`, {
@@ -222,15 +211,14 @@ async function runPodStatus(req: Request, jobId: string, stems: string[], output
     const rawError = String(job?.output?.error || job?.error || `RunPod job ${rawStatus.toLowerCase()}`);
     let helpfulError = rawError;
     if (/functions\/v1\/stem-upload/i.test(rawError)) {
-      helpfulError = "The separator produced the stem, but the upload bridge rejected delivery. A newer bridge is now deployed; start a fresh source investigation.";
-    } else if (/storage\/v1\/object\/upload\/sign/i.test(rawError)) {
-      helpfulError = "The separator used an obsolete signed-storage upload. Start a fresh source investigation so the job receives the current upload bridge.";
+      helpfulError = "This job used the retired upload bridge. Start a fresh source investigation.";
+    } else if (/storage\/v1\/object\/upload\/sign/i.test(rawError) && /400 Client Error/i.test(rawError)) {
+      helpfulError = "The separated WAV exceeded the current Supabase Storage file-size setting. Raise the MixForge project's Global file size limit to 200 MB, then start a fresh source investigation.";
     }
     return { status: "FAILED", outputs: null, error: helpfulError };
   }
   if (rawStatus !== "COMPLETED") return { status: rawStatus, outputs: null, error: null };
-
-  const outputs: Record<string, string> = {};
+  const outputs = {};
   for (const stem of stems) {
     const path = outputPaths[stem];
     if (!path) throw new Error(`Missing output path for returned ${stem} stem`);
@@ -257,11 +245,11 @@ Deno.serve(async (req) => {
       return response(req, 200, { ok: true, status: "QUEUED", jobId: started.jobId, stems, outputPaths: started.outputPaths });
     }
     const jobId = String(body?.jobId || "");
-    const outputPaths = body?.outputPaths && typeof body.outputPaths === "object"
-      ? body.outputPaths as Record<string, string>
-      : {};
+    const outputPaths = body?.outputPaths && typeof body.outputPaths === "object" ? body.outputPaths : {};
     const result = await runPodStatus(req, jobId, stems, outputPaths);
-    if (result.status === "SUCCEEDED" || result.status === "FAILED") await removePaths(storagePath ? [storagePath] : []);
+    if (result.status === "SUCCEEDED" || result.status === "FAILED") {
+      await removePaths(storagePath ? [storagePath] : []);
+    }
     return response(req, 200, { ok: true, ...result, outputPaths });
   } catch (error) {
     if (storagePath) await removePaths([storagePath]);
