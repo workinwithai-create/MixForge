@@ -1,5 +1,7 @@
+import { createClient } from "npm:@supabase/supabase-js@2";
+
 const BUCKET = "audio";
-const MAX_BYTES = 220 * 1024 * 1024;
+const MAX_BYTES = 180 * 1024 * 1024;
 const PATH_PATTERN = /^separated\/[0-9a-f-]{36}\/(vocals|bass|drums|guitars|keys|other)\.wav$/i;
 
 function serverCredentials() {
@@ -42,18 +44,14 @@ async function verifyToken(token: string) {
   return path;
 }
 
-function encodedPath(path: string) {
-  return path.split("/").map(encodeURIComponent).join("/");
-}
-
-async function extractBody(req: Request): Promise<{ body: BodyInit; contentType: string; bytes: number | null }> {
+async function extractFile(req: Request): Promise<{ file: Blob; contentType: string }> {
   const declaredLength = Number(req.headers.get("content-length") || 0);
-  if (declaredLength > MAX_BYTES) throw new Error("Stem file exceeds the 220 MB upload limit");
+  if (declaredLength > MAX_BYTES) throw new Error("Stem file exceeds the 180 MB upload limit");
   const incomingType = req.headers.get("content-type") || "audio/wav";
 
+  let file: Blob | null = null;
   if (/multipart\/form-data/i.test(incomingType)) {
     const form = await req.formData();
-    let file: Blob | null = null;
     for (const value of form.values()) {
       if (value instanceof Blob) {
         file = value;
@@ -61,13 +59,16 @@ async function extractBody(req: Request): Promise<{ body: BodyInit; contentType:
       }
     }
     if (!file) throw new Error("Multipart upload did not contain a file");
-    if (file.size <= 44) throw new Error("Uploaded stem was empty");
-    if (file.size > MAX_BYTES) throw new Error("Stem file exceeds the 220 MB upload limit");
-    return { body: file, contentType: file.type || "audio/wav", bytes: file.size };
+  } else {
+    file = await req.blob();
   }
 
-  if (!req.body) throw new Error("Upload body was empty");
-  return { body: req.body, contentType: incomingType || "audio/wav", bytes: declaredLength || null };
+  if (file.size <= 44) throw new Error("Uploaded stem was empty");
+  if (file.size > MAX_BYTES) throw new Error("Stem file exceeds the 180 MB upload limit");
+  const contentType = file.type && file.type !== "application/octet-stream"
+    ? file.type
+    : (/audio\//i.test(incomingType) ? incomingType : "audio/wav");
+  return { file, contentType };
 }
 
 function json(status: number, body: Record<string, unknown>) {
@@ -81,31 +82,33 @@ Deno.serve(async (req) => {
   if (!["PUT", "POST"].includes(req.method)) return json(405, { ok: false, error: "Method not allowed" });
   try {
     const url = new URL(req.url);
-    const token = url.searchParams.get("token") || "";
-    const path = await verifyToken(token);
+    const path = await verifyToken(url.searchParams.get("token") || "");
     const { supabaseUrl, serviceKey } = serverCredentials();
-    const upload = await extractBody(req);
-    const storageRes = await fetch(`${supabaseUrl}/storage/v1/object/${BUCKET}/${encodedPath(path)}`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${serviceKey}`,
-        "apikey": serviceKey,
-        "Content-Type": upload.contentType || "audio/wav",
-        "x-upsert": "true",
-        "cache-control": "no-store",
-      },
-      body: upload.body,
+    const { file, contentType } = await extractFile(req);
+    const admin = createClient(supabaseUrl, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
     });
-    const responseText = await storageRes.text();
-    if (!storageRes.ok) {
-      console.error("MixForge stem bridge storage rejection", storageRes.status, responseText.slice(0, 800));
-      return json(storageRes.status, {
+    const { data, error } = await admin.storage.from(BUCKET).upload(path, file, {
+      contentType,
+      cacheControl: "0",
+      upsert: true,
+    });
+    if (error) {
+      console.error("MixForge official storage upload rejection", {
+        statusCode: error.statusCode,
+        name: error.name,
+        message: error.message,
+        path,
+        bytes: file.size,
+        contentType,
+      });
+      return json(Number(error.statusCode) || 400, {
         ok: false,
-        error: `Private stem storage rejected the upload (${storageRes.status})`,
-        detail: responseText.slice(0, 500),
+        error: error.message || "Private stem storage rejected the upload",
+        code: error.name || "StorageError",
       });
     }
-    return json(200, { ok: true, path, bytes: upload.bytes });
+    return json(200, { ok: true, path: data.path, bytes: file.size, contentType });
   } catch (error) {
     console.error("MixForge stem upload bridge error", error);
     const message = String(error?.message || error);
