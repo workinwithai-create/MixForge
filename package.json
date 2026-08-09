@@ -1,10 +1,10 @@
 {
   "name": "mixforge",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --check js/app-mastering-grade.js && node --check js/app-critical-listening.js && node --check js/app-vocal-cleanup.js && node --check js/app-vocal-cleanup-guard.js && node tests/mastering-grade-smoke.mjs && node tests/vocal-cleanup-smoke.mjs"
+    "test": "node --check js/app-mastering-grade.js && node --check js/app-critical-listening.js && node --check js/app-vocal-cleanup.js && node --check js/app-vocal-cleanup-guard.js && node --check js/app-timeline-analysis.js && node --check js/app-timeline-ui.js && node --check js/app-targeted-repair.js && node --check js/app-targeted-repair-guard.js && node tests/mastering-grade-smoke.mjs && node tests/vocal-cleanup-guard-smoke.mjs && node tests/timeline-smoke.mjs && node tests/targeted-repair-smoke.mjs"
   },
   "engines": {
     "node": "24.x"
