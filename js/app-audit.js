@@ -11,10 +11,10 @@ function fallbackMixAudit(metrics, notes, targetLufs) {
   const subExcess = band(metrics, 'Sub') - band(metrics, 'Bass');
   if (subExcess > 2.5) add('medium', 'mix', 'Sub energy is consuming headroom', `Sub energy is ${subExcess.toFixed(1)} dB above the bass band.`, 'Inspect the bass stem before applying a broad master-bus cut.', 'bass');
   const sideMud = band(metrics, 'Low-mids', true) - band(metrics, 'Mids', true);
-  if (sideMud > 8) add('medium', 'mix', 'Wide low-mid smear', `Side-channel low-mids are ${sideMud.toFixed(1)} dB above side mids.`, 'Inspect guitars, keys or ambience stems and clean the source of the width.', 'guitars');
+  if (sideMud > 8) add('medium', 'mix', 'Wide low-mid smear', `Side-channel low-mids are ${sideMud.toFixed(1)} dB above side mids.`, 'Inspect residual other (guitars/keys/ambience share this Demucs bucket) and clean the source of the width.', 'other');
   const sibDelta = metrics.sibilance.p95Db - metrics.sibilance.medianDb;
   if (metrics.sibilance.flares > metrics.sibilance.frames * 0.05 && sibDelta > 7) add('medium', 'mix', 'Sibilance or cymbal spikes', `${metrics.sibilance.flares} high-frequency flares rise ${sibDelta.toFixed(1)} dB above the normal top end.`, 'Separate vocals first; use dynamic de-essing only on the stem that creates the flare.', 'vocals');
-  if (metrics.correlation < 0.15) add('high', 'mix', 'Mono compatibility risk', `Stereo correlation is ${metrics.correlation.toFixed(2)}.`, 'Inspect wide instruments and ambience stems for polarity or excessive decorrelation.', 'other');
+  if (metrics.correlation < 0.15) add('high', 'mix', 'Mono compatibility risk', `Stereo correlation is ${metrics.correlation.toFixed(2)}.`, 'Inspect residual other and ambience for polarity or excessive decorrelation.', 'other');
   if (metrics.crestDb < 8) add('high', 'mix', 'Dynamics already over-controlled', `Crest factor is only ${metrics.crestDb.toFixed(1)} dB.`, 'Do not add mastering compression. Return to a less-limited mix if punch and transients are missing.');
   if (metrics.lra > 15) add('low', 'master', 'Very wide macro-dynamics', `Approximate loudness range is ${metrics.lra.toFixed(1)} LU.`, 'Use gentle automation or compression only if sections fail to translate consistently.');
   const stemsToInspect = [...new Set(findings.map((f) => f.stem).filter(Boolean))];
