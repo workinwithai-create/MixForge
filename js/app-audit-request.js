@@ -113,7 +113,9 @@ async function requestAIOnce(payload, options) {
 async function requestAI(payload, options = {}) {
   const timeoutMs = options.timeoutMs ?? AI_AUDIT_TIMEOUT_MS;
   const maxAttempts = options.maxAttempts ?? AI_AUDIT_MAX_ATTEMPTS;
-  const fetchImpl = options.fetch || fetch;
+  const fetchImpl = typeof options.fetch === 'function'
+    ? options.fetch
+    : (...args) => globalThis.fetch(...args);
   const compact = compactAuditPayload(payload);
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
