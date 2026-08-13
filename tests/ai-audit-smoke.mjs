@@ -174,15 +174,17 @@ await assert.rejects(
 );
 assert.equal(exhausted, 2);
 
-function windowLikeFetch(url, init) {
-  if (this !== context) {
-    throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
-  }
-  assert.equal(url, '/api/analyze');
-  assert.equal(init.method, 'POST');
-  return jsonResponse(200, { ok: true, plan: { readinessScore: 90, summary: 'bound fetch' } });
-}
-context.fetch = windowLikeFetch;
+context.jsonResponse = jsonResponse;
+vm.runInContext(`
+  globalThis.fetch = function windowLikeFetch(url, init) {
+    if (this !== globalThis) {
+      throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+    }
+    if (url !== '/api/analyze') throw new Error('unexpected url: ' + url);
+    if (init.method !== 'POST') throw new Error('unexpected method');
+    return jsonResponse(200, { ok: true, plan: { readinessScore: 90, summary: 'bound fetch' } });
+  };
+`, context);
 
 const defaultFetchPlan = await context.requestAI(
   { phase: 'mix', metrics: { lufs: -14 } },
