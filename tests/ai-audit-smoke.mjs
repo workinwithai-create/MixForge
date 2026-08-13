@@ -174,4 +174,33 @@ await assert.rejects(
 );
 assert.equal(exhausted, 2);
 
+function windowLikeFetch(url, init) {
+  if (this !== context) {
+    throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+  }
+  assert.equal(url, '/api/analyze');
+  assert.equal(init.method, 'POST');
+  return jsonResponse(200, { ok: true, plan: { readinessScore: 90, summary: 'bound fetch' } });
+}
+context.fetch = windowLikeFetch;
+
+const defaultFetchPlan = await context.requestAI(
+  { phase: 'mix', metrics: { lufs: -14 } },
+  { timeoutMs: 1000, maxAttempts: 1 },
+);
+assert.equal(defaultFetchPlan.readinessScore, 90, 'default fetch must be invoked as a method of globalThis/window');
+
+let injectedCalls = 0;
+const injectedFetch = async function injectedFetch() {
+  injectedCalls += 1;
+  assert.notEqual(this, context, 'injected fetch must be used as-is, not rebound to window');
+  return jsonResponse(200, { ok: true, plan: { readinessScore: 64 } });
+};
+const injectedPlan = await context.requestAI(
+  { phase: 'mix', metrics: { lufs: -11 } },
+  { fetch: injectedFetch, timeoutMs: 1000, maxAttempts: 1 },
+);
+assert.equal(injectedPlan.readinessScore, 64);
+assert.equal(injectedCalls, 1);
+
 console.log('ai-audit-smoke: ok');
