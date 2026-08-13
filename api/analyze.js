@@ -40,14 +40,16 @@ Artist notes: ${notes || 'none'}
 Requested release target: ${targetLufs} LUFS.
 
 Return ONLY JSON with this shape:
-{"readinessScore":0-100,"summary":"short professional assessment","stemsToInspect":["vocals"|"bass"|"drums"|"guitars"|"keys"|"other"],"findings":[{"severity":"high"|"medium"|"low","stage":"mix"|"master","problem":"title","evidence":"cite measured evidence","action":"specific corrective action","stem":"allowed stem or null"}]}
+{"readinessScore":0-100,"summary":"short professional assessment","stemsToInspect":["vocals"|"bass"|"drums"|"other"],"findings":[{"severity":"high"|"medium"|"low","stage":"mix"|"master","problem":"title","evidence":"cite measured evidence","action":"specific corrective action","stem":"vocals"|"bass"|"drums"|"other"|null}]}
 
 Rules:
 - Prioritize clipping, phase/mono risk, masking, resonance, sibilance, unstable low end, over-compression, excessive width, and translation problems.
-- A stereo audit cannot prove instrument-specific problems; use cautious wording and request the most relevant stem for confirmation.
+- A stereo audit cannot prove instrument-specific problems; use cautious wording and request the most relevant Demucs stem for confirmation.
+- Demucs htdemucs only yields vocals, bass, drums, and residual other. Do not request guitars or keys as separate stems — they land in other.
 - Do not invent exact frequencies unless measurements justify a band.
 - 3 to 9 findings maximum.
-- Mastering findings must be broad and conservative. Stem repair happens before mastering.`;
+- Mastering findings must be broad and conservative. Stem repair happens before mastering.
+- Prefer Quick Master (no stems) language when readiness is high and isolation is not required.`;
 }
 
 function stemPrompt(body) {
