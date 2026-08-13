@@ -1,4 +1,9 @@
 const ALLOWED_STEMS = new Set(['vocals', 'bass', 'drums', 'guitars', 'keys', 'other']);
+const ANTHROPIC_TIMEOUT_MS = 52000;
+
+export const config = {
+  maxDuration: 60,
+};
 
 function json(res, status, body) {
   res.status(status).json(body);
@@ -8,7 +13,7 @@ function clampText(value, max) {
   return String(value || '').replace(/[\u0000-\u001f]/g, ' ').slice(0, max);
 }
 
-function compactMetrics(metrics) {
+export function compactMetrics(metrics) {
   if (!metrics || typeof metrics !== 'object') return {};
   const number = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
   const bands = (items) => Array.isArray(items) ? items.slice(0, 8).map((item) => ({ name: clampText(item?.name, 24), db: number(item?.db) })) : [];
@@ -91,11 +96,26 @@ export default async function handler(req, res) {
     const prompt = phase === 'stems' ? stemPrompt(body) : mixPrompt(body);
     if (prompt.length > 18000) throw new Error('Analysis payload is too large.');
     const model = process.env.ANTHROPIC_MODEL?.trim() || 'claude-sonnet-4-6';
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model, max_tokens: phase === 'stems' ? 2400 : 1800, temperature: 0.1, messages: [{ role: 'user', content: prompt }] }),
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ANTHROPIC_TIMEOUT_MS);
+    let response;
+    try {
+      response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model, max_tokens: phase === 'stems' ? 2400 : 1800, temperature: 0.1, messages: [{ role: 'user', content: prompt }] }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        const timed = new Error('AI audit timed out');
+        timed.statusCode = 504;
+        throw timed;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(`Anthropic ${response.status}: ${data?.error?.message || 'request failed'}`);
     const text = Array.isArray(data.content) ? data.content.filter((part) => part.type === 'text').map((part) => part.text).join('') : '';
@@ -103,6 +123,7 @@ export default async function handler(req, res) {
     return json(res, 200, { ok: true, plan });
   } catch (error) {
     console.error('MixForge analyze error:', error);
-    return json(res, 400, { ok: false, error: error.message || String(error) });
+    const status = error.statusCode === 504 ? 504 : 400;
+    return json(res, status, { ok: false, error: error.message || String(error) });
   }
 }
