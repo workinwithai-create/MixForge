@@ -46,24 +46,6 @@ function validateAudit(value, fallback) {
   };
 }
 
-async function requestAI(payload) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 35000);
-  try {
-    const response = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.ok) throw new Error(data.error || `AI request failed (${response.status})`);
-    return data.plan;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 $('auditBtn').addEventListener('click', async () => {
   if (!state.original) return;
   $('auditBtn').disabled = true;
@@ -77,12 +59,17 @@ $('auditBtn').addEventListener('click', async () => {
     const fallback = fallbackMixAudit(metrics, notes, targetLufs);
     let audit = fallback;
     try {
-      const ai = await requestAI({ phase: 'mix', metrics, notes, targetLufs });
+      setStatus('auditStatus', 'AI engineer is reading the measurements…', 'busy');
+      const ai = await requestAI({ phase: 'mix', metrics, notes, targetLufs }, {
+        onRetry() {
+          setStatus('auditStatus', 'AI engineer is retrying after a timeout…', 'busy');
+        },
+      });
       audit = validateAudit(ai, fallback);
       setStatus('auditStatus', 'Audit complete. AI and measured evidence agree on the repair path.', 'ok');
     } catch (error) {
       console.warn('AI audit unavailable; using measured rule engine.', error);
-      setStatus('auditStatus', 'Audit complete using the built-in measurement engine. The AI layer was unavailable, but the repair pipeline remains functional.', 'ok');
+      setStatus('auditStatus', aiFallbackStatusMessage(error), 'warn');
     }
     state.audit = audit;
     renderAudit(audit, metrics);
