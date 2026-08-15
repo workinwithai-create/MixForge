@@ -294,6 +294,10 @@ function mfTargetRenderResult(root, selected, candidate, afterAnalysis, afterMet
     keepButton.onclick = async () => {
       stopPreview();
       state.master = candidate;
+      state.masterDirty = false;
+      state.masterRevision = (state.masterRevision || 0) + 1;
+      state.masterRenderSignature = `${candidate.length}:${candidate.sampleRate}:${candidate.numberOfChannels}`;
+      if ($('exportBtn')) $('exportBtn').disabled = false;
       state.finalMetrics = afterMetrics;
       state.timelineMasterAnalysis = afterAnalysis;
       renderMetrics('finalMetrics', state.finalMetrics);

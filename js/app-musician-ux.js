@@ -272,6 +272,9 @@ async function mfStartQuickMaster() {
   }
   state.mixforgePath = 'quick';
   mfHideStemUi();
+  state.master = null;
+  state.finalMetrics = null;
+  state.masterDirty = true;
   if ($('pathChooser')) {
     $('pathChooser').querySelectorAll('.path-card').forEach((card) => card.classList.remove('active'));
     $('quickMasterPathBtn')?.classList.add('active');
@@ -285,6 +288,7 @@ async function mfStartQuickMaster() {
     $('renderMasterBtn').disabled = true;
     setStatus('masterStatus', 'Quick Master rendering tonal balance, loudness, and true-peak-safe limiting…', 'busy');
     state.master = await renderReleaseMaster();
+    markMasterRendered(state.master);
     state.finalMetrics = measureBuffer(state.master);
     renderMetrics('finalMetrics', state.finalMetrics);
     renderVerification(state.finalMetrics, state.masterPlan);

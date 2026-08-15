@@ -14,11 +14,41 @@ function buildMasterPlan(metrics, targetLufs) {
 
 function prepareMastering() {
   if (!state.corrected) state.corrected = state.original;
+  state.master = null;
+  state.finalMetrics = null;
+  state.masterDirty = true;
+  state.masterRevision = (state.masterRevision || 0) + 1;
   state.correctedMetrics = state.correctedMetrics || measureBuffer(state.corrected);
   state.masterPlan = buildMasterPlan(state.correctedMetrics, Number($('targetLufs').value));
   renderMetrics('correctedMetrics', state.correctedMetrics);
   renderMasterChain(state.masterPlan);
   reveal('masterPanel');
+}
+
+function invalidateRenderedMaster(message = 'The release settings changed. Render the master again before exporting.') {
+  state.master = null;
+  state.finalMetrics = null;
+  state.masterDelta = null;
+  state.masterChange = null;
+  state.masterDirty = true;
+  if ($('exportBtn')) $('exportBtn').disabled = true;
+  hide('previewBox');
+  hide('verifyPanel');
+  if ($('masterStatus')) setStatus('masterStatus', message, 'warn');
+}
+
+function markMasterRendered(buffer) {
+  if (!buffer) throw new Error('The renderer returned no audio buffer.');
+  state.masterDirty = false;
+  state.masterRevision = (state.masterRevision || 0) + 1;
+  state.masterRenderSignature = `${buffer.length}:${buffer.sampleRate}:${buffer.numberOfChannels}`;
+  if ($('exportBtn')) $('exportBtn').disabled = false;
+}
+
+if ($('targetLufs')) {
+  $('targetLufs').addEventListener('change', () => {
+    if (state.master) invalidateRenderedMaster();
+  });
 }
 
 function renderMasterChain(plan) {
@@ -110,7 +140,11 @@ $('renderMasterBtn').addEventListener('click', async () => {
   $('renderMasterBtn').disabled = true;
   setStatus('masterStatus', 'Rendering tonal balance, dynamics, loudness and look-ahead limiting…', 'busy');
   try {
+    state.master = null;
+    state.finalMetrics = null;
+    state.masterDirty = true;
     state.master = await renderReleaseMaster();
+    markMasterRendered(state.master);
     state.finalMetrics = measureBuffer(state.master);
     renderMetrics('finalMetrics', state.finalMetrics);
     renderVerification(state.finalMetrics, state.masterPlan);

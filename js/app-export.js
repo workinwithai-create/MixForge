@@ -37,7 +37,14 @@ async function encodeWav(buffer, bitDepth, onProgress) {
 }
 
 $('exportBtn').addEventListener('click', async () => {
-  if (!state.master) return;
+  if (!state.master) {
+    setStatus('exportStatus', 'There is no rendered master to export. Render it first.', 'error');
+    return;
+  }
+  if (state.masterDirty) {
+    setStatus('exportStatus', 'This master is out of date. Render the release master again before exporting.', 'error');
+    return;
+  }
   $('exportBtn').disabled = true;
   setStatus('exportStatus', 'Encoding release WAV…', 'busy');
   try {

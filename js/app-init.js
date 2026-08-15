@@ -37,6 +37,8 @@ const state = {
   stemBuffers: {},
   stemPlans: {},
   masterPlan: null,
+  masterDirty: true,
+  masterRevision: 0,
   source: null,
   analyser: null,
   meterFrame: null,
@@ -170,6 +172,8 @@ async function loadFile(file) {
     state.original = decoded;
     state.corrected = null;
     state.master = null;
+    state.masterDirty = true;
+    state.masterRevision += 1;
     state.audit = null;
     state.storagePath = null;
     state.stemBuffers = {};
