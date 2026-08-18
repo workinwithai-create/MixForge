@@ -1,4 +1,5 @@
-const ALLOWED_STEMS = new Set(["vocals", "bass", "drums", "guitars", "keys", "other"]);
+const DEMUCS_STEMS = new Set(["vocals", "bass", "drums", "other"]);
+const STEM_ALIASES: Record<string, string> = { guitars: "other", keys: "other" };
 const ALLOWED_ORIGINS = [
   /^https:\/\/mix\.workinwithai\.com$/,
   /^https:\/\/mixforge\.workinwithai\.com$/,
@@ -29,9 +30,16 @@ function response(req, status, body) {
   return new Response(JSON.stringify(body), { status, headers: cors(req) });
 }
 
-function safeStems(value) {
+function safeStems(value: unknown) {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter((stem) => typeof stem === "string" && ALLOWED_STEMS.has(stem)))].slice(0, 6);
+  const stems: string[] = [];
+  for (const raw of value) {
+    if (typeof raw !== "string") continue;
+    const actual = STEM_ALIASES[raw] || raw;
+    if (!DEMUCS_STEMS.has(actual) || stems.includes(actual)) continue;
+    stems.push(actual);
+  }
+  return stems.slice(0, 4);
 }
 
 function encodedPath(path) {

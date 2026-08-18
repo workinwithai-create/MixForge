@@ -7,7 +7,17 @@ from pathlib import Path
 import requests
 import runpod
 
-ALLOWED_STEMS = {"vocals", "bass", "drums", "guitars", "keys", "other"}
+CANONICAL_STEMS = {"vocals", "bass", "drums", "other"}
+STEM_ALIASES = {"guitars": "other", "keys": "other"}
+
+
+def normalize_stems(stems):
+    out = []
+    for stem in stems or []:
+        actual = STEM_ALIASES.get(stem, stem)
+        if actual in CANONICAL_STEMS and actual not in out:
+            out.append(actual)
+    return out
 
 
 def download(url: str, destination: Path) -> None:
@@ -33,7 +43,7 @@ def upload(url: str, source: Path) -> None:
 def handler(job):
     payload = job.get("input") or {}
     input_url = payload.get("inputUrl")
-    requested = [stem for stem in payload.get("stems", []) if stem in ALLOWED_STEMS]
+    requested = normalize_stems(payload.get("stems", []))
     upload_urls = payload.get("uploadUrls") or {}
 
     if not input_url:
@@ -61,10 +71,9 @@ def handler(job):
         model_dir = output_dir / os.getenv("DEMUCS_MODEL", "htdemucs") / source.stem
         outputs = {}
         for stem in requested:
-            source_stem = stem if stem in {"vocals", "bass", "drums", "other"} else "other"
-            file_path = model_dir / f"{source_stem}.wav"
+            file_path = model_dir / f"{stem}.wav"
             if not file_path.exists():
-                return {"error": f"Missing {source_stem} output for requested {stem} stem"}
+                return {"error": f"Missing {stem} Demucs output"}
             signed_upload = upload_urls.get(stem)
             if not signed_upload:
                 return {"error": f"Missing upload URL for {stem}"}
