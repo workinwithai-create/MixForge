@@ -50,8 +50,9 @@ assert.ok(mapped.routes.some((route) => route.requested === 'keys' && route.actu
 assert.equal(mapped.stems.filter((stem) => stem === 'other').length, 1, 'guitars+keys must collapse to one other stem');
 
 const framing = context.mfStemJobFraming(['vocals', 'other'], 240);
-assert.match(framing.etaLabel, /min/i);
-assert.match(framing.costLabel, /quota/i);
+assert.match(framing.etaLabel, /Estimate/i);
+assert.match(framing.costLabel, /12 stems\/hour/);
+assert.match(framing.costLabel, /30\/day/);
 assert.match(framing.escapeLabel, /Skip stems/i);
 
 const summary = context.mfPlainWhatChanged(
@@ -63,7 +64,9 @@ const summary = context.mfPlainWhatChanged(
 );
 assert.match(summary.headline, /Quick Master/i);
 assert.ok(summary.bullets.some((line) => /LUFS/.test(line)));
-assert.ok(summary.bullets.some((line) => /no stem separation/i.test(line)));
+assert.ok(summary.bullets.some((line) => /no stem isolation/i.test(line)));
+assert.ok(summary.bullets.some((line) => /Stereo correlation/.test(line)));
+assert.match(summary.disclaimer, /do not claim/i);
 assert.equal(JSON.stringify([...summary.remaining]), JSON.stringify(['mono incompatibility']));
 
 const report = context.mfBuildReadinessReportText({
@@ -90,9 +93,17 @@ assert.match(indexHtml, /musician-ux\.css/, 'musician UX styles must load');
 assert.match(indexHtml, /Quick Master/, 'hero/path copy must mention Quick Master');
 assert.match(indexHtml, /Forensic Fix/, 'hero/path copy must mention Forensic Fix');
 assert.match(indexHtml, /AuraMix/, 'seat clarification should mention AuraMix');
+assert.match(indexHtml, /auramix\.workinwithai\.com/, 'AuraMix must be a real link');
+assert.match(indexHtml, /2\.5\.0/, 'version must be 2.5.0');
+assert.doesNotMatch(indexHtml, /prove the master improved/);
+assert.doesNotMatch(indexHtml, /AI and measured evidence agree/);
+assert.match(indexHtml, /app-listening-clip\.js/, 'listening clip builder must load');
 
 const readme = fs.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 assert.match(readme, /RUNPOD_ENDPOINT_ID/, 'README should document RunPod secrets');
+assert.match(readme, /GEMINI_API_KEY/, 'README should document Gemini listening');
+assert.match(readme, /process\.env\.GEMINI_API_KEY/, 'README should say the API reads process.env only');
+assert.match(readme, /Production and Preview/, 'README should say to set the key on preview and production');
 assert.doesNotMatch(readme, /MUSICAI_KEY/, 'README should not advertise Music.ai secrets');
 
 console.log('musician-ux smoke passed');

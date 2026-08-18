@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const BUCKET = "audio";
 const MAX_BYTES = 180 * 1024 * 1024;
-const PATH_PATTERN = /^separated\/[0-9a-f-]{36}\/(vocals|bass|drums|guitars|keys|other)\.wav$/i;
+const PATH_PATTERN = /^separated\/[0-9a-f-]{36}\/(vocals|bass|drums|other)\.wav$/i;
 
 function serverCredentials() {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");

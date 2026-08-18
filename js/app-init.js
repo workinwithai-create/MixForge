@@ -9,7 +9,14 @@ const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContex
 
 const SUPA_URL = 'https://xbzypzgnwgrmmvtrmdzl.supabase.co';
 const SUPA_KEY = 'sb_publishable_lhVBmqHvnAiAUR7Q7L_aQQ_BZH05ZGj';
-const STEMS = ['vocals', 'bass', 'drums', 'guitars', 'keys', 'other'];
+const STEMS = ['vocals', 'bass', 'drums', 'other'];
+const STEM_ALIASES = { guitars: 'other', keys: 'other' };
+
+function normalizeStemName(stem) {
+  if (stem == null || stem === '') return null;
+  const actual = STEM_ALIASES[stem] || String(stem);
+  return STEMS.includes(actual) ? actual : null;
+}
 const BANDS = [
   { name: 'Sub', lo: 20, hi: 60 },
   { name: 'Bass', lo: 60, hi: 250 },
@@ -37,6 +44,9 @@ const state = {
   stemBuffers: {},
   stemPlans: {},
   masterPlan: null,
+  masterDirty: true,
+  masterRevision: 0,
+  exportOverride: false,
   source: null,
   analyser: null,
   meterFrame: null,
@@ -170,6 +180,9 @@ async function loadFile(file) {
     state.original = decoded;
     state.corrected = null;
     state.master = null;
+    state.masterDirty = true;
+    state.masterRevision += 1;
+    state.exportOverride = false;
     state.audit = null;
     state.storagePath = null;
     state.stemBuffers = {};
