@@ -25,11 +25,26 @@ function compactAuditPayload(payload) {
     return { phase, stems, mixMetrics: compactMetrics(source.mixMetrics), notes };
   }
   const targetLufs = Number(source.targetLufs);
+  const clip = source.listeningClip && typeof source.listeningClip === 'object' ? source.listeningClip : null;
   return {
     phase,
     metrics: compactMetrics(source.metrics),
     notes,
     targetLufs: Number.isFinite(targetLufs) ? targetLufs : -12,
+    listeningClip: clip ? {
+      mimeType: 'audio/wav',
+      data: String(clip.data || '').slice(0, 3500000),
+      sampleRate: Number(clip.sampleRate) || null,
+      channels: 1,
+      durationSec: Number(clip.durationSec) || null,
+      windows: Array.isArray(clip.windows)
+        ? clip.windows.slice(0, 6).map((window) => ({
+          start: Number(window?.start),
+          end: Number(window?.end),
+          reason: String(window?.reason || '').slice(0, 40),
+        }))
+        : [],
+    } : null,
   };
 }
 
@@ -68,10 +83,14 @@ function isRetryableAIError(error) {
 }
 
 function aiFallbackStatusMessage(error) {
-  if (isTimeoutAIError(error)) {
-    return 'AI engineer timed out — using the built-in measurement engine so you can keep going.';
+  const text = String(error?.message || error || '');
+  if (/GEMINI_API_KEY|listening model not configured/i.test(text)) {
+    return 'Listening model not configured — using measurements only.';
   }
-  return 'AI engineer was unavailable — using the built-in measurement engine so you can keep going.';
+  if (isTimeoutAIError(error)) {
+    return 'Listening pass timed out — using measurements only.';
+  }
+  return 'Listening pass unavailable — using measurements only.';
 }
 
 function normalizeAIRequestError(error, signal) {

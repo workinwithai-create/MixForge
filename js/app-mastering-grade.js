@@ -395,12 +395,12 @@ renderVerification = function renderVerificationPro(metrics, plan) {
   const peakSafe = truePeakDb <= plan.truePeakCeilingDb + 0.05;
   const truePeakRow = document.createElement('div');
   truePeakRow.className = `check ${peakSafe ? '' : 'fail'}`;
-  truePeakRow.innerHTML = `<b>${peakSafe ? '✓' : '×'}</b><div><strong>4× interpolated true peak: </strong>${truePeakDb.toFixed(2)} dBTP vs ${plan.truePeakCeilingDb.toFixed(1)} dBTP ceiling.</div>`;
+  truePeakRow.innerHTML = `<b>${peakSafe ? '✓' : '×'}</b><div><strong>Cubic-interp peak estimate: </strong>${truePeakDb.toFixed(2)} dBTP vs ${plan.truePeakCeilingDb.toFixed(1)} dBTP ceiling. Not a certified true-peak meter.</div>`;
   root.append(truePeakRow);
 
   const rangeRow = document.createElement('div');
   rangeRow.className = 'check';
-  rangeRow.innerHTML = `<b>✓</b><div><strong>EBU-style program dynamics: </strong>${loudness.lra.toFixed(1)} LU LRA · ${loudness.shortTermMax.toFixed(1)} LUFS max short-term · ${loudness.momentaryMax.toFixed(1)} LUFS max momentary.</div>`;
+  rangeRow.innerHTML = `<b>✓</b><div><strong>Gated LUFS / LRA-like dynamics: </strong>${loudness.lra.toFixed(1)} LU range · ${loudness.shortTermMax.toFixed(1)} LUFS max short-term · ${loudness.momentaryMax.toFixed(1)} LUFS max momentary. Not a certified EBU meter.</div>`;
   root.append(rangeRow);
 
   const shortfall = state.masterConstraint?.loudnessShortfall || 0;

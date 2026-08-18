@@ -35,14 +35,23 @@ function validateAudit(value, fallback) {
     problem: String(f.problem || 'Mix issue').slice(0, 120),
     evidence: String(f.evidence || '').slice(0, 400),
     action: String(f.action || '').slice(0, 500),
-    stem: STEMS.includes(f.stem) ? f.stem : null,
+    stem: typeof normalizeStemName === 'function' ? normalizeStemName(f.stem) : (STEMS.includes(f.stem) ? f.stem : null),
   })) : fallback.findings;
-  const stemsToInspect = [...new Set((Array.isArray(value.stemsToInspect) ? value.stemsToInspect : []).filter((s) => STEMS.includes(s)))];
+  const requestedStems = Array.isArray(value.stemsToInspect) ? value.stemsToInspect : [];
+  const stemsToInspect = [...new Set(requestedStems.map((stem) => (
+    typeof normalizeStemName === 'function' ? normalizeStemName(stem) : (STEMS.includes(stem) ? stem : null)
+  )).filter(Boolean))];
+  const measuredFacts = (fallback.findings || []).filter((finding) => /clip|overload|peak|correlation|mono|dc offset|lufs/i.test(`${finding.problem} ${finding.evidence}`));
+  const mergedFindings = Array.isArray(value.findings)
+    ? [...measuredFacts.filter((fact) => !findings.some((item) => item.problem === fact.problem)), ...findings]
+    : fallback.findings;
   return {
-    readinessScore: clamp(Number(value.readinessScore) || fallback.readinessScore, 0, 100),
+    readinessScore: fallback.readinessScore,
     summary: String(value.summary || fallback.summary).slice(0, 700),
-    findings,
+    findings: mergedFindings,
     stemsToInspect: stemsToInspect.length ? stemsToInspect : fallback.stemsToInspect,
+    aiUsed: true,
+    aiFindingsAdded: Array.isArray(value.findings) ? findings.length : 0,
   };
 }
 
@@ -59,16 +68,24 @@ $('auditBtn').addEventListener('click', async () => {
     const fallback = fallbackMixAudit(metrics, notes, targetLufs);
     let audit = fallback;
     try {
-      setStatus('auditStatus', 'AI engineer is reading the measurements…', 'busy');
-      const ai = await requestAI({ phase: 'mix', metrics, notes, targetLufs }, {
+      setStatus('auditStatus', 'Building a compact listening excerpt from loudest/problem windows…', 'busy');
+      const listeningClip = typeof buildListeningClip === 'function'
+        ? await buildListeningClip(state.original, { markers: state.timelineAnalysis?.markers })
+        : null;
+      if (!listeningClip) throw new Error('Listening clip unavailable');
+      setStatus('auditStatus', 'Gemini is listening to the mix excerpt — not a vocal performance take…', 'busy');
+      const ai = await requestAI({ phase: 'mix', metrics, notes, targetLufs, listeningClip }, {
         onRetry() {
-          setStatus('auditStatus', 'AI engineer is retrying after a timeout…', 'busy');
+          setStatus('auditStatus', 'Listening pass is retrying after a timeout…', 'busy');
         },
       });
       audit = validateAudit(ai, fallback);
-      setStatus('auditStatus', 'Audit complete. AI and measured evidence agree on the repair path.', 'ok');
+      const statusText = typeof auditCompleteStatusMessage === 'function'
+        ? auditCompleteStatusMessage(audit)
+        : 'Audit complete. Measurements kept as facts.';
+      setStatus('auditStatus', statusText, 'ok');
     } catch (error) {
-      console.warn('AI audit unavailable; using measured rule engine.', error);
+      console.warn('Listening pass unavailable; using measured rule engine.', error);
       setStatus('auditStatus', aiFallbackStatusMessage(error), 'warn');
     }
     state.audit = audit;

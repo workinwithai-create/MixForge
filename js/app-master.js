@@ -43,6 +43,7 @@ function markMasterRendered(buffer) {
   state.masterRevision = (state.masterRevision || 0) + 1;
   state.masterRenderSignature = `${buffer.length}:${buffer.sampleRate}:${buffer.numberOfChannels}`;
   if ($('exportBtn')) $('exportBtn').disabled = false;
+  if (typeof syncExportUi === 'function') syncExportUi(state);
 }
 
 if ($('targetLufs')) {

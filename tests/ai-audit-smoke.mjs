@@ -70,10 +70,20 @@ const mixPayload = context.compactAuditPayload({
   ignored: { huge: true },
 });
 assert.equal(mixPayload.phase, 'mix');
+assert.equal(mixPayload.listeningClip, null);
 assert.equal(mixPayload.ignored, undefined);
 assert.ok(mixPayload.notes.length <= 1200);
 assert.equal(JSON.stringify(mixPayload.metrics).includes('leftoverSpectrum'), false);
 assert.equal(JSON.stringify(mixPayload).length < JSON.stringify({ metrics: fatMetrics }).length, true);
+
+const withClip = context.compactAuditPayload({
+  phase: 'mix',
+  metrics: { lufs: -14 },
+  listeningClip: { mimeType: 'audio/wav', data: 'UklGRg==', windows: [{ start: 0, end: 6, reason: 'loudest' }] },
+});
+assert.equal(withClip.listeningClip.mimeType, 'audio/wav');
+assert.equal(withClip.listeningClip.data, 'UklGRg==');
+assert.equal(withClip.listeningClip.windows[0].reason, 'loudest');
 
 const stemPayload = context.compactAuditPayload({
   phase: 'stems',
@@ -98,7 +108,9 @@ assert.equal(context.isRetryableAIError(Object.assign(new Error('AI request fail
 assert.equal(context.isRetryableAIError(new TypeError('Failed to fetch')), true);
 assert.equal(context.isRetryableAIError(Object.assign(new Error('ANTHROPIC_API_KEY is not configured.'), { status: 400 })), false);
 assert.match(context.aiFallbackStatusMessage(timeoutError), /timed out/i);
-assert.match(context.aiFallbackStatusMessage(new Error('nope')), /unavailable/i);
+assert.match(context.aiFallbackStatusMessage(new Error('nope')), /unavailable|measurements only/i);
+assert.match(context.aiFallbackStatusMessage(new Error('GEMINI_API_KEY is not configured.')), /Listening model not configured/);
+assert.doesNotMatch(context.aiFallbackStatusMessage(new Error('GEMINI_API_KEY is not configured.')), /agree/i);
 
 function jsonResponse(status, body) {
   return {

@@ -1,12 +1,15 @@
 'use strict';
 
-// MixForge 2.4 musician UX layer.
+// MixForge 2.5 musician UX layer.
 // Dual-path productization: Quick Master (stereo release master) vs Forensic Fix
 // (opt-in stem investigation). Keeps the evidence-first thesis; does not gate
 // billing here — Hub entitlements are stubbed for a follow-up.
 
 const MF_DEMUCS_STEMS = new Set(['vocals', 'bass', 'drums', 'other']);
 const MF_STEM_ALIASES = { guitars: 'other', keys: 'other' };
+const MF_STEM_HOURLY_LIMIT = 12;
+const MF_STEM_DAILY_LIMIT = 30;
+const MF_AURAMIX_URL = 'https://auramix.workinwithai.com';
 const MF_STEM_DISPLAY = {
   vocals: 'Vocals',
   bass: 'Bass',
@@ -84,9 +87,11 @@ function mfStemJobFraming(stems, durationSec = 0) {
   const count = Math.max(1, (stems || []).length);
   const minutes = Math.max(2, Math.round((Number(durationSec) || 180) / 90) + (count > 2 ? 2 : 1));
   return {
-    etaLabel: `About ${minutes}–${minutes + 4} min (GPU may cold-start)`,
-    costLabel: 'Uses stem-separation quota · not required for Quick Master',
+    etaLabel: `Estimate: ${minutes}–${minutes + 4} min (GPU may cold-start)`,
+    costLabel: `Quota: ${MF_STEM_HOURLY_LIMIT} stems/hour · ${MF_STEM_DAILY_LIMIT}/day · not required for Quick Master`,
     escapeLabel: 'Skip stems / master stereo only',
+    hourlyLimit: MF_STEM_HOURLY_LIMIT,
+    dailyLimit: MF_STEM_DAILY_LIMIT,
   };
 }
 
@@ -105,17 +110,23 @@ function mfEstimateReadiness(metrics, findingsCount = 0) {
 function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
   if (!before || !after) return { headline: 'No master yet.', bullets: [], remaining: [] };
   const lufsDelta = after.lufs - before.lufs;
+  const sampleBefore = before.peakDb;
+  const sampleAfter = after.peakDb;
   const peakBefore = options.truePeakBefore ?? before.peakDb;
   const peakAfter = options.truePeakAfter ?? after.peakDb;
+  const corrBefore = Number(before.correlation);
+  const corrAfter = Number(after.correlation);
   const readinessBefore = options.readinessBefore ?? mfEstimateReadiness(before, options.findingsCount || 0);
   const readinessAfter = options.readinessAfter ?? mfEstimateReadiness(after, options.remainingRisks?.length || 0);
   const bullets = [
     `Loudness ${before.lufs.toFixed(1)} → ${after.lufs.toFixed(1)} LUFS (${lufsDelta >= 0 ? '+' : ''}${lufsDelta.toFixed(1)}).`,
-    `True peak / sample peak ${peakBefore.toFixed(2)} → ${peakAfter.toFixed(2)} dB (ceiling ${Number(plan?.truePeakCeilingDb ?? plan?.ceilingDb ?? -1).toFixed(1)}).`,
-    `Release readiness ${readinessBefore} → ${readinessAfter}.`,
+    `Sample peak ${sampleBefore.toFixed(2)} → ${sampleAfter.toFixed(2)} dBFS.`,
+    `True-peak estimate ${peakBefore.toFixed(2)} → ${peakAfter.toFixed(2)} dBTP (ceiling ${Number(plan?.truePeakCeilingDb ?? plan?.ceilingDb ?? -1).toFixed(1)}; cubic-interp, not a certified meter).`,
+    `Stereo correlation ${Number.isFinite(corrBefore) ? corrBefore.toFixed(2) : '—'} → ${Number.isFinite(corrAfter) ? corrAfter.toFixed(2) : '—'}.`,
+    `Release readiness ${readinessBefore} → ${readinessAfter} (measurement-based, not a quality score).`,
     path === 'quick'
-      ? 'Quick Master applied stereo-only release processing — no stem separation.'
-      : 'Forensic path rebuilt from measured stem repairs, then mastered.',
+      ? 'Path: Quick Master — stereo-only release processing, no stem isolation.'
+      : 'Path: Forensic Fix — measured stem repairs, then a conservative master.',
   ];
   if (plan?.eq?.length) bullets.push(`Tonal moves: ${plan.eq.map((item) => item.label).join('; ')}.`);
   else bullets.push('Tonal balance: no broad EQ was justified by the measurements.');
@@ -124,12 +135,13 @@ function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
   const remaining = Array.isArray(options.remainingRisks) ? options.remainingRisks : [];
   return {
     headline: path === 'quick'
-      ? 'What changed on Quick Master'
-      : 'What changed after Forensic Fix + master',
+      ? 'Measured change on Quick Master'
+      : 'Measured change after Forensic Fix + master',
     bullets,
     remaining,
     readinessBefore,
     readinessAfter,
+    disclaimer: 'These numbers show measured change. They do not claim the mix sounds better.',
   };
 }
 
@@ -162,8 +174,8 @@ function mfBuildReadinessReportText(payload) {
     lines.push('- No outstanding marker risks listed.');
   }
   lines.push('');
-  lines.push('Seat: MixForge = mix repair + release master. Vocals-as-product live in AuraMix.');
-  lines.push('Thesis: evidence-first, conservative repairs, prove the master improved.');
+  lines.push(`Seat: MixForge = mix repair + release master. Vocal performance lives in AuraMix (${MF_AURAMIX_URL}).`);
+  lines.push('Thesis: evidence-first, conservative repairs, show measured change (loudness, peak, remaining risks).');
   return `${lines.join('\n')}\n`;
 }
 
@@ -209,9 +221,33 @@ function mfEnsureMusicianMounts() {
   if (verify && !$('whatChanged')) {
     const box = mfMusicianEl('section', 'what-changed hidden');
     box.id = 'whatChanged';
+    const metrics = $('finalMetrics');
+    if (metrics) verify.insertBefore(box, metrics);
+    else {
+      const actions = verify.querySelector('.actions');
+      if (actions) verify.insertBefore(box, actions);
+      else verify.append(box);
+    }
+  }
+  if (verify && !$('exportSafety')) {
+    const safety = mfMusicianEl('div', 'export-safety hidden');
+    safety.id = 'exportSafety';
+    const msg = mfMusicianEl('p', '');
+    msg.id = 'exportSafetyMsg';
+    const label = document.createElement('label');
+    label.className = 'export-override';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.id = 'exportOverride';
+    label.append(box, document.createTextNode(' Export anyway — I accept a clipped or over-ceiling master'));
+    safety.append(msg, label);
     const actions = verify.querySelector('.actions');
-    if (actions) verify.insertBefore(box, actions);
-    else verify.append(box);
+    if (actions) verify.insertBefore(safety, actions);
+    else verify.append(safety);
+    box.addEventListener('change', () => {
+      state.exportOverride = Boolean(box.checked);
+      if (typeof syncExportUi === 'function') syncExportUi(state);
+    });
   }
 
   if ($('exportBtn') && !$('readinessReportBtn')) {
@@ -252,11 +288,49 @@ function mfRenderPathChooser(audit) {
   root.append(grid);
 
   const seat = mfMusicianEl('p', 'path-seat');
-  seat.textContent = 'MixForge fixes mix problems, then masters for release. Dedicated vocal production lives in AuraMix.';
+  seat.append(
+    document.createTextNode('MixForge fixes mix problems, then masters for release. Dedicated vocal production lives in '),
+  );
+  const aura = document.createElement('a');
+  aura.href = MF_AURAMIX_URL;
+  aura.target = '_blank';
+  aura.rel = 'noopener noreferrer';
+  aura.textContent = 'AuraMix';
+  seat.append(aura, document.createTextNode('. Gemini may listen to the mix/master excerpt; it does not judge performance.'));
   root.append(seat);
 
   quick.onclick = () => { void mfStartQuickMaster(); };
   forensic.onclick = () => { mfStartForensicPath(); };
+}
+
+function mfSetPipeline(path) {
+  const pipeline = document.querySelector('.pipeline');
+  const note = $('pipelineNote');
+  if (pipeline) {
+    if (path === 'quick') {
+      pipeline.innerHTML = '<span>Observe</span><b>→</b><span>Locate</span><b>→</b><span>Master</span><b>→</b><span>Verify</span>';
+      pipeline.setAttribute('aria-label', 'Quick Master path');
+    } else if (path === 'forensic') {
+      pipeline.innerHTML = '<span>Observe</span><b>→</b><span>Locate</span><b>→</b><span>Isolate</span><b>→</b><span>Confirm</span><b>→</b><span>Repair</span><b>→</b><span>Verify</span>';
+      pipeline.setAttribute('aria-label', 'Forensic Fix path');
+    }
+  }
+  if (note) {
+    note.textContent = path === 'quick'
+      ? 'Quick Master: Observe → Locate → Master → Verify. Gemini listens to the mix/master excerpt, not vocal performance.'
+      : path === 'forensic'
+        ? 'Forensic Fix: Observe → Locate → Isolate → Confirm → Repair → Verify. Demucs separates four buckets; guitars/keys share residual other.'
+        : 'Quick Master skips Isolate / Confirm / Repair. Gemini listens to the mix/master, not vocal performance (AuraMix).';
+  }
+}
+
+function mfUpdateMasterCopy() {
+  const copy = document.querySelector('#masterPanel .panel-title p');
+  if (!copy) return;
+  const hasReference = Boolean(forensicState?.references?.length);
+  copy.textContent = hasReference
+    ? 'Reference-bounded tonal balance is active because a reference file is loaded. Controlled dynamics, loudness, limiting, cubic-interp peak safety. First value is hearing Original vs Master.'
+    : 'Conservative stereo master. Optional reference-bounded tonal balance only if you load a reference. Controlled dynamics, loudness, limiting, cubic-interp peak safety. First value is hearing Original vs Master.';
 }
 
 function mfHideStemUi() {
@@ -271,6 +345,8 @@ async function mfStartQuickMaster() {
     return;
   }
   state.mixforgePath = 'quick';
+  mfSetPipeline('quick');
+  mfUpdateMasterCopy();
   mfHideStemUi();
   state.master = null;
   state.finalMetrics = null;
@@ -315,6 +391,7 @@ function mfStartForensicPath() {
     return;
   }
   state.mixforgePath = 'forensic';
+  mfSetPipeline('forensic');
   if ($('pathChooser')) {
     $('pathChooser').querySelectorAll('.path-card').forEach((card) => card.classList.remove('active'));
     $('forensicPathBtn')?.classList.add('active');
@@ -365,7 +442,7 @@ function mfRenderStemConsent(audit) {
   skip.onclick = () => { void mfStartQuickMaster(); };
   actions.append(skip);
   root.append(actions);
-  root.append(mfMusicianEl('small', '', 'Extraction integrity is graded after separation, before any repair is applied.'));
+  root.append(mfMusicianEl('small', '', 'After separation you get a heuristic leakage/fit score — not lab SDR. Demucs separates four buckets; guitars/keys share residual other.'));
 }
 
 function mfSelectAbPreview(value) {
@@ -412,6 +489,7 @@ function mfRenderWhatChanged() {
   root.classList.remove('hidden');
   root.replaceChildren();
   root.append(mfMusicianEl('h3', '', summary.headline));
+  root.append(mfMusicianEl('p', 'what-changed-disclaimer', summary.disclaimer || 'These numbers show measured change. They do not claim the mix sounds better.'));
   const list = mfMusicianEl('ul', 'what-changed-list');
   for (const bullet of summary.bullets) list.append(Object.assign(document.createElement('li'), { textContent: bullet }));
   root.append(list);
@@ -491,6 +569,13 @@ function mfInstallMusicianUi() {
 
   $('readinessReportBtn')?.addEventListener('click', mfDownloadReadinessReport);
 
+  const previousPrepareMastering = prepareMastering;
+  prepareMastering = function prepareMasteringHonestCopy(...args) {
+    const result = previousPrepareMastering(...args);
+    mfUpdateMasterCopy();
+    return result;
+  };
+
   const previousRenderAudit = renderAudit;
   renderAudit = function renderAuditMusicianPath(audit, metrics) {
     const normalized = mfNormalizeDemucsStems(audit?.stemsToInspect || []);
@@ -533,7 +618,7 @@ function mfInstallMusicianUi() {
     if (grid && !$('extractionIntegrityNote')) {
       const note = mfMusicianEl('p', 'extraction-integrity-note');
       note.id = 'extractionIntegrityNote';
-      note.textContent = 'Extraction integrity is graded per stem above. Demucs cannot confirm guitars or keys separately — residual content is labeled Other.';
+      note.textContent = 'Leakage/fit is a heuristic, not lab SDR. Demucs separates vocals, bass, drums, and residual other — it does not confirm guitars or keys.';
       grid.prepend(note);
     }
   };
@@ -542,6 +627,7 @@ function mfInstallMusicianUi() {
   renderVerification = function renderVerificationMusician(metrics, plan) {
     previousRenderVerification(metrics, plan);
     mfRenderWhatChanged();
+    if (typeof syncExportUi === 'function') syncExportUi(state);
   };
 
   const previousResetResults = resetResults;
@@ -550,6 +636,8 @@ function mfInstallMusicianUi() {
     state.mixforgePath = null;
     state.mixforgeWhatChanged = null;
     state.mixforgeRecommendation = null;
+    state.exportOverride = false;
+    if ($('exportOverride')) $('exportOverride').checked = false;
     if ($('pathChooser')) {
       $('pathChooser').classList.add('hidden');
       $('pathChooser').replaceChildren();
@@ -573,9 +661,13 @@ function mfInstallMusicianUi() {
   if (seat && !$('heroModeRow')) {
     const modes = mfMusicianEl('div', 'hero-modes');
     modes.id = 'heroModeRow';
-    modes.innerHTML = '<span>Quick Master</span><b>or</b><span>Forensic Fix</span><i>Mix repair + release master · vocals live in AuraMix</i>';
+    modes.innerHTML = `<span>Quick Master</span><b>or</b><span>Forensic Fix</span><i>Mix repair + release master · vocals live in <a href="${MF_AURAMIX_URL}" target="_blank" rel="noopener noreferrer">AuraMix</a></i>`;
     seat.after(modes);
+  } else if ($('heroModeRow') && !$('heroModeRow').querySelector('a')) {
+    const italic = $('heroModeRow').querySelector('i');
+    if (italic) italic.innerHTML = `Mix repair + release master · vocals live in <a href="${MF_AURAMIX_URL}" target="_blank" rel="noopener noreferrer">AuraMix</a>`;
   }
+  mfSetPipeline(state.mixforgePath || null);
 }
 
 if (typeof globalThis !== 'undefined') {
@@ -585,6 +677,9 @@ if (typeof globalThis !== 'undefined') {
   globalThis.mfPlainWhatChanged = mfPlainWhatChanged;
   globalThis.mfBuildReadinessReportText = mfBuildReadinessReportText;
   globalThis.mfEstimateReadiness = mfEstimateReadiness;
+  globalThis.mfSetPipeline = mfSetPipeline;
+  globalThis.MF_STEM_HOURLY_LIMIT = MF_STEM_HOURLY_LIMIT;
+  globalThis.MF_STEM_DAILY_LIMIT = MF_STEM_DAILY_LIMIT;
 }
 
 if (typeof document !== 'undefined' && typeof $ === 'function') {

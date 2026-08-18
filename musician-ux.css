@@ -9,6 +9,12 @@
 .path-card.recommended{border-color:rgba(109,201,183,.55);box-shadow:inset 0 0 0 1px rgba(109,201,183,.18)}
 .path-card.active,.path-card:hover{border-color:var(--copper);background:rgba(209,136,69,.08)}
 .path-seat{margin:12px 0 0;color:var(--muted);font-size:.8rem;line-height:1.45}
+.path-seat a,.hero-modes a{color:var(--teal)}
+.pipeline-note{margin:10px 0 0;color:var(--muted);font-size:.8rem;line-height:1.45}
+.export-safety{margin-top:16px;padding:12px 14px;border:1px solid rgba(226,119,107,.45);border-radius:12px;background:rgba(226,119,107,.08)}
+.export-safety p{margin:0 0 8px;color:var(--yellow);font-size:.84rem;line-height:1.45}
+.export-override{display:flex;gap:8px;align-items:flex-start;color:var(--text);font-size:.82rem;line-height:1.4}
+.what-changed-disclaimer{margin:0 0 10px;color:var(--muted);font-size:.8rem;line-height:1.45}
 .stem-consent{margin-top:14px;padding:14px;border:1px solid rgba(215,180,96,.35);border-radius:12px;background:#12161c}
 .stem-consent h3{margin:0 0 8px;font-size:.95rem}
 .stem-consent p,.stem-consent small{color:var(--muted);line-height:1.45;font-size:.84rem}
