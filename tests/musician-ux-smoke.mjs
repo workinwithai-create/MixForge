@@ -102,6 +102,8 @@ assert.match(indexHtml, /app-listening-clip\.js/, 'listening clip builder must l
 const readme = fs.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 assert.match(readme, /RUNPOD_ENDPOINT_ID/, 'README should document RunPod secrets');
 assert.match(readme, /GEMINI_API_KEY/, 'README should document Gemini listening');
+assert.match(readme, /process\.env\.GEMINI_API_KEY/, 'README should say the API reads process.env only');
+assert.match(readme, /Production and Preview/, 'README should say to set the key on preview and production');
 assert.doesNotMatch(readme, /MUSICAI_KEY/, 'README should not advertise Music.ai secrets');
 
 console.log('musician-ux smoke passed');

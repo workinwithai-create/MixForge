@@ -19,12 +19,12 @@ Thesis: evidence-first, conservative repairs, show measured change (loudness, pe
 ## Required environment variables
 
 ### Vercel
-- `GEMINI_API_KEY` — native-audio listening pass on the stereo mix audit (`generateContent` inline `audio/wav`, well under the 20 MB inline limit)
+- `GEMINI_API_KEY` — native-audio listening pass on the stereo mix audit. The API route reads **only** `process.env.GEMINI_API_KEY`. Set it on the Vercel mix-forge project for **Production and Preview**. No key is shipped in the client or repo.
 - `GEMINI_MODEL` (optional; defaults to `gemini-3.6-flash`)
 - `ANTHROPIC_API_KEY` — optional; used only for stem-plan text after isolation
 - `ANTHROPIC_MODEL` (optional; defaults to `claude-sonnet-4-6`)
 
-If `GEMINI_API_KEY` is missing, the client keeps the measured rule engine and says so: “Listening model not configured — using measurements only.” Claude is not used to restate numbers it cannot hear.
+`GET /api/analyze` reports `{ listeningConfigured: true|false }` without exposing the key. If the env var is missing, the client skips the excerpt upload and says: “Listening model not configured — using measurements only.” Claude is not used to restate numbers it cannot hear.
 
 ### Supabase Edge Function (`separate-stem`)
 - `RUNPOD_ENDPOINT_ID`

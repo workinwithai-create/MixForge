@@ -68,6 +68,12 @@ $('auditBtn').addEventListener('click', async () => {
     const fallback = fallbackMixAudit(metrics, notes, targetLufs);
     let audit = fallback;
     try {
+      const listeningStatus = typeof probeListeningStatus === 'function'
+        ? await probeListeningStatus()
+        : { listeningConfigured: null };
+      if (listeningStatus.listeningConfigured === false) {
+        throw Object.assign(new Error('GEMINI_API_KEY is not configured.'), { status: 400 });
+      }
       setStatus('auditStatus', 'Building a compact listening excerpt from loudest/problem windows…', 'busy');
       const listeningClip = typeof buildListeningClip === 'function'
         ? await buildListeningClip(state.original, { markers: state.timelineAnalysis?.markers })

@@ -1,13 +1,20 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   canonicalStem,
   compactMetrics,
   sanitizeListeningClip,
   mixListeningPrompt,
   buildGeminiMixRequest,
+  listeningConfigured,
+  listeningStatusPayload,
 } from '../api/analyze.js';
 import handler from '../api/analyze.js';
 
+assert.doesNotMatch(fs.readFileSync(new URL('../api/analyze.js', import.meta.url), 'utf8'), /AIza[0-9A-Za-z_-]{10,}/);
+assert.equal(typeof listeningConfigured(), 'boolean');
+assert.equal(listeningStatusPayload().ok, true);
+assert.equal(Object.prototype.hasOwnProperty.call(listeningStatusPayload(), 'apiKey'), false);
 assert.equal(canonicalStem('guitars'), 'other');
 assert.equal(canonicalStem('keys'), 'other');
 assert.equal(canonicalStem('vocals'), 'vocals');
@@ -55,12 +62,25 @@ function mockRes() {
 }
 
 delete process.env.GEMINI_API_KEY;
+const statusRes = mockRes();
+await handler({ method: 'GET' }, statusRes);
+assert.equal(statusRes.statusCode, 200);
+assert.equal(statusRes.body.listeningConfigured, false);
+assert.equal(statusRes.body.listeningProvider, 'gemini-audio');
+assert.ok(!JSON.stringify(statusRes.body).includes('AIza'));
+
 const missing = mockRes();
 await handler({ method: 'POST', body: { phase: 'mix', metrics: { lufs: -14 }, listeningClip: clip } }, missing);
 assert.equal(missing.statusCode, 400);
 assert.match(missing.body.error, /GEMINI_API_KEY/);
 
 process.env.GEMINI_API_KEY = 'test-key';
+assert.equal(listeningConfigured(), true);
+const configured = mockRes();
+await handler({ method: 'GET' }, configured);
+assert.equal(configured.body.listeningConfigured, true);
+assert.doesNotMatch(JSON.stringify(configured.body), /test-key/);
+
 const originalFetch = globalThis.fetch;
 let geminiCalls = 0;
 globalThis.fetch = async (url, init) => {

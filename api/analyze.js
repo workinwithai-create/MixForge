@@ -17,6 +17,18 @@ function clampText(value, max) {
   return String(value || '').replace(/[\u0000-\u001f]/g, ' ').slice(0, max);
 }
 
+export function listeningConfigured() {
+  return Boolean(process.env.GEMINI_API_KEY?.trim());
+}
+
+export function listeningStatusPayload() {
+  return {
+    ok: true,
+    listeningConfigured: listeningConfigured(),
+    listeningProvider: 'gemini-audio',
+  };
+}
+
 export function canonicalStem(name) {
   const actual = STEM_ALIASES[name] || name;
   return CANONICAL_STEMS.has(actual) ? actual : null;
@@ -229,6 +241,7 @@ async function callAnthropicStems(body) {
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
+  if (req.method === 'GET') return json(res, 200, listeningStatusPayload());
   if (req.method !== 'POST') return json(res, 405, { ok: false, error: 'Method not allowed' });
   try {
     const body = req.body && typeof req.body === 'object' ? req.body : {};

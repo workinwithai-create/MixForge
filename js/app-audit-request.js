@@ -105,6 +105,26 @@ function normalizeAIRequestError(error, signal) {
   return error;
 }
 
+async function probeListeningStatus(options = {}) {
+  const fetchImpl = typeof options.fetch === 'function'
+    ? options.fetch
+    : (...args) => globalThis.fetch(...args);
+  try {
+    const response = await fetchImpl('/api/analyze', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) return { listeningConfigured: null, listeningProvider: null };
+    return {
+      listeningConfigured: Boolean(data.listeningConfigured),
+      listeningProvider: data.listeningProvider || null,
+    };
+  } catch (_) {
+    return { listeningConfigured: null, listeningProvider: null };
+  }
+}
+
 async function requestAIOnce(payload, options) {
   const controller = new AbortController();
   const timer = setTimeout(() => abortAITimeout(controller), options.timeoutMs);

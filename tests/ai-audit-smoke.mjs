@@ -30,6 +30,7 @@ assert.equal(typeof context.abortAITimeout, 'function');
 assert.equal(typeof context.isRetryableAIError, 'function');
 assert.equal(typeof context.requestAI, 'function');
 assert.equal(typeof context.aiFallbackStatusMessage, 'function');
+assert.equal(typeof context.probeListeningStatus, 'function');
 
 const fatMetrics = {
   lufs: -16.2,
@@ -197,6 +198,11 @@ vm.runInContext(`
     return jsonResponse(200, { ok: true, plan: { readinessScore: 90, summary: 'bound fetch' } });
   };
 `, context);
+
+const probedOff = await context.probeListeningStatus({
+  fetch: async () => jsonResponse(200, { ok: true, listeningConfigured: false, listeningProvider: 'gemini-audio' }),
+});
+assert.equal(probedOff.listeningConfigured, false);
 
 const defaultFetchPlan = await context.requestAI(
   { phase: 'mix', metrics: { lufs: -14 } },
