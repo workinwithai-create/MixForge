@@ -46,6 +46,19 @@ const damaged = context.mfRecommendPath({
 });
 assert.equal(damaged.path, 'forensic', 'low readiness with isolation needs should recommend Forensic Fix');
 
+const maskedLead = context.mfRecommendPath({
+  readinessScore: 80,
+  stemsToInspect: ['vocals'],
+  findings: [{
+    severity: 'medium',
+    stage: 'mix',
+    problem: 'Lead-band masking condition',
+    evidence: 'Center presence is 15.1 dB below dominant low-mids.',
+    confidence: 83,
+  }],
+});
+assert.equal(maskedLead.path, 'forensic', '15.1 dB lead-band masking must push Forensic even when readiness is high');
+
 const mapped = context.mfNormalizeDemucsStems(['vocals', 'guitars', 'keys', 'bass', 'guitars']);
 assert.equal(JSON.stringify([...mapped.stems]), JSON.stringify(['vocals', 'other', 'bass']));
 assert.ok(mapped.routes.some((route) => route.requested === 'guitars' && route.actual === 'other'));

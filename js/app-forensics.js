@@ -184,7 +184,7 @@ renderStemPlans=function(){
     const confirms=mfEl('div','confirmation-list'); confirms.append(mfEl('b','','Measured conditions on this isolated Demucs bucket')); if(plan.confirmed.length)plan.confirmed.forEach(x=>confirms.append(mfEl('span','',`${x.condition}: ${x.evidence} · ${x.confidence}%`))); else confirms.append(mfEl('span','healthy','No strong defect measured on this bucket; leave it substantially unchanged.')); card.append(confirms);
     const choices=mfEl('div','candidate-choices'); plan.candidates.forEach((c,i)=>{ const b=mfEl('button',i===plan.selectedCandidate?'selected':'',c.name); b.type='button'; b.onclick=()=>{plan.selectedCandidate=i;plan.operations=c.operations;plan.wet=c.wet;renderStemPlans();};choices.append(b);}); card.append(choices);
     const list=mfEl('div','repair-list'); plan.operations.forEach(op=>{const row=mfEl('div','repair');row.append(mfEl('span','',op.label||op.type),mfEl('span','',describeOperation(op)));list.append(row);});card.append(list);
-    const note=mfEl('small','guardrail',`Guardrails: level matched · wet ${Math.round(plan.wet*100)}% · static EQ limited · original stem immutable`); card.append(note); root.append(card);
+    const note=mfEl('small','guardrail',`Guardrails: EQ is level-matched · wet ${Math.round(plan.wet*100)}% · mix-balance gain is not wet-diluted · original stem immutable`); card.append(note); root.append(card);
   }
 };
 
@@ -192,7 +192,7 @@ rebuildCorrectedMix=async function(){
   const out=cloneBuffer(state.original);
   for(const [stem,rawStem] of Object.entries(state.stemBuffers)){
     const plan=state.stemPlans[stem]; if(!plan)continue; const processed=await renderProcessedBuffer(rawStem,plan.operations); const rawRms=bufferRms(rawStem), fixedRms=bufferRms(processed), match=fixedRms>1e-8?clamp(rawRms/fixedRms,dbToGain(-2),dbToGain(2)):1; const wet=clamp(plan.wet||.2,.08,.45); const length=Math.min(out.length,rawStem.length,processed.length);
-    for(let c=0;c<out.numberOfChannels;c++){const dest=out.getChannelData(c),raw=rawStem.getChannelData(Math.min(c,rawStem.numberOfChannels-1)),fixed=processed.getChannelData(Math.min(c,processed.numberOfChannels-1));for(let i=0;i<length;i++)dest[i]+=(fixed[i]*match-raw[i])*wet;}
+    for(let c=0;c<out.numberOfChannels;c++){const dest=out.getChannelData(c),raw=rawStem.getChannelData(Math.min(c,rawStem.numberOfChannels-1)),fixed=processed.getChannelData(Math.min(c,processed.numberOfChannels-1));for(let i=0;i<length;i++)dest[i]+=typeof mfStemBalanceDelta==='function'?mfStemBalanceDelta(raw[i],fixed[i],match,wet,plan.mixGainDb):(fixed[i]*match-raw[i])*wet;}
     await sleep(0);
   }
   const before=measureBuffer(state.original),after=measureBuffer(out); forensicState.reconstruction={peakShift:after.peakDb-before.peakDb,lufsShift:after.lufs-before.lufs,widthShift:after.widthDb-before.widthDb,correlationShift:after.correlation-before.correlation};
