@@ -385,11 +385,13 @@ const applied = context.mfPlainWhatChanged(
   },
 );
 assert.ok(applied.bullets.some((line) => /Vocal rides/.test(line) && /0:12/.test(line)));
+assert.ok(applied.bullets.some((line) => /window \d+\.\d+ → \d+\.\d+ dB/.test(line)), 'what-changed must remasure that window, not only a 56-wide count');
 assert.ok(applied.bullets.some((line) => /Stopped:/.test(line)));
 assert.ok(applied.bullets.some((line) => /Buried windows:/.test(line)));
 assert.ok(applied.bullets.some((line) => /Global vocal seat: \+0\.8 dB/.test(line)));
 assert.doesNotMatch(applied.bullets.join(' '), /out of tune|intonation|feel of the take/i);
 assert.doesNotMatch(applied.bullets.join(' '), /Vocal lift: \+5\.0 dB on the isolated vocal stem/);
+assert.doesNotMatch(applied.bullets.join(' '), /residual other stem was not isolated/);
 
 const tokenReport = context.mfPlainWhatChanged(
   { lufs: -18, peakDb: -1.2, crestDb: 18, correlation: 0.87, clipPercent: 0 },

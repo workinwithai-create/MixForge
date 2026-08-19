@@ -927,15 +927,24 @@ function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
     const otherRides = vocalUp.rides.filter((ride) => ride.stem === 'other');
     const passCount = Number(vocalUp.passes?.length) || 1;
     if (vocalRides.length) {
-      bullets.push(`Vocal rides (${passCount} pass${passCount === 1 ? '' : 'es'}, mix balance, not pitch/timing): ${vocalRides.map((ride) => `${mfFormatRideRange(ride.start, ride.end)} ${Number(ride.gainDb) >= 0 ? '+' : ''}${Number(ride.gainDb).toFixed(1)} dB`).join('; ')}.`);
+      const rideBits = vocalRides.map((ride) => {
+        const pass = (vocalUp.passes || []).find((row) => (
+          row.phrase
+          && Math.max(Number(row.phrase.start), Number(ride.start))
+            < Math.min(Number(row.phrase.end), Number(ride.end))
+        ));
+        const windowBit = Number.isFinite(Number(pass?.maskingBefore)) && Number.isFinite(Number(pass?.maskingAfter))
+          ? ` · window ${Number(pass.maskingBefore).toFixed(1)} → ${Number(pass.maskingAfter).toFixed(1)} dB`
+          : '';
+        return `${mfFormatRideRange(ride.start, ride.end)} ${Number(ride.gainDb) >= 0 ? '+' : ''}${Number(ride.gainDb).toFixed(1)} dB${windowBit}`;
+      });
+      bullets.push(`Vocal rides (${passCount} pass${passCount === 1 ? '' : 'es'}, mix balance, not pitch/timing): ${rideBits.join('; ')}.`);
     }
     if (Number(vocalUp.globalSeatDb) > 0.05) {
       bullets.push(`Global vocal seat: +${Number(vocalUp.globalSeatDb).toFixed(1)} dB after the rides (last trim, not the bury fix).`);
     }
     if (otherRides.length) {
       bullets.push(`Competing other eased in those windows: ${otherRides.map((ride) => `${mfFormatRideRange(ride.start, ride.end)} ${Number(ride.gainDb).toFixed(1)} dB`).join('; ')}.`);
-    } else if (vocalUp.competingEaseApplied === false) {
-      bullets.push('Competing low-mids were not eased — residual other stem was not isolated.');
     }
     if (Number.isFinite(Number(vocalUp.windowsBefore)) && Number.isFinite(Number(vocalUp.windowsAfter))) {
       bullets.push(`Buried windows: ${Number(vocalUp.windowsBefore)} → ${Number(vocalUp.windowsAfter)} (level-matched spectral check — louder is not done).`);
@@ -1540,7 +1549,7 @@ async function mfRunVocalUpRebuildAndMaster() {
       stopDetail: result.stop?.detail,
       windowsBefore,
       windowsAfter: result.windowsRemaining.length,
-      competingEaseApplied: otherAvailable && result.rides.some((ride) => ride.stem === 'other'),
+      competingEaseApplied: result.rides.some((ride) => ride.stem === 'other'),
       maskingBefore: evidence.maskingDb ?? beforeSnap?.maskingDb,
       maskingAfter: seatedSnap?.maskingDb,
       presenceBefore: evidence.presenceDb ?? beforeSnap?.presence,
