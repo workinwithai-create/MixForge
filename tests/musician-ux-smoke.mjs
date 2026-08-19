@@ -78,6 +78,8 @@ const summary = context.mfPlainWhatChanged(
   'quick',
   { readinessBefore: 74, remainingRisks: ['mono incompatibility'] },
 );
+assert.ok(summary.musician?.length && summary.musician.length <= 4, 'default what-changed is a few short sentences');
+assert.ok(summary.musician.every((line) => !/Release readiness|problem load/i.test(line)), 'readiness theater stays out of the default view');
 assert.ok(summary.bullets.some((line) => /70 Hz/.test(line) && /-2\.9 dB/.test(line)), 'what-changed must list EQ Hz/dB');
 
 const originalBuf = { id: 'orig' };
@@ -113,6 +115,9 @@ assert.match(report, /Quick Master/);
 assert.match(report, /AuraMix/);
 assert.match(report, /mono incompatibility/);
 
+const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+assert.equal(pkg.version, '2.5.8', 'package.json version must cache-bust to 2.5.8');
+
 const indexHtml = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 assert.match(indexHtml, /app-musician-ux\.js/, 'musician UX layer must load');
 assert.match(indexHtml, /musician-ux\.css/, 'musician UX styles must load');
@@ -120,7 +125,8 @@ assert.match(indexHtml, /Quick Master/, 'hero/path copy must mention Quick Maste
 assert.match(indexHtml, /Forensic Fix/, 'hero/path copy must mention Forensic Fix');
 assert.match(indexHtml, /AuraMix/, 'seat clarification should mention AuraMix');
 assert.match(indexHtml, /auramix\.workinwithai\.com/, 'AuraMix must be a real link');
-assert.match(indexHtml, /2\.5\.7/, 'version must be 2.5.7 so the preview cannot serve stale 2.5.4 JS');
+assert.match(indexHtml, /2\.5\.8/, 'version must be 2.5.8 so the preview cannot serve stale 2.5.7 JS');
+assert.doesNotMatch(indexHtml, /2\.5\.7/, 'visible version must leave 2.5.7');
 assert.doesNotMatch(indexHtml, /2\.5\.6/, 'visible version must leave 2.5.6');
 assert.doesNotMatch(indexHtml, /2\.5\.5/, 'visible version must leave 2.5.5');
 assert.doesNotMatch(indexHtml, /2\.5\.4/, 'visible version must leave 2.5.4');
@@ -130,6 +136,14 @@ assert.doesNotMatch(indexHtml, /2\.5\.1/, 'visible version must leave 2.5.1');
 assert.doesNotMatch(indexHtml, /prove the master improved/);
 assert.doesNotMatch(indexHtml, /AI and measured evidence agree/);
 assert.match(indexHtml, /app-listening-clip\.js/, 'listening clip builder must load');
+assert.match(indexHtml, /<h2>Scan<\/h2>/, 'scan heading stays short');
+assert.match(indexHtml, /Hear Original vs Master/, 'verify heading is musician-facing');
+
+const uxSrc = fs.readFileSync(new URL('../js/app-musician-ux.js', import.meta.url), 'utf8');
+assert.match(uxSrc, /scanMoreOptions/, 'scan engineer numbers tuck behind More options');
+assert.match(uxSrc, /verifyMoreOptions/, 'verify engineer numbers tuck behind More options');
+assert.match(uxSrc, /whatChangedMore/, 'what-changed engineer bullets tuck behind More options');
+assert.match(uxSrc, /function mfMusicianWhatChangedSentences/, 'default Forensic copy is a few human sentences');
 
 const readme = fs.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 assert.match(readme, /RUNPOD_ENDPOINT_ID/, 'README should document RunPod secrets');

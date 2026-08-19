@@ -896,6 +896,68 @@ function mfEstimateReadiness(metrics, findingsCount = 0) {
   return clamp(Math.round(score), 20, 98);
 }
 
+function mfPhraseWindowClear(maskingDb) {
+  return Number.isFinite(Number(maskingDb)) && Number(maskingDb) <= MF_VOCAL_RIDE_CLEAR_DB;
+}
+
+function mfMusicianWhatChangedSentences(path, vocalUp, before, after) {
+  if (path === 'quick' && !(vocalUp?.applied && vocalUp.rides?.length)) {
+    const sentences = ['Quick Master is ready. Hear Original vs Master.'];
+    if (vocalUp?.warranted && (vocalUp.skipped || vocalUp.failed)) {
+      sentences.push('A stereo master cannot unbury a vocal that is sitting under the mix.');
+    }
+    return sentences;
+  }
+  if (!vocalUp?.applied) {
+    return path === 'forensic'
+      ? ['Forensic Fix is ready. Hear Original vs the reprint.']
+      : ['Hear Original vs Master.'];
+  }
+  const vocalRides = (vocalUp.rides || []).filter((ride) => (ride.stem || 'vocals') === 'vocals');
+  if (!vocalRides.length) {
+    const sentences = ['No vocal ride was kept.'];
+    const reason = vocalUp.stopReason;
+    if (reason === 'no-move') {
+      sentences.push('That phrase did not come forward, so MixForge left the mix as it was.');
+    } else if (reason === 'harshness' || reason === 'sibilance') {
+      sentences.push('That pass made the top harsher, so MixForge put it back.');
+    } else if (reason === 'boom') {
+      sentences.push('That pass made the bottom heavier, so MixForge put it back.');
+    } else if (reason === 'true-peak' || reason === 'smash') {
+      sentences.push('That pass pushed the mix too hard, so MixForge put it back.');
+    } else if (reason === 'regression' || reason === 'no-keep') {
+      sentences.push('That pass did not help, so MixForge put it back.');
+    } else {
+      sentences.push('The mix was left as you heard it.');
+    }
+    return sentences.slice(0, 3);
+  }
+  const sentences = [];
+  for (const ride of vocalRides.slice(0, 3)) {
+    const pass = (vocalUp.passes || []).find((row) => (
+      !row.reverted
+      && row.phrase
+      && Math.max(Number(row.phrase.start), Number(ride.start)) < Math.min(Number(row.phrase.end), Number(ride.end))
+    ));
+    const range = mfFormatRideRange(ride.start, ride.end);
+    const db = `${Number(ride.gainDb) >= 0 ? '+' : ''}${Number(ride.gainDb).toFixed(1)} dB`;
+    const afterDb = Number(pass?.maskingAfter);
+    const beforeDb = Number(pass?.maskingBefore);
+    if (mfPhraseWindowClear(afterDb)) {
+      sentences.push(`Raised the vocal at ${range} by ${db}. That phrase is clear.`);
+    } else if (Number.isFinite(afterDb) && Number.isFinite(beforeDb) && afterDb < beforeDb) {
+      sentences.push(`Raised the vocal at ${range} by ${db}. That phrase is clearer, but it still sits under the mix.`);
+    } else {
+      sentences.push(`Raised the vocal at ${range} by ${db}.`);
+    }
+  }
+  const lufsJump = Number(after?.lufs) - Number(before?.lufs);
+  if (Number.isFinite(lufsJump) && lufsJump >= 3 && vocalUp.failed) {
+    sentences.push('A louder master would not finish this.');
+  }
+  return sentences.slice(0, 4);
+}
+
 function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
   if (!before || !after) return { headline: 'No master yet.', bullets: [], remaining: [] };
   const lufsDelta = after.lufs - before.lufs;
@@ -987,9 +1049,8 @@ function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
     }
   }
   return {
-    headline: path === 'quick'
-      ? 'Measured change on Quick Master'
-      : 'Measured change after Forensic Fix + master',
+    headline: path === 'forensic' ? 'What we did' : 'Quick Master',
+    musician: mfMusicianWhatChangedSentences(path, vocalUp, before, after),
     bullets,
     remaining,
     readinessBefore,
@@ -1138,6 +1199,11 @@ function mfEnsureMusicianMounts() {
     });
   }
 
+  mfTuckScanEngineerDetails();
+  mfTuckMasterEngineerDetails();
+  mfTuckVerifyEngineerDetails();
+  mfQuietMusicianChrome();
+
   if ($('exportBtn') && !$('readinessReportBtn')) {
     const reportBtn = document.createElement('button');
     reportBtn.type = 'button';
@@ -1146,6 +1212,72 @@ function mfEnsureMusicianMounts() {
     reportBtn.textContent = 'Download readiness report';
     $('exportBtn').after(reportBtn);
   }
+}
+
+function mfTuckScanEngineerDetails() {
+  const panel = $('auditPanel');
+  if (!panel || $('scanMoreOptions')) return;
+  const details = mfMusicianEl('details', 'more-options');
+  details.id = 'scanMoreOptions';
+  const summary = document.createElement('summary');
+  summary.textContent = 'More options';
+  details.append(summary);
+  for (const node of [panel.querySelector('.score-row'), $('mixMetrics'), $('auditFindings'), $('problemTimeline')]) {
+    if (node) details.append(node);
+  }
+  const chooser = $('pathChooser');
+  const listening = $('listeningSkipRow');
+  if (chooser) panel.insertBefore(details, chooser);
+  else if (listening) panel.insertBefore(details, listening);
+  else panel.append(details);
+}
+
+function mfTuckMasterEngineerDetails() {
+  const panel = $('masterPanel');
+  if (!panel || $('masterMoreOptions')) return;
+  const details = mfMusicianEl('details', 'more-options');
+  details.id = 'masterMoreOptions';
+  const summary = document.createElement('summary');
+  summary.textContent = 'More options';
+  details.append(summary);
+  for (const id of ['correctedMetrics', 'masterChain']) {
+    if ($(id)) details.append($(id));
+  }
+  const actions = panel.querySelector('.actions');
+  if (actions) panel.insertBefore(details, actions);
+  else panel.append(details);
+}
+
+function mfTuckVerifyEngineerDetails() {
+  const verify = $('verifyPanel');
+  if (!verify || $('verifyMoreOptions')) return;
+  const details = mfMusicianEl('details', 'more-options');
+  details.id = 'verifyMoreOptions';
+  const summary = document.createElement('summary');
+  summary.textContent = 'More options';
+  details.append(summary);
+  for (const id of ['finalMetrics', 'verificationList', 'masterTimeline']) {
+    if ($(id)) details.append($(id));
+  }
+  const what = $('whatChanged');
+  if (what) verify.insertBefore(details, what.nextSibling);
+  else verify.append(details);
+}
+
+function mfQuietMusicianChrome() {
+  if (typeof document === 'undefined') return;
+  const scanTitle = document.querySelector('#auditPanel .panel-title h2');
+  const scanCopy = document.querySelector('#auditPanel .panel-title p');
+  if (scanTitle) scanTitle.textContent = 'Scan';
+  if (scanCopy) scanCopy.textContent = 'Choose Quick Master or Forensic Fix.';
+  const stemTitle = document.querySelector('#stemPanel .panel-title h2');
+  const stemCopy = document.querySelector('#stemPanel .panel-title p');
+  if (stemTitle) stemTitle.textContent = 'Stems';
+  if (stemCopy) stemCopy.textContent = 'If a vocal phrase is sitting under the mix, Forensic will raise that phrase.';
+  const verifyTitle = document.querySelector('#verifyPanel .panel-title h2');
+  const verifyCopy = document.querySelector('#verifyPanel .panel-title p');
+  if (verifyTitle) verifyTitle.textContent = 'Hear Original vs Master';
+  if (verifyCopy) verifyCopy.textContent = 'What we did is below. Engineer numbers stay under More options.';
 }
 
 function mfRenderPathChooser(audit) {
@@ -1220,8 +1352,8 @@ function mfUpdateMasterCopy() {
   if (!copy) return;
   const hasReference = Boolean(forensicState?.references?.length);
   copy.textContent = hasReference
-    ? 'Reference-bounded tonal balance is active because a reference file is loaded, plus evidence-bounded repairs for measured #1 issues. Controlled dynamics, loudness, limiting, cubic-interp peak safety. First value is hearing Original vs Master.'
-    : 'Evidence-bounded stereo master: measured #1 issues (sub-bass accumulation, dark top) are repaired before loudness. Optional reference-bounded tonal balance only if you load a reference. Controlled dynamics, loudness, limiting, cubic-interp peak safety. First value is hearing Original vs Master.';
+    ? 'Hear Original vs Master. A reference file is loaded for tonal balance.'
+    : 'Hear Original vs Master.';
 }
 
 function mfSyncAbBar(stateLike = state) {
@@ -1422,15 +1554,22 @@ function mfRenderWhatChanged() {
   root.classList.remove('hidden');
   root.replaceChildren();
   root.append(mfMusicianEl('h3', '', summary.headline));
-  root.append(mfMusicianEl('p', 'what-changed-disclaimer', summary.disclaimer || 'These numbers show measured change. They do not claim the mix sounds better.'));
+  for (const sentence of summary.musician || []) {
+    root.append(mfMusicianEl('p', 'what-changed-sentence', sentence));
+  }
+  const extra = mfMusicianEl('details', 'more-options');
+  extra.id = 'whatChangedMore';
+  const extraSummary = document.createElement('summary');
+  extraSummary.textContent = 'More options';
+  extra.append(extraSummary);
+  extra.append(mfMusicianEl('p', 'what-changed-disclaimer', summary.disclaimer || 'These numbers show measured change. They do not claim the mix sounds better.'));
   const list = mfMusicianEl('ul', 'what-changed-list');
   for (const bullet of summary.bullets) list.append(Object.assign(document.createElement('li'), { textContent: bullet }));
-  root.append(list);
+  extra.append(list);
   if (summary.remaining.length) {
-    root.append(mfMusicianEl('p', 'what-changed-remaining', `Still watch: ${summary.remaining.join('; ')}.`));
-  } else {
-    root.append(mfMusicianEl('p', 'what-changed-remaining', 'No major remaining marker risks listed after verification.'));
+    extra.append(mfMusicianEl('p', 'what-changed-remaining', `Still watch: ${summary.remaining.join('; ')}.`));
   }
+  root.append(extra);
 }
 
 function mfShouldAutoVocalUp(stateLike = state) {
@@ -1451,7 +1590,7 @@ async function mfRunVocalUpRebuildAndMaster() {
     $('rebuildBtn').disabled = true;
     $('rebuildBtn').textContent = 'Write vocal rides and rebuild mix';
   }
-  setStatus('rebuildStatus', 'Measuring the timeline for buried vocal phrases, then writing time-sliced rides…', 'busy');
+  setStatus('rebuildStatus', 'Finding the buried vocal phrase…', 'busy');
   try {
     const initialAnalysis = state.timelineSourceAnalysis
       || (typeof mfTimelineAnalyze === 'function' ? await mfTimelineAnalyze(state.original) : { markers: [], frames: [] });
@@ -1470,7 +1609,14 @@ async function mfRunVocalUpRebuildAndMaster() {
         return typeof mfTimelineAnalyze === 'function' ? mfTimelineAnalyze(target) : initialAnalysis;
       },
       applyRides: async (rides, added, pass) => {
-        setStatus('rebuildStatus', `Writing vocal rides · pass ${pass} · ${added.filter((ride) => (ride.stem || 'vocals') === 'vocals').length} phrase(s)…`, 'busy');
+        const phraseRide = added.find((ride) => (ride.stem || 'vocals') === 'vocals');
+        setStatus(
+          'rebuildStatus',
+          phraseRide
+            ? `Raising the vocal at ${mfFormatRideRange(phraseRide.start, phraseRide.end)}…`
+            : 'Raising the buried vocal…',
+          'busy',
+        );
         mfApplyVocalUpPlan(state.stemPlans, { ...evidence, warranted: true, rides });
         state.corrected = await rebuildCorrectedMix();
         state.correctedMetrics = measureBuffer(state.corrected);
@@ -1505,7 +1651,7 @@ async function mfRunVocalUpRebuildAndMaster() {
             qualityDetail: `Smash stop: crest collapsed ${crestBefore.toFixed(1)} → ${crestAfter.toFixed(1)} dB. MixForge will not squash the mix to chase remaining windows.`,
           };
         }
-        setStatus('rebuildStatus', `Remeasuring the ridden phrase (window masking, not a 56-wide count)…`, 'busy');
+        setStatus('rebuildStatus', 'Checking that phrase…', 'busy');
         return { buffer: state.corrected, analysis };
       },
     });
@@ -1555,7 +1701,14 @@ async function mfRunVocalUpRebuildAndMaster() {
       presenceBefore: evidence.presenceDb ?? beforeSnap?.presence,
       presenceAfter: seatedSnap?.presence,
     };
-    setStatus('rebuildStatus', result.stop?.detail || 'Vocal rides written.', result.stop?.reason === 'clear' && !unburyFailed ? 'ok' : 'warn');
+    const musicianStatus = mfMusicianWhatChangedSentences('forensic', {
+      applied: true,
+      rides: result.rides,
+      passes: result.passes,
+      stopReason: result.stop?.reason,
+      failed: unburyFailed,
+    }).join(' ');
+    setStatus('rebuildStatus', musicianStatus || 'Vocal ride finished.', result.stop?.reason === 'clear' && !unburyFailed ? 'ok' : 'warn');
     prepareMastering();
     const canHearReprint = Boolean(state.corrected && state.correctedMetrics);
     if (!unburyFailed && typeof renderReleaseMaster === 'function') {
@@ -1573,8 +1726,8 @@ async function mfRunVocalUpRebuildAndMaster() {
       mfSelectAbPreview('matched');
       mfSyncAbBar(state);
       mfRenderWhatChanged();
-      setStatus('masterStatus', 'Forensic vocal-ride master ready — A/B Original vs Master below.', 'ok');
-      setStatus('auditStatus', 'Time-sliced vocal rides written, then mastered. Press B to A/B.', 'ok');
+      setStatus('masterStatus', musicianStatus || 'Hear Original vs Master.', 'ok');
+      setStatus('auditStatus', 'Press B to A/B.', 'ok');
     } else if (canHearReprint) {
       state.finalMetrics = state.correctedMetrics;
       renderMetrics('finalMetrics', state.finalMetrics);
@@ -1585,8 +1738,8 @@ async function mfRunVocalUpRebuildAndMaster() {
       mfSelectAbPreview('matched');
       mfSyncAbBar(state);
       mfRenderWhatChanged();
-      setStatus('masterStatus', 'Unbury did not clear. Hear the level-matched reprint — louder is not done.', 'warn');
-      setStatus('auditStatus', result.stop?.detail || 'Lead masking windows are still red. A louder master would not be the fix.', 'warn');
+      setStatus('masterStatus', musicianStatus || 'Hear the reprint. A louder master would not finish this.', 'warn');
+      setStatus('auditStatus', musicianStatus || 'No vocal ride was kept.', 'warn');
     }
     $('masterPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (error) {
@@ -1752,7 +1905,7 @@ function mfInstallMusicianUi() {
     if (state.vocalUpRepair?.warranted && grid && !$('vocalUpNote')) {
       const note = mfMusicianEl('p', 'extraction-integrity-note');
       note.id = 'vocalUpNote';
-      note.textContent = 'Forensic writes time-sliced vocal rides on buried phrases (verse that ducks under other gets a ride; a forward chorus stays put). Remeasure stays in the loop until those windows clear or a hard cap stops it. Level/balance only — not pitch or timing.';
+      note.textContent = 'If a vocal phrase is sitting under the mix, Forensic will raise that phrase.';
       grid.prepend(note);
     }
     if (mfShouldAutoVocalUp(state)) {
@@ -1831,6 +1984,7 @@ if (typeof globalThis !== 'undefined') {
   globalThis.mfNormalizeDemucsStems = mfNormalizeDemucsStems;
   globalThis.mfStemJobFraming = mfStemJobFraming;
   globalThis.mfPlainWhatChanged = mfPlainWhatChanged;
+  globalThis.mfMusicianWhatChangedSentences = mfMusicianWhatChangedSentences;
   globalThis.mfBuildReadinessReportText = mfBuildReadinessReportText;
   globalThis.mfEstimateReadiness = mfEstimateReadiness;
   globalThis.mfSetPipeline = mfSetPipeline;

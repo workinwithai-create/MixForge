@@ -8,20 +8,20 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="/styles.css?v=2.5.7">
-  <link rel="stylesheet" href="/forensics.css?v=2.5.7">
-  <link rel="stylesheet" href="/transport.css?v=2.5.7">
-  <link rel="stylesheet" href="/signal-integrity.css?v=2.5.7">
-  <link rel="stylesheet" href="/vocal-cleanup.css?v=2.5.7">
-  <link rel="stylesheet" href="/timeline.css?v=2.5.7">
-  <link rel="stylesheet" href="/targeted-repair.css?v=2.5.7">
-  <link rel="stylesheet" href="/musician-ux.css?v=2.5.7">
+  <link rel="stylesheet" href="/styles.css?v=2.5.8">
+  <link rel="stylesheet" href="/forensics.css?v=2.5.8">
+  <link rel="stylesheet" href="/transport.css?v=2.5.8">
+  <link rel="stylesheet" href="/signal-integrity.css?v=2.5.8">
+  <link rel="stylesheet" href="/vocal-cleanup.css?v=2.5.8">
+  <link rel="stylesheet" href="/timeline.css?v=2.5.8">
+  <link rel="stylesheet" href="/targeted-repair.css?v=2.5.8">
+  <link rel="stylesheet" href="/musician-ux.css?v=2.5.8">
 </head>
 <body>
   <main class="shell">
     <header class="hero">
       <div class="eyebrow">Workin' With AI · The Forge Stack</div>
-      <h1>MixForge <span>2.5.7</span></h1>
+      <h1>MixForge <span>2.5.8</span></h1>
       <p>Fix mix problems, then master for release. Start with Quick Master for a fast Original vs Master A/B — or open Forensic Fix when you need timeline evidence and honest stem investigation. Gemini may listen to a compact mix excerpt; it does not judge vocal performance.</p>
       <div class="pipeline" aria-label="MixForge pipeline"><span>Observe</span><b>→</b><span>Locate</span><b>→</b><span>Isolate</span><b>→</b><span>Confirm</span><b>→</b><span>Repair</span><b>→</b><span>Verify</span></div>
       <p class="pipeline-note" id="pipelineNote">Quick Master skips Isolate / Confirm / Repair: Observe → Locate → Master → Verify. Gemini listens to the mix/master, not vocal performance (AuraMix).</p>
@@ -45,7 +45,7 @@
       </details>
     </section>
     <section class="panel hidden" id="auditPanel">
-      <div class="panel-title"><span>2</span><div><h2>Evidence, problem timeline, and next path</h2><p>Measured conditions and exact time windows. Pick Quick Master for an audible release A/B, or Forensic Fix to isolate sources.</p></div></div>
+      <div class="panel-title"><span>2</span><div><h2>Scan</h2><p>Choose Quick Master or Forensic Fix.</p></div></div>
       <div class="score-row"><div class="score"><strong id="readinessScore">—</strong><span>release readiness</span></div><p id="auditSummary"></p></div>
       <div class="metrics" id="mixMetrics"></div><div class="findings" id="auditFindings"></div>
       <section class="problem-timeline" id="problemTimeline" aria-live="polite"></section>
@@ -54,44 +54,44 @@
       <div class="status" id="separationStatus" aria-live="polite"></div>
     </section>
     <section class="panel hidden" id="stemPanel">
-      <div class="panel-title"><span>3</span><div><h2>Isolated Demucs buckets and measured conditions</h2><p>A heuristic leakage/fit score is graded before processing — not lab SDR. Demucs separates vocals, bass, drums, and residual other; guitars/keys share residual other. That is not instrument confirmation. Vocal Layer Cleanup can preserve, reduce, or remove only high-confidence supporting-vocal clutter while locking the probable lead.</p></div></div>
+      <div class="panel-title"><span>3</span><div><h2>Stems</h2><p>If a vocal phrase is sitting under the mix, Forensic will raise that phrase.</p></div></div>
       <div class="stem-grid" id="stemGrid"></div><div class="actions"><button class="primary" id="rebuildBtn">Apply selected repairs and rebuild mix</button></div><div class="status" id="rebuildStatus" aria-live="polite"></div>
     </section>
     <section class="panel hidden" id="masterPanel">
-      <div class="panel-title"><span>4</span><div><h2>Release master</h2><p>Evidence-bounded stereo master: measured #1 issues are repaired before loudness. Optional reference-bounded tonal balance only if a reference file is loaded. Controlled dynamics, loudness, limiting, cubic-interp peak safety, and regression-aware final processing. First value is hearing Original vs Master.</p></div></div>
+      <div class="panel-title"><span>4</span><div><h2>Release master</h2><p>Hear Original vs Master.</p></div></div>
       <div class="metrics" id="correctedMetrics"></div><div class="master-chain" id="masterChain"></div><div class="actions"><button class="secondary" id="renderMasterBtn">Render release master</button></div><div class="status" id="masterStatus" aria-live="polite"></div>
     </section>
     <section class="panel hidden" id="verifyPanel">
-      <div class="panel-title"><span>5</span><div><h2>Release verification, timeline self-check, and targeted repair</h2><p>Gated LUFS / LRA-like range, cubic-interp peak estimate, mono, dynamics, remaining problem windows, bounded repair candidates, and export checks. Not a certified EBU meter.</p></div></div>
+      <div class="panel-title"><span>5</span><div><h2>Hear Original vs Master</h2><p>What we did is below. Engineer numbers stay under More options.</p></div></div>
       <div class="metrics" id="finalMetrics"></div><div class="verification" id="verificationList"></div>
       <section class="problem-timeline master-timeline" id="masterTimeline" aria-live="polite"></section>
       <div class="export-safety hidden" id="exportSafety"><p id="exportSafetyMsg"></p><label class="export-override"><input type="checkbox" id="exportOverride"> Export anyway — I accept a clipped or over-ceiling master</label></div>
       <div class="actions"><button class="primary" id="exportBtn">Download release WAV</button></div><div class="status" id="exportStatus" aria-live="polite"></div>
     </section>
-    <footer>MixForge 2.5.7 · Quick Master or Forensic Fix · show measured change · loudness, peak, and remaining risks · © 2026 Workin' With AI</footer>
+    <footer>MixForge 2.5.8 · Quick Master or Forensic Fix · show measured change · loudness, peak, and remaining risks · © 2026 Workin' With AI</footer>
   </main>
-  <script src="/js/app-init.js?v=2.5.7" defer></script>
-  <script src="/js/app-metrics.js?v=2.5.7" defer></script>
-  <script src="/js/app-listening-clip.js?v=2.5.7" defer></script>
-  <script src="/js/app-audit-request.js?v=2.5.7" defer></script>
-  <script src="/js/app-audit.js?v=2.5.7" defer></script>
+  <script src="/js/app-init.js?v=2.5.8" defer></script>
+  <script src="/js/app-metrics.js?v=2.5.8" defer></script>
+  <script src="/js/app-listening-clip.js?v=2.5.8" defer></script>
+  <script src="/js/app-audit-request.js?v=2.5.8" defer></script>
+  <script src="/js/app-audit.js?v=2.5.8" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js" defer></script>
-  <script src="/js/app-upload.js?v=2.5.7" defer></script>
-  <script src="/js/app-stems.js?v=2.5.7" defer></script>
-  <script src="/js/app-master.js?v=2.5.7" defer></script>
-  <script src="/js/app-transport.js?v=2.5.7" defer></script>
-  <script src="/js/app-forensics.js?v=2.5.7" defer></script>
-  <script src="/js/app-forensics-guard.js?v=2.5.7" defer></script>
-  <script src="/js/app-mastering-grade.js?v=2.5.7" defer></script>
-  <script src="/js/app-export.js?v=2.5.7" defer></script>
-  <script src="/js/app-signal-integrity.js?v=2.5.7" defer></script>
-  <script src="/js/app-critical-listening.js?v=2.5.7" defer></script>
-  <script src="/js/app-vocal-cleanup.js?v=2.5.7" defer></script>
-  <script src="/js/app-vocal-cleanup-guard.js?v=2.5.7" defer></script>
-  <script src="/js/app-timeline-analysis.js?v=2.5.7" defer></script>
-  <script src="/js/app-timeline-ui.js?v=2.5.7" defer></script>
-  <script src="/js/app-targeted-repair.js?v=2.5.7" defer></script>
-  <script src="/js/app-targeted-repair-guard.js?v=2.5.7" defer></script>
-  <script src="/js/app-musician-ux.js?v=2.5.7" defer></script>
+  <script src="/js/app-upload.js?v=2.5.8" defer></script>
+  <script src="/js/app-stems.js?v=2.5.8" defer></script>
+  <script src="/js/app-master.js?v=2.5.8" defer></script>
+  <script src="/js/app-transport.js?v=2.5.8" defer></script>
+  <script src="/js/app-forensics.js?v=2.5.8" defer></script>
+  <script src="/js/app-forensics-guard.js?v=2.5.8" defer></script>
+  <script src="/js/app-mastering-grade.js?v=2.5.8" defer></script>
+  <script src="/js/app-export.js?v=2.5.8" defer></script>
+  <script src="/js/app-signal-integrity.js?v=2.5.8" defer></script>
+  <script src="/js/app-critical-listening.js?v=2.5.8" defer></script>
+  <script src="/js/app-vocal-cleanup.js?v=2.5.8" defer></script>
+  <script src="/js/app-vocal-cleanup-guard.js?v=2.5.8" defer></script>
+  <script src="/js/app-timeline-analysis.js?v=2.5.8" defer></script>
+  <script src="/js/app-timeline-ui.js?v=2.5.8" defer></script>
+  <script src="/js/app-targeted-repair.js?v=2.5.8" defer></script>
+  <script src="/js/app-targeted-repair-guard.js?v=2.5.8" defer></script>
+  <script src="/js/app-musician-ux.js?v=2.5.8" defer></script>
 </body>
 </html>

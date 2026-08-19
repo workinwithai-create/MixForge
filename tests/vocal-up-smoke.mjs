@@ -384,13 +384,18 @@ const applied = context.mfPlainWhatChanged(
     },
   },
 );
+assert.ok(applied.musician.some((line) => /Raised the vocal/.test(line) && /0:12/.test(line) && /[+\-]\d+\.\d+ dB/.test(line)), 'default view names the kept phrase and the dB');
+assert.ok(applied.musician.some((line) => /clear/i.test(line)), 'default view says whether that window is clear');
+assert.ok(applied.musician.every((line) => !/Buried windows:|Release readiness|problem load|56\s*→\s*59|frame scores/i.test(line)));
+assert.ok(applied.musician.length <= 4, 'default view is a few short sentences');
 assert.ok(applied.bullets.some((line) => /Vocal rides/.test(line) && /0:12/.test(line)));
-assert.ok(applied.bullets.some((line) => /window \d+\.\d+ → \d+\.\d+ dB/.test(line)), 'what-changed must remasure that window, not only a 56-wide count');
+assert.ok(applied.bullets.some((line) => /window \d+\.\d+ → \d+\.\d+ dB/.test(line)), 'engineer more-options still remasures that window');
 assert.ok(applied.bullets.some((line) => /Stopped:/.test(line)));
 assert.ok(applied.bullets.some((line) => /Buried windows:/.test(line)));
 assert.ok(applied.bullets.some((line) => /Global vocal seat: \+0\.8 dB/.test(line)));
 assert.doesNotMatch(applied.bullets.join(' '), /out of tune|intonation|feel of the take/i);
 assert.doesNotMatch(applied.bullets.join(' '), /Vocal lift: \+5\.0 dB on the isolated vocal stem/);
+assert.doesNotMatch(applied.musician.join(' '), /Vocal lift: \+5\.0 dB on the isolated vocal stem/);
 assert.doesNotMatch(applied.bullets.join(' '), /residual other stem was not isolated/);
 
 const tokenReport = context.mfPlainWhatChanged(
@@ -601,7 +606,10 @@ const revertedCopy = context.mfPlainWhatChanged(
   },
 );
 assert.doesNotMatch(revertedCopy.bullets.join(' '), /Vocal lift: \+4\.9 dB on the isolated vocal stem/, 'reverted rides must not print the leftover +4.9 one-shot as the unbury');
-assert.ok(revertedCopy.bullets.some((line) => /56 → 59|reverted/i.test(line)), 'what-changed must say the ride pass was reverted');
+assert.doesNotMatch(revertedCopy.musician.join(' '), /Vocal lift: \+4\.9 dB on the isolated vocal stem/);
+assert.doesNotMatch(revertedCopy.musician.join(' '), /56\s*→\s*59/, 'default status must not dump 56 → 59');
+assert.ok(revertedCopy.musician.some((line) => /No vocal ride was kept/.test(line)));
+assert.ok(revertedCopy.bullets.some((line) => /56 → 59|reverted/i.test(line)), 'engineer more-options may keep the pass/revert count');
 
 const skipped = context.mfPlainWhatChanged(
   { lufs: -18, peakDb: -1.2, crestDb: 18, correlation: 0.87, clipPercent: 0 },

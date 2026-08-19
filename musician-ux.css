@@ -15,6 +15,8 @@
 .export-safety p{margin:0 0 8px;color:var(--yellow);font-size:.84rem;line-height:1.45}
 .export-override{display:flex;gap:8px;align-items:flex-start;color:var(--text);font-size:.82rem;line-height:1.4}
 .what-changed-disclaimer{margin:0 0 10px;color:var(--muted);font-size:.8rem;line-height:1.45}
+.what-changed-sentence{margin:0 0 8px;color:var(--text);font-size:.95rem;line-height:1.5}
+.what-changed .more-options{margin-top:12px}
 .stem-consent{margin-top:14px;padding:14px;border:1px solid rgba(215,180,96,.35);border-radius:12px;background:#12161c}
 .stem-consent h3{margin:0 0 8px;font-size:.95rem}
 .stem-consent p,.stem-consent small{color:var(--muted);line-height:1.45;font-size:.84rem}
