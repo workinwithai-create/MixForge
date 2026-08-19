@@ -70,16 +70,22 @@ const verseChorusAnalysis = {
   counts: {},
 };
 const red = context.mfFindBuriedVocalWindows(verseChorusAnalysis);
-assert.equal(red.length, 1, 'the ducked verse must be a red window');
-assert.ok(red[0].start === 12 && red[0].end === 28);
+assert.ok(red.length >= 1, 'the ducked verse must be a red window');
+assert.ok(red.every((window) => window.end - window.start <= context.MF_VOCAL_RIDE_MAX_WINDOW_SEC + 0.05), 'verse must stay phrase-sized');
+assert.ok(red.every((window) => window.start < 32 && window.end <= 32), 'only the verse is ducked');
 const firstPlan = context.mfPlanVocalRides(red, [], { otherAvailable: true });
-assert.ok(firstPlan.added.some((ride) => ride.stem === 'vocals' && ride.start === 12 && ride.end === 28));
-assert.ok(firstPlan.added.some((ride) => ride.stem === 'other' && ride.start === 12 && ride.end === 28));
+assert.ok(firstPlan.added.some((ride) => ride.stem === 'vocals' && ride.start < 28 && ride.end > 12));
+assert.ok(firstPlan.added.some((ride) => ride.stem === 'other' && ride.start < 28 && ride.end > 12));
 assert.ok(firstPlan.added.every((ride) => Number.isFinite(ride.start) && Number.isFinite(ride.end) && Number.isFinite(ride.gainDb)));
+assert.ok(firstPlan.added.every((ride) => ride.end - ride.start <= context.MF_VOCAL_RIDE_MAX_WINDOW_SEC + 0.05), 'a 16s verse may split, but must not become a section ride');
 assert.ok(!firstPlan.added.some((ride) => ride.start <= 0 && ride.end >= 200), 'rides must be time-sliced, not a song-length one-shot');
 const vocalPass = firstPlan.added.find((ride) => ride.stem === 'vocals');
-assert.ok(vocalPass.gainDb >= 0.8 && vocalPass.gainDb <= context.MF_VOCAL_RIDE_PASS_MAX_DB);
+assert.ok(vocalPass.gainDb >= 0.5 && vocalPass.gainDb <= context.MF_VOCAL_RIDE_PASS_MAX_DB);
+assert.ok(vocalPass.gainDb < 3.0, 'a 15.1 verse must not pin the +3 hard cap when other can ease');
 assert.ok(!firstPlan.added.some((ride) => ride.start >= 40), 'a forward chorus without a red window stays put');
+const otherEase = firstPlan.added.find((ride) => ride.stem === 'other');
+assert.ok(otherEase.gainDb <= -1.0, 'competing other must take more of the unbury than a token dip');
+assert.ok(Math.abs(otherEase.gainDb) >= vocalPass.gainDb - 0.15, 'ease should do at least as much work as slamming the vocal');
 
 const uneven = context.mfPlanVocalRides([
   { start: 10, end: 22, maskingDb: 12.4 },
@@ -94,11 +100,12 @@ const twoSlices = context.mfFindBuriedVocalWindows({
   markers: [],
   frames: [
     { start: 10, end: 22, rmsDb: -18, lowMidToPresenceDb: 18.0, presenceRatio: 0.03 },
+    { start: 28, end: 36, rmsDb: -16, lowMidToPresenceDb: 8.4, presenceRatio: 0.22 },
     { start: 40, end: 56, rmsDb: -20, lowMidToPresenceDb: 12.4, presenceRatio: 0.08 },
   ],
 });
 assert.ok(twoSlices.some((window) => window.start <= 10 && window.end >= 16), 'the 18 dB verse stays a window');
-assert.ok(twoSlices.some((window) => window.start <= 40 && window.end >= 40), 'a milder 12.4 dB slice must also get a window');
+assert.ok(twoSlices.some((window) => window.start <= 40 && window.end >= 40), 'a milder 12.4 dB slice vs a forward chorus must also get a window');
 const hiddenPlan = context.mfPlanVocalRides(twoSlices, [], { otherAvailable: false });
 const hiddenDeep = hiddenPlan.added.find((ride) => ride.stem === 'vocals' && ride.start <= 10);
 const hiddenMild = hiddenPlan.added.find((ride) => ride.stem === 'vocals' && ride.start >= 39);
@@ -107,32 +114,27 @@ assert.ok(hiddenDeep.gainDb > hiddenMild.gainDb + 0.6, `worse section must get t
 
 const duckedVsOther = context.mfFindBuriedVocalWindows({
   markers: [],
-  frames: [{
-    start: 8,
-    end: 16,
-    rmsDb: -20,
-    lowMidToPresenceDb: 9.2,
-    vocalVsOtherDb: -8.5,
-  }],
+  frames: [
+    { start: 0, end: 6, rmsDb: -18, lowMidToPresenceDb: 8.0, vocalVsOtherDb: -1.0, presenceRatio: 0.2 },
+    { start: 8, end: 16, rmsDb: -20, lowMidToPresenceDb: 9.2, vocalVsOtherDb: -8.5, presenceRatio: 0.06 },
+  ],
 });
-assert.ok(duckedVsOther.some((window) => window.start === 8), 'vocal-stem under competing other must count as a buried slice');
+assert.ok(duckedVsOther.some((window) => window.start >= 7 && window.start <= 8), 'vocal-stem under competing other must count as a buried slice');
 const vsOtherPlan = context.mfPlanVocalRides(duckedVsOther, [], { otherAvailable: true });
-assert.ok(vsOtherPlan.added.some((ride) => ride.stem === 'vocals' && ride.start === 8 && ride.gainDb > 1));
+assert.ok(vsOtherPlan.added.some((ride) => ride.stem === 'vocals' && ride.start >= 7 && ride.gainDb > 0.5));
 
-const duckFrame = {
-  start: 8,
-  end: 16,
-  rmsDb: -20,
-  lowMidToPresenceDb: 9.2,
-  vocalVsOtherDb: -8.5,
+const reprintUnchanged = {
+  markers: [],
+  frames: [
+    { start: 12, end: 20, rmsDb: -18, lowMidToPresenceDb: 15.1, presenceRatio: 0.04 },
+    { start: 40, end: 55, rmsDb: -16, lowMidToPresenceDb: 8.4, presenceRatio: 0.22 },
+  ],
 };
-const uncreditedDuck = context.mfFindBuriedVocalWindows({ markers: [], frames: [duckFrame] });
-assert.equal(uncreditedDuck.length, 1, 'original stem duck stays red before rides are credited');
-const creditedDuck = context.mfFindBuriedVocalWindows(
-  { markers: [], frames: [duckFrame] },
-  { appliedRides: [{ stem: 'vocals', start: 8, end: 16, gainDb: 5.0 }] },
+const bookkeep = context.mfFindBuriedVocalWindows(
+  reprintUnchanged,
+  { remeasure: true, appliedRides: [{ stem: 'vocals', start: 12, end: 20, gainDb: 5.0 }] },
 );
-assert.equal(creditedDuck.length, 0, 'remasure must credit written rides; original stems alone would never clear');
+assert.ok(bookkeep.length >= 1, 'remasure must not bookkeep-clear unchanged mix frames via ride credit');
 
 assert.equal(context.mfGlobalVocalSeatDb({ songMaskingDb: 15.1, rideCount: 0 }), 0, 'a song-length seat is not the bury fix');
 const seat = context.mfGlobalVocalSeatDb({ songMaskingDb: 13.6, rideCount: 2 });
@@ -170,21 +172,18 @@ const seated = {
 context.mfApplyVocalUpPlan(seated, { warranted: true, rides: firstPlan.rides, globalSeatDb: 1.0, liftDb: 5 });
 assert.equal(seated.vocals.mixGainDb, 1.0, 'last/global seat is a small trim after rides');
 assert.ok(seated.vocals.rides.length, 'seat must not replace the time-sliced rides');
-assert.ok(plans.vocals.rides.some((ride) => ride.start === 12 && ride.end === 28));
+assert.ok(plans.vocals.rides.some((ride) => ride.start <= 12 && ride.end > 12));
+assert.ok(plans.vocals.rides.every((ride) => ride.end - ride.start <= context.MF_VOCAL_RIDE_MAX_WINDOW_SEC + 0.05));
 assert.ok(plans.vocals.operations.some((op) => /Vocal ride /i.test(op.label || '')));
 assert.ok(plans.other.rides.some((ride) => ride.stem === 'other'));
 
 function analysisAt(maskingDb) {
-  if (!(maskingDb > 10)) return { markers: [], frames: [], counts: {} };
   return {
     markers: [],
-    frames: [{
-      start: 12,
-      end: 28,
-      rmsDb: -18,
-      lowMidToPresenceDb: maskingDb,
-      presenceRatio: 0.04,
-    }],
+    frames: [
+      { start: 12, end: 20, rmsDb: -18, lowMidToPresenceDb: maskingDb, presenceRatio: 0.04 },
+      { start: 40, end: 55, rmsDb: -16, lowMidToPresenceDb: 8.4, presenceRatio: 0.22 },
+    ],
     counts: {},
   };
 }
@@ -249,20 +248,34 @@ const smashed = await context.mfIterateVocalRides({
 assert.equal(smashed.stop.reason, 'smash');
 assert.match(smashed.stop.detail, /smash|crest|squash/i);
 
+let duckMeasured = 15.1;
 const stemDuckLoop = await context.mfIterateVocalRides({
   initialAnalysis: {
     markers: [],
-    frames: [{ start: 8, end: 16, rmsDb: -20, lowMidToPresenceDb: 9.2, vocalVsOtherDb: -8.5 }],
+    frames: [
+      { start: 0, end: 6, rmsDb: -18, lowMidToPresenceDb: 8.0, vocalVsOtherDb: -1.0, presenceRatio: 0.2 },
+      { start: 8, end: 16, rmsDb: -20, lowMidToPresenceDb: 15.1, vocalVsOtherDb: -8.5, presenceRatio: 0.05 },
+    ],
   },
-  applyRides: async () => ({
-    analysis: {
-      markers: [],
-      frames: [{ start: 8, end: 16, rmsDb: -20, lowMidToPresenceDb: 9.2, vocalVsOtherDb: -8.5 }],
-    },
-  }),
+  applyRides: async (rides) => {
+    const vocal = rides.filter((ride) => (ride.stem || 'vocals') === 'vocals')
+      .reduce((sum, ride) => sum + Number(ride.gainDb), 0);
+    const ease = rides.filter((ride) => ride.stem === 'other')
+      .reduce((sum, ride) => sum + Number(ride.gainDb), 0);
+    duckMeasured = 15.1 - vocal * 0.30 - (-ease) * 0.40;
+    return {
+      analysis: {
+        markers: [],
+        frames: [
+          { start: 0, end: 6, rmsDb: -18, lowMidToPresenceDb: 8.0, presenceRatio: 0.2 },
+          { start: 8, end: 16, rmsDb: -20, lowMidToPresenceDb: duckMeasured, presenceRatio: 0.05 },
+        ],
+      },
+    };
+  },
 });
-assert.equal(stemDuckLoop.stop.reason, 'clear', 'written rides must clear a stem-duck remasure; looping to the cap is a fail');
 assert.ok(stemDuckLoop.rides.some((ride) => (ride.stem || 'vocals') === 'vocals'));
+assert.ok(duckMeasured < 15.1, 'post-reprint window masking must move; ride credit on old frames is not remasure');
 
 const applied = context.mfPlainWhatChanged(
   { lufs: -18, peakDb: -1.2, crestDb: 18, correlation: 0.87, clipPercent: 0 },
@@ -286,7 +299,7 @@ const applied = context.mfPlainWhatChanged(
     },
   },
 );
-assert.ok(applied.bullets.some((line) => /Vocal rides/.test(line) && /0:12–0:28/.test(line)));
+assert.ok(applied.bullets.some((line) => /Vocal rides/.test(line) && /0:12/.test(line)));
 assert.ok(applied.bullets.some((line) => /Stopped:/.test(line)));
 assert.ok(applied.bullets.some((line) => /Buried windows:/.test(line)));
 assert.ok(applied.bullets.some((line) => /Global vocal seat: \+0\.8 dB/.test(line)));
@@ -309,6 +322,84 @@ const tokenReport = context.mfPlainWhatChanged(
   },
 );
 assert.ok(tokenReport.remaining.some((line) => /still red|not enough to unbury/i.test(line)), '15.1 → 14.5 one-shot must stay a fail');
+
+const liveSmear = context.mfPlainWhatChanged(
+  { lufs: -18, peakDb: -1.2, crestDb: 18, correlation: 0.87, clipPercent: 0 },
+  { lufs: -13.4, peakDb: -1.1, crestDb: 12, correlation: 0.86, clipPercent: 0 },
+  { eq: [], compressor: null, truePeakCeilingDb: -1 },
+  'forensic',
+  {
+    vocalUp: {
+      warranted: true,
+      applied: true,
+      rides: Array.from({ length: 37 }, (_, index) => ({
+        stem: 'vocals',
+        start: 10 + index,
+        end: 11 + index,
+        gainDb: 3.0,
+      })),
+      maskingBefore: 15.1,
+      maskingAfter: 14.2,
+      windowsBefore: 37,
+      windowsAfter: 50,
+      stopReason: 'harshness',
+      stopDetail: 'Harshness windows increased after the last ride pass, so MixForge stopped instead of pumping the lead.',
+    },
+  },
+);
+assert.ok(liveSmear.remaining.some((line) => /increased|failed|still red|not enough to unbury/i.test(line)), '15.1 → 14.2 with 37 → 50 windows is a fail');
+assert.ok(liveSmear.remaining.some((line) => /increased/i.test(line)), 'a pass that creates more buried windows must be called a fail');
+
+const longLastMinute = {
+  markers: [],
+  frames: [
+    ...Array.from({ length: 60 }, (_, index) => ({
+      start: index,
+      end: index + 1.2,
+      rmsDb: -18,
+      lowMidToPresenceDb: 15.1,
+      presenceRatio: 0.04,
+    })),
+    { start: 90, end: 140, rmsDb: -16, lowMidToPresenceDb: 8.4, presenceRatio: 0.22 },
+    ...Array.from({ length: 59 }, (_, index) => ({
+      start: 228 + index,
+      end: 229.2 + index,
+      rmsDb: -18,
+      lowMidToPresenceDb: 15.6 + (index % 5) * 0.15,
+      presenceRatio: 0.035,
+    })),
+  ],
+};
+const longWindows = context.mfFindBuriedVocalWindows(longLastMinute);
+const longPlan = context.mfPlanVocalRides(longWindows, [], { otherAvailable: true });
+const vocalChunks = longPlan.added.filter((ride) => ride.stem === 'vocals');
+assert.ok(vocalChunks.length, 'ducked phrases still get rides');
+assert.ok(vocalChunks.every((ride) => ride.end - ride.start <= context.MF_VOCAL_RIDE_MAX_WINDOW_SEC + 0.05), 'no 59s last-minute ride');
+assert.ok(!vocalChunks.some((ride) => ride.end - ride.start >= 59), 'a 59s block is not a ride');
+const pinned = vocalChunks.filter((ride) => Math.abs(ride.gainDb - 3) < 0.05);
+assert.ok(pinned.length < Math.max(3, vocalChunks.length * 0.25), `must not pin most rides at +3.0 (${pinned.length}/${vocalChunks.length})`);
+assert.ok(vocalChunks.length < 37, `must not emit 37 identical chunks, got ${vocalChunks.length}`);
+const gainSpread = Math.max(...vocalChunks.map((ride) => ride.gainDb)) - Math.min(...vocalChunks.map((ride) => ride.gainDb));
+assert.ok(gainSpread > 0.15 || vocalChunks.length <= 6, 'ducked phrases must not all smear to the same gain');
+
+const regression = await context.mfIterateVocalRides({
+  initialAnalysis: analysisAt(15.1),
+  applyRides: async (rides) => ({
+    rides,
+    analysis: {
+      markers: [],
+      frames: Array.from({ length: 20 }, (_, index) => ({
+        start: 10 + index * 2,
+        end: 11.5 + index * 2,
+        rmsDb: -18,
+        lowMidToPresenceDb: 15.6,
+        presenceRatio: 0.03,
+      })).concat([{ start: 80, end: 90, rmsDb: -16, lowMidToPresenceDb: 8.4, presenceRatio: 0.22 }]),
+    },
+  }),
+});
+assert.equal(regression.stop.reason, 'regression', 'more buried windows after a pass must revert that pass');
+assert.equal(regression.rides.length, 0, 'the worsened pass must not be kept');
 
 const skipped = context.mfPlainWhatChanged(
   { lufs: -18, peakDb: -1.2, crestDb: 18, correlation: 0.87, clipPercent: 0 },

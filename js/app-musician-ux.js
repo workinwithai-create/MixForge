@@ -72,13 +72,16 @@ const MF_OTHER_MIX_TRANSFER = 0.40;
 const MF_TOKEN_MASKING_DROP_DB = 0.6;
 const MF_VOCAL_RIDE_CLEAR_DB = 10;
 const MF_VOCAL_RIDE_RED_DB = 14;
-const MF_VOCAL_RIDE_PASS_MIN_DB = 1.2;
+const MF_VOCAL_RIDE_PASS_MIN_DB = 0.5;
 const MF_VOCAL_RIDE_PASS_MAX_DB = 3.0;
 const MF_VOCAL_RIDE_TOTAL_MAX_DB = 6.0;
-const MF_VOCAL_RIDE_EASE_TOTAL_MAX_DB = -3.0;
+const MF_VOCAL_RIDE_EASE_TOTAL_MAX_DB = -4.5;
+const MF_VOCAL_RIDE_EASE_PASS_MAX_DB = -3.2;
 const MF_VOCAL_RIDE_MAX_PASSES = 4;
 const MF_VOCAL_RIDE_PEAK_STOP_DB = -0.2;
 const MF_VOCAL_RIDE_MIN_WINDOW_SEC = 0.45;
+const MF_VOCAL_RIDE_MAX_WINDOW_SEC = 12;
+const MF_VOCAL_RIDE_MIN_RELATIVE_DB = 2.0;
 const MF_VOCAL_SEAT_MAX_DB = 1.2;
 const MF_VOCAL_VS_OTHER_DUCK_DB = -4;
 
@@ -194,23 +197,65 @@ function mfWindowRideDepthDb(windowLike) {
   return parts.length ? Math.max(...parts) : null;
 }
 
-function mfMergeBuriedWindows(windows) {
+function mfSortedMedian(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) * 0.5;
+}
+
+function mfPercentile(values, percentile) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const position = (sorted.length - 1) * percentile;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
+}
+
+function mfMergeWindowStats(target, source) {
+  target.maskingDb = Math.max(Number(target.maskingDb) || -120, Number(source.maskingDb) || -120);
+  target.depthDb = Math.max(Number(target.depthDb) || -120, Number(source.depthDb) || -120);
+  target.relativeDb = Math.max(Number(target.relativeDb) || 0, Number(source.relativeDb) || 0);
+  if (Number.isFinite(source.vocalVsOtherDb)) {
+    target.vocalVsOtherDb = Math.min(Number(target.vocalVsOtherDb ?? 99), source.vocalVsOtherDb);
+  }
+}
+
+function mfMergeBuriedWindows(windows, maxSpanSec = MF_VOCAL_RIDE_MAX_WINDOW_SEC) {
   const sorted = [...windows].sort((a, b) => a.start - b.start || b.end - a.end);
   const merged = [];
   for (const window of sorted) {
     const last = merged[merged.length - 1];
-    if (last && window.start <= last.end + 0.35) {
+    const combined = last ? Math.max(last.end, window.end) - last.start : 0;
+    if (last && window.start <= last.end + 0.35 && combined <= maxSpanSec) {
       last.end = Math.max(last.end, window.end);
-      last.maskingDb = Math.max(Number(last.maskingDb) || -120, Number(window.maskingDb) || -120);
-      last.depthDb = Math.max(Number(last.depthDb) || -120, Number(window.depthDb) || -120);
-      if (Number.isFinite(window.vocalVsOtherDb)) {
-        last.vocalVsOtherDb = Math.min(Number(last.vocalVsOtherDb ?? 99), window.vocalVsOtherDb);
-      }
+      mfMergeWindowStats(last, window);
       continue;
     }
     merged.push({ ...window });
   }
   return merged;
+}
+
+function mfSplitLongWindows(windows, maxSpanSec = MF_VOCAL_RIDE_MAX_WINDOW_SEC) {
+  const split = [];
+  for (const window of windows || []) {
+    const duration = window.end - window.start;
+    if (duration <= maxSpanSec + 0.05) {
+      split.push({ ...window });
+      continue;
+    }
+    const pieces = Math.ceil(duration / maxSpanSec);
+    const step = duration / pieces;
+    for (let index = 0; index < pieces; index++) {
+      const start = window.start + index * step;
+      const end = index === pieces - 1 ? window.end : start + step;
+      split.push({ ...window, start, end });
+    }
+  }
+  return split;
 }
 
 function mfAnnotateWindowWithStems(window, vocalBuffer, otherBuffer) {
@@ -222,83 +267,102 @@ function mfAnnotateWindowWithStems(window, vocalBuffer, otherBuffer) {
   return annotated;
 }
 
-function mfCreditAppliedRides(window, rides = []) {
-  if (!rides.length) {
-    return { ...window, depthDb: mfWindowRideDepthDb(window) };
+function mfSongDuckBaseline(frames) {
+  const active = (frames || []).filter((frame) => frame.rmsDb > -55);
+  const maskings = active.map((frame) => mfWindowMaskingDb(frame)).filter((value) => Number.isFinite(value));
+  const presences = active.map((frame) => Number(frame.presenceRatio)).filter((value) => Number.isFinite(value));
+  const vsOthers = active.map((frame) => Number(frame.vocalVsOtherDb)).filter((value) => Number.isFinite(value));
+  const peakPresence = presences.length ? Math.max(...presences) : 0;
+  const presenceCut = Math.max(peakPresence * 0.65, mfPercentile(presences, 0.75) || 0);
+  const brightMaskings = active
+    .filter((frame) => (frame.presenceRatio || 0) >= presenceCut && presenceCut > 1e-6)
+    .map((frame) => mfWindowMaskingDb(frame))
+    .filter((value) => Number.isFinite(value));
+  return {
+    forwardMaskingDb: mfSortedMedian(brightMaskings) ?? mfPercentile(maskings, 0.2),
+    medianMaskingDb: mfSortedMedian(maskings),
+    medianPresenceRatio: mfSortedMedian(presences) || 0,
+    medianVocalVsOtherDb: mfSortedMedian(vsOthers),
+  };
+}
+
+function mfFrameRelativeDuckDb(frame, baseline = {}) {
+  const masking = mfWindowMaskingDb(frame);
+  const vsOther = Number(frame.vocalVsOtherDb);
+  const parts = [];
+  if (Number.isFinite(masking) && Number.isFinite(baseline.forwardMaskingDb)) {
+    parts.push(masking - baseline.forwardMaskingDb);
+  } else if (Number.isFinite(masking)) {
+    parts.push(masking - MF_VOCAL_RIDE_CLEAR_DB);
   }
-  const vocalCredit = mfExistingRideGain(rides, window, 'vocals');
-  const otherCredit = mfExistingRideGain(rides, window, 'other');
-  const next = { ...window };
-  if (Number.isFinite(next.vocalDb)) next.vocalDb += vocalCredit;
-  if (Number.isFinite(next.otherDb)) next.otherDb += otherCredit;
-  if (Number.isFinite(next.vocalVsOtherDb)) next.vocalVsOtherDb += vocalCredit - otherCredit;
-  // Stereo remasure already includes the reprint. Do not credit maskingDb.
-  next.depthDb = mfWindowRideDepthDb(next);
-  return next;
+  if (Number.isFinite(vsOther) && Number.isFinite(baseline.medianVocalVsOtherDb)) {
+    parts.push(baseline.medianVocalVsOtherDb - vsOther);
+  } else if (Number.isFinite(vsOther) && vsOther < MF_VOCAL_VS_OTHER_DUCK_DB) {
+    parts.push(-vsOther + MF_VOCAL_VS_OTHER_DUCK_DB);
+  }
+  return parts.length ? Math.max(0, ...parts) : 0;
+}
+
+function mfFrameIsActuallyDucked(frame, baseline = {}, clearDb = MF_VOCAL_RIDE_CLEAR_DB) {
+  if (!(frame.rmsDb > -55)) return false;
+  const masking = mfWindowMaskingDb(frame);
+  const vsOther = Number(frame.vocalVsOtherDb);
+  const relativeDb = mfFrameRelativeDuckDb(frame, baseline);
+  const presenceDuck = baseline.medianPresenceRatio > 1e-6
+    && (frame.presenceRatio || 0) < baseline.medianPresenceRatio * 0.55
+    && Number.isFinite(masking)
+    && masking > 10;
+  const maskingDuck = Number.isFinite(masking) && masking > clearDb && relativeDb >= MF_VOCAL_RIDE_MIN_RELATIVE_DB;
+  const stemDuck = Number.isFinite(vsOther)
+    && vsOther < MF_VOCAL_VS_OTHER_DUCK_DB
+    && (
+      !Number.isFinite(baseline.medianVocalVsOtherDb)
+      || baseline.medianVocalVsOtherDb - vsOther >= 1.5
+    );
+  return presenceDuck || maskingDuck || stemDuck;
 }
 
 function mfFindBuriedVocalWindows(analysis, options = {}) {
   const clearDb = Number.isFinite(Number(options.clearMaskingDb)) ? Number(options.clearMaskingDb) : MF_VOCAL_RIDE_CLEAR_DB;
-  const appliedRides = Array.isArray(options.appliedRides) ? options.appliedRides : [];
-  const frames = analysis?.frames || [];
-  const presenceValues = frames
-    .filter((frame) => frame.rmsDb > -55)
-    .map((frame) => Number(frame.presenceRatio))
-    .filter((value) => Number.isFinite(value));
-  const medianPresenceRatio = (() => {
-    if (!presenceValues.length) return 0;
-    const sorted = [...presenceValues].sort((a, b) => a - b);
-    const middle = Math.floor(sorted.length / 2);
-    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) * 0.5;
-  })();
+  const remasure = options.remeasure === true;
+  let frames = (analysis?.frames || []).map((frame) => ({ ...frame }));
 
-  // Forensic-owned windows. Do not read Problem Timeline / targeted-repair markers —
-  // those objects are stereo loudness dips and the like, not vocal-stem rides.
+  // Stem levels help the first detect. Remeasure uses the reprinted mix frames only —
+  // original stems plus ride credit is bookkeeping, not a moved masking number.
+  if (!remasure && options.vocalBuffer && options.otherBuffer) {
+    frames = frames.map((frame) => (
+      frame.rmsDb > -55
+        ? mfAnnotateWindowWithStems(frame, options.vocalBuffer, options.otherBuffer)
+        : frame
+    ));
+  }
+
+  const baseline = mfSongDuckBaseline(frames);
+  const toWindow = (frame, relativeDb) => ({
+    start: frame.start,
+    end: frame.end,
+    maskingDb: mfWindowMaskingDb(frame),
+    vocalVsOtherDb: Number(frame.vocalVsOtherDb),
+    presenceGapDb: Number(frame.presenceGapDb),
+    relativeDb,
+    depthDb: mfWindowMaskingDb(frame),
+  });
   const fromFrames = [];
   for (const frame of frames) {
-    if (!(frame.rmsDb > -55)) continue;
-    const masking = mfWindowMaskingDb(frame) ?? Number(frame.lowMidToPresenceDb);
-    const vsOther = Number(frame.vocalVsOtherDb);
-    const ducked = medianPresenceRatio > 1e-6
-      && (frame.presenceRatio || 0) < medianPresenceRatio * 0.5
-      && Number.isFinite(masking)
-      && masking > 10;
-    const buried = Number.isFinite(masking) && masking > clearDb;
-    const stemDuck = Number.isFinite(vsOther) && vsOther < MF_VOCAL_VS_OTHER_DUCK_DB;
-    if (!(buried || ducked || stemDuck)) continue;
-    fromFrames.push({
-      start: frame.start,
-      end: frame.end,
-      maskingDb: masking,
-      vocalVsOtherDb: vsOther,
-      presenceGapDb: Number(frame.presenceGapDb),
-    });
+    if (!mfFrameIsActuallyDucked(frame, baseline, clearDb)) continue;
+    fromFrames.push(toWindow(frame, mfFrameRelativeDuckDb(frame, baseline)));
   }
 
-  let windows = mfMergeBuriedWindows(fromFrames);
-  if (options.vocalBuffer && options.otherBuffer) {
-    windows = windows.map((window) => mfAnnotateWindowWithStems(window, options.vocalBuffer, options.otherBuffer));
-    const ducked = [];
-    for (const frame of analysis?.frames || []) {
-      if (!(frame.rmsDb > -55)) continue;
-      const raw = mfAnnotateWindowWithStems({
-        start: frame.start,
-        end: frame.end,
-        maskingDb: frame.lowMidToPresenceDb,
-      }, options.vocalBuffer, options.otherBuffer);
-      const credited = mfCreditAppliedRides(raw, appliedRides);
-      const duck = Number(credited.vocalVsOtherDb) < MF_VOCAL_VS_OTHER_DUCK_DB && Number(credited.vocalDb) > -55;
-      if (duck || Number(credited.depthDb) > clearDb) ducked.push(raw);
-    }
-    windows = mfMergeBuriedWindows([...windows, ...ducked]);
+  if (!fromFrames.length && !remasure && Number(baseline.medianMaskingDb) > MF_VOCAL_RIDE_RED_DB) {
+    const worst = frames
+      .filter((frame) => frame.rmsDb > -55 && Number.isFinite(mfWindowMaskingDb(frame)))
+      .sort((left, right) => (mfWindowMaskingDb(right) || 0) - (mfWindowMaskingDb(left) || 0))
+      .slice(0, 6);
+    for (const frame of worst) fromFrames.push(toWindow(frame, Math.max(2, mfFrameRelativeDuckDb(frame, baseline))));
   }
 
-  return windows
-    .map((window) => mfCreditAppliedRides(window, appliedRides))
-    .filter((window) => (
-      window.end - window.start >= MF_VOCAL_RIDE_MIN_WINDOW_SEC
-      && (Number(window.depthDb) > clearDb || Number(window.maskingDb) > clearDb)
-    ));
+  return mfSplitLongWindows(mfMergeBuriedWindows(fromFrames))
+    .filter((window) => window.end - window.start >= MF_VOCAL_RIDE_MIN_WINDOW_SEC);
 }
 
 function mfGlobalVocalSeatDb({ songMaskingDb, rideCount } = {}) {
@@ -319,23 +383,63 @@ function mfExistingRideGain(rides, window, stem = 'vocals') {
   return sum;
 }
 
-function mfVocalRideAmountDb(depthDb) {
-  const depth = Math.max(0, Number(depthDb) - MF_VOCAL_RIDE_CLEAR_DB);
-  return clamp(depth * 0.42, 0.8, MF_VOCAL_RIDE_PASS_MAX_DB);
+function mfVocalRideAmountDb(depthDb, options = {}) {
+  const relativeDb = Number.isFinite(Number(options.relativeDb))
+    ? Math.max(0, Number(options.relativeDb))
+    : Math.max(0, Number(depthDb) - MF_VOCAL_RIDE_CLEAR_DB);
+  const otherAvailable = options.otherAvailable !== false;
+  const coeff = otherAvailable ? 0.22 : 0.36;
+  const maxDb = otherAvailable
+    ? (relativeDb >= 6 ? 2.4 : relativeDb >= 4 ? 1.8 : 1.4)
+    : MF_VOCAL_RIDE_PASS_MAX_DB;
+  return clamp(relativeDb * coeff, MF_VOCAL_RIDE_PASS_MIN_DB, Math.min(maxDb, MF_VOCAL_RIDE_PASS_MAX_DB));
+}
+
+function mfCompetingWindowEaseDb(relativeDb, options = {}) {
+  const depth = Math.max(0, Number(relativeDb) || 0);
+  if (!depth && options.requireDuck !== false) return 0;
+  return clamp(-Math.max(depth, 2) * 0.40, MF_VOCAL_RIDE_EASE_PASS_MAX_DB, -1.0);
 }
 
 function mfPlanVocalRides(windows, existingRides = [], options = {}) {
   const added = [];
   const rides = (existingRides || []).map((ride) => ({ ...ride }));
   const otherAvailable = options.otherAvailable !== false;
-  for (const window of windows || []) {
+  for (const window of mfSplitLongWindows(windows || [])) {
     const duration = window.end - window.start;
     if (duration < MF_VOCAL_RIDE_MIN_WINDOW_SEC) continue;
     const depthDb = mfWindowRideDepthDb(window) ?? Number(window.maskingDb);
+    const relativeDb = Number.isFinite(Number(window.relativeDb))
+      ? Number(window.relativeDb)
+      : Math.max(0, (Number.isFinite(depthDb) ? depthDb : 0) - MF_VOCAL_RIDE_CLEAR_DB);
+    if (otherAvailable) {
+      const otherAlready = mfExistingRideGain(rides, window, 'other');
+      const otherRoom = otherAlready - MF_VOCAL_RIDE_EASE_TOTAL_MAX_DB;
+      if (otherRoom >= 0.35) {
+        const want = mfCompetingWindowEaseDb(relativeDb || Math.max(0, (depthDb || 0) - 10));
+        const easeDb = -Math.min(-want, otherRoom);
+        if (easeDb <= -0.35) {
+          added.push({
+            stem: 'other',
+            start: window.start,
+            end: window.end,
+            gainDb: easeDb,
+            maskingDb: window.maskingDb,
+            depthDb,
+            relativeDb,
+            label: `Ease other ${mfFormatRideRange(window.start, window.end)} · ${easeDb.toFixed(1)} dB`,
+          });
+        }
+      }
+    }
     const vocalAlready = mfExistingRideGain(rides, window, 'vocals');
     const vocalRoom = MF_VOCAL_RIDE_TOTAL_MAX_DB - vocalAlready;
     if (vocalRoom >= 0.4 && Number.isFinite(depthDb)) {
-      const gainDb = clamp(mfVocalRideAmountDb(depthDb), 0.4, vocalRoom);
+      const gainDb = clamp(
+        mfVocalRideAmountDb(depthDb, { relativeDb, otherAvailable }),
+        0.4,
+        Math.min(vocalRoom, MF_VOCAL_RIDE_PASS_MAX_DB),
+      );
       added.push({
         stem: 'vocals',
         start: window.start,
@@ -343,25 +447,10 @@ function mfPlanVocalRides(windows, existingRides = [], options = {}) {
         gainDb,
         maskingDb: window.maskingDb,
         depthDb,
+        relativeDb,
         label: `Vocal ride ${mfFormatRideRange(window.start, window.end)} · +${gainDb.toFixed(1)} dB`,
       });
     }
-    if (!otherAvailable || !(Number(depthDb) > 12)) continue;
-    const otherAlready = mfExistingRideGain(rides, window, 'other');
-    const otherRoom = otherAlready - MF_VOCAL_RIDE_EASE_TOTAL_MAX_DB;
-    if (otherRoom < 0.35) continue;
-    const want = clamp(-(Number(depthDb) - 12) * 0.22, -1.8, -0.6);
-    const easeDb = -Math.min(-want, otherRoom);
-    if (easeDb > -0.35) continue;
-    added.push({
-      stem: 'other',
-      start: window.start,
-      end: window.end,
-      gainDb: easeDb,
-      maskingDb: window.maskingDb,
-      depthDb,
-      label: `Ease other ${mfFormatRideRange(window.start, window.end)} · ${easeDb.toFixed(1)} dB`,
-    });
   }
   return { rides: rides.concat(added), added };
 }
@@ -381,8 +470,9 @@ async function mfIterateVocalRides({
   let stop = { reason: 'clear', detail: 'No buried vocal windows on the timeline.' };
 
   for (let pass = 1; pass <= maxPasses; pass++) {
-    const measuredOptions = { ...windowOptions, appliedRides: rides };
-    const red = mfFindBuriedVocalWindows(analysis, measuredOptions);
+    const detectOptions = { ...windowOptions, remeasure: false };
+    const remasureOptions = { remeasure: true };
+    const red = mfFindBuriedVocalWindows(analysis, pass === 1 ? detectOptions : remasureOptions);
     if (!red.length) {
       stop = {
         reason: 'clear',
@@ -392,6 +482,8 @@ async function mfIterateVocalRides({
       };
       break;
     }
+    const ridesBefore = rides.map((ride) => ({ ...ride }));
+    const analysisBefore = analysis;
     const planned = mfPlanVocalRides(red, rides, { otherAvailable });
     if (!planned.added.length) {
       stop = {
@@ -404,9 +496,29 @@ async function mfIterateVocalRides({
       throw new Error('applyRides is required to write vocal rides.');
     }
     const applied = await applyRides(planned.rides, planned.added, pass);
+    const nextAnalysis = applied?.analysis || (typeof analyze === 'function' ? await analyze(applied?.buffer) : analysis);
+    const stillRed = mfFindBuriedVocalWindows(nextAnalysis, remasureOptions);
+    if (stillRed.length > red.length) {
+      rides = ridesBefore;
+      analysis = analysisBefore;
+      if (ridesBefore.length || pass === 1) {
+        await applyRides(ridesBefore, [], pass);
+      }
+      stop = {
+        reason: 'regression',
+        detail: `Buried windows rose ${red.length} → ${stillRed.length} after pass ${pass}; that pass was reverted.`,
+      };
+      passes.push({
+        pass,
+        redBefore: red.length,
+        redAfter: stillRed.length,
+        added: planned.added,
+        reverted: true,
+      });
+      break;
+    }
     rides = planned.rides;
-    analysis = applied?.analysis || (typeof analyze === 'function' ? await analyze(applied?.buffer) : analysis);
-    const stillRed = mfFindBuriedVocalWindows(analysis, { ...windowOptions, appliedRides: rides });
+    analysis = nextAnalysis;
     passes.push({
       pass,
       redBefore: red.length,
@@ -414,10 +526,14 @@ async function mfIterateVocalRides({
       added: planned.added,
     });
     if (applied?.qualityStop) {
+      rides = ridesBefore;
+      analysis = analysisBefore;
+      await applyRides(ridesBefore, [], pass);
       stop = {
         reason: applied.qualityStop,
-        detail: applied.qualityDetail || `Quality stop (${applied.qualityStop}) after pass ${pass}.`,
+        detail: applied.qualityDetail || `Quality stop (${applied.qualityStop}) after pass ${pass}. Last pass reverted.`,
       };
+      passes[passes.length - 1].reverted = true;
       break;
     }
     if (!stillRed.length) {
@@ -437,7 +553,7 @@ async function mfIterateVocalRides({
     passes,
     analysis,
     stop,
-    windowsRemaining: mfFindBuriedVocalWindows(analysis, { ...windowOptions, appliedRides: rides }),
+    windowsRemaining: mfFindBuriedVocalWindows(analysis, { remeasure: true }),
   };
 }
 
@@ -711,7 +827,12 @@ function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
   if (vocalUp?.applied) {
     const windowsLeft = Number(vocalUp.windowsAfter);
     const progress = mfVocalUpMaskingProgress(vocalUp.maskingBefore, vocalUp.maskingAfter);
-    if (windowsLeft > 0 || (progress.token && !vocalUp.rides?.length)) {
+    const windowsBefore = Number(vocalUp.windowsBefore);
+    const windowsGrew = Number.isFinite(windowsBefore) && Number.isFinite(windowsLeft) && windowsLeft > windowsBefore;
+    if (windowsGrew) {
+      remaining.push('Buried windows increased after the ride pass — that pass failed.');
+    }
+    if (windowsLeft > 0 || windowsGrew || (progress.token && !vocalUp.rides?.length)) {
       remaining.push('Lead masking windows are still red — this was not enough to unbury the vocal.');
     }
   }
@@ -1234,8 +1355,10 @@ async function mfRunVocalUpRebuildAndMaster() {
             qualityDetail: `Smash stop: crest collapsed ${crestBefore.toFixed(1)} → ${crestAfter.toFixed(1)} dB. MixForge will not squash the mix to chase remaining windows.`,
           };
         }
-        const stillRed = mfFindBuriedVocalWindows(analysis, { ...windowOptions, appliedRides: rides });
-        if (stillRed.length) {
+        const stillRed = mfFindBuriedVocalWindows(analysis, { remeasure: true });
+        if (stillRed.length > windowsBefore) {
+          setStatus('rebuildStatus', `Remeasure worsened: ${windowsBefore} → ${stillRed.length} buried windows. Reverting that pass…`, 'warn');
+        } else if (stillRed.length) {
           setStatus('rebuildStatus', `Remeasure still red: ${stillRed.length} buried window(s). Writing another ride pass instead of mastering…`, 'busy');
         }
         return { buffer: state.corrected, analysis };
@@ -1555,8 +1678,11 @@ if (typeof globalThis !== 'undefined') {
   globalThis.mfRideEnvelope = mfRideEnvelope;
   globalThis.mfStemRideDbAt = mfStemRideDbAt;
   globalThis.mfFindBuriedVocalWindows = mfFindBuriedVocalWindows;
+  globalThis.mfMergeBuriedWindows = mfMergeBuriedWindows;
+  globalThis.mfSplitLongWindows = mfSplitLongWindows;
   globalThis.mfWindowRideDepthDb = mfWindowRideDepthDb;
   globalThis.mfVocalRideAmountDb = mfVocalRideAmountDb;
+  globalThis.MF_VOCAL_RIDE_MAX_WINDOW_SEC = MF_VOCAL_RIDE_MAX_WINDOW_SEC;
   globalThis.mfGlobalVocalSeatDb = mfGlobalVocalSeatDb;
   globalThis.mfMeasureBufferWindowDb = mfMeasureBufferWindowDb;
   globalThis.mfPlanVocalRides = mfPlanVocalRides;
