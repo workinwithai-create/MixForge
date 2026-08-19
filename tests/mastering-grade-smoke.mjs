@@ -97,4 +97,8 @@ let limitedPeak = 0;
 for (const sample of limited.getChannelData(0)) limitedPeak = Math.max(limitedPeak, Math.abs(sample));
 assert.ok(limitedPeak <= 10 ** (-1.2 / 20) + 1e-5, `limiter exceeded ceiling: ${limitedPeak}`);
 
+assert.equal(typeof context.mfTruePeakHonesty, 'function');
+const overclaim = context.mfTruePeakHonesty(-1.03, -1.0, 0.55);
+assert.equal(overclaim.claimUnderCeiling, false);
+
 console.log('MixForge mastering-grade smoke tests passed');

@@ -46,6 +46,7 @@ const state = {
   masterPlan: null,
   masterDirty: true,
   masterRevision: 0,
+  masterExportId: null,
   exportOverride: false,
   source: null,
   analyser: null,
@@ -182,6 +183,7 @@ async function loadFile(file) {
     state.master = null;
     state.masterDirty = true;
     state.masterRevision += 1;
+    state.masterExportId = null;
     state.exportOverride = false;
     state.audit = null;
     state.storagePath = null;
@@ -191,20 +193,47 @@ async function loadFile(file) {
     $('dropzone').classList.add('loaded');
     $('fileMeta').textContent = `${file.name} · ${formatDuration(decoded.duration)} · ${decoded.sampleRate / 1000} kHz · ${decoded.numberOfChannels === 1 ? 'mono' : 'stereo'}`;
     $('auditBtn').disabled = false;
-    setStatus('auditStatus', 'Ready to audit.', 'ok');
+    revealOriginalPreview();
+    setStatus('auditStatus', 'Original ready — press Play, then Scan when you want evidence.', 'ok');
   } catch (error) {
     if (token !== state.loadToken) return;
     console.error(error);
     state.file = null;
     state.original = null;
     $('auditBtn').disabled = true;
+    hide('previewBox');
     const detail = error?.message || 'Unknown audio error';
     setStatus('auditStatus', `Could not open this audio file: ${detail}`, 'error');
   }
 }
 
+function revealOriginalPreview() {
+  if (!state.original || !$('previewBox')) return false;
+  const originalRadio = document.querySelector('input[name="preview"][value="original"]');
+  if (originalRadio) originalRadio.checked = true;
+  reveal('previewBox');
+  if ($('abToggleBar') && !state.master) $('abToggleBar').classList.add('hidden');
+  if (typeof syncPreviewSourceAvailability === 'function') syncPreviewSourceAvailability();
+  if (typeof updateTransportUI === 'function') updateTransportUI(0);
+  return !$('previewBox').classList.contains('hidden');
+}
+
+function syncPreviewSourceAvailability() {
+  document.querySelectorAll('input[name="preview"]').forEach((input) => {
+    const value = input.value;
+    const available = value === 'original' ? Boolean(state.original)
+      : value === 'corrected' ? Boolean(state.corrected) && state.corrected !== state.original
+      : Boolean(state.master);
+    input.disabled = !available;
+    const label = input.closest('label');
+    label?.classList.toggle('unavailable', !available);
+    if (value === 'corrected') label?.classList.toggle('hidden-source', !available);
+  });
+}
+
 function resetResults() {
-  ['auditPanel', 'stemPanel', 'masterPanel', 'verifyPanel'].forEach(hide);
+  ['auditPanel', 'stemPanel', 'masterPanel', 'verifyPanel', 'previewBox'].forEach(hide);
+  if ($('skipListeningBtn')) $('skipListeningBtn').classList.add('hidden');
   $('auditFindings').replaceChildren();
   $('stemGrid').replaceChildren();
   $('masterChain').replaceChildren();

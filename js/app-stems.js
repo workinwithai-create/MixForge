@@ -61,6 +61,7 @@ function describeOperation(op) {
   if (op.type === 'deess') return `${Math.round(Number(op.frequency) || 6800)} Hz · conservative parallel control`;
   if (op.type === 'compressor') return `${Number(op.ratio || 2).toFixed(1)}:1 · threshold ${Math.round(Number(op.threshold) || -24)} dB`;
   if (op.type === 'gain') return `${Number(op.gainDb || 0) >= 0 ? '+' : ''}${Number(op.gainDb || 0).toFixed(1)} dB`;
+  if (op.type === 'mixgain') return `${Number(op.gainDb || 0) >= 0 ? '+' : ''}${Number(op.gainDb || 0).toFixed(1)} dB mix balance`;
   return op.type;
 }
 
@@ -153,9 +154,14 @@ async function rebuildCorrectedMix() {
       const dest = out.getChannelData(c);
       const raw = originalStem.getChannelData(Math.min(c, originalStem.numberOfChannels - 1));
       const fixed = processed.getChannelData(Math.min(c, processed.numberOfChannels - 1));
+      const sampleRate = originalStem.sampleRate || out.sampleRate;
       for (let i = 0; i < length; i++) {
-        const repaired = raw[i] * (1 - wet) + fixed[i] * levelMatch * wet;
-        dest[i] += repaired - raw[i];
+        const rideDb = typeof mfStemRideDbAt === 'function'
+          ? mfStemRideDbAt(plan, i / sampleRate)
+          : (plan.mixGainDb || 0);
+        dest[i] += typeof mfStemBalanceDelta === 'function'
+          ? mfStemBalanceDelta(raw[i], fixed[i], levelMatch, wet, rideDb)
+          : raw[i] * (1 - wet) + fixed[i] * levelMatch * wet - raw[i];
       }
     }
     await sleep(0);
