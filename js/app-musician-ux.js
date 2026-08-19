@@ -157,6 +157,8 @@ function mfFormatRideRange(start, end) {
 function mfWindowMaskingDb(windowLike) {
   const masking = Number(windowLike?.maskingDb);
   if (Number.isFinite(masking)) return masking;
+  const fromFrame = Number(windowLike?.lowMidToPresenceDb);
+  if (Number.isFinite(fromFrame)) return fromFrame;
   const intensity = Number(windowLike?.intensity);
   return Number.isFinite(intensity) ? intensity : null;
 }
@@ -238,34 +240,42 @@ function mfCreditAppliedRides(window, rides = []) {
 function mfFindBuriedVocalWindows(analysis, options = {}) {
   const clearDb = Number.isFinite(Number(options.clearMaskingDb)) ? Number(options.clearMaskingDb) : MF_VOCAL_RIDE_CLEAR_DB;
   const appliedRides = Array.isArray(options.appliedRides) ? options.appliedRides : [];
-  const fromMarkers = (analysis?.markers || [])
-    .filter((marker) => marker.type === 'lead_masking')
-    .map((marker) => ({
-      start: Number(marker.start),
-      end: Number(marker.end),
-      maskingDb: mfWindowMaskingDb(marker),
-      vocalVsOtherDb: Number(marker.vocalVsOtherDb),
-      presenceGapDb: Number(marker.presenceGapDb),
-      evidence: marker.evidence,
-    }))
-    .filter((window) => (
-      Number.isFinite(window.start)
-      && Number.isFinite(window.end)
-      && window.end - window.start >= MF_VOCAL_RIDE_MIN_WINDOW_SEC
-    ));
+  const frames = analysis?.frames || [];
+  const presenceValues = frames
+    .filter((frame) => frame.rmsDb > -55)
+    .map((frame) => Number(frame.presenceRatio))
+    .filter((value) => Number.isFinite(value));
+  const medianPresenceRatio = (() => {
+    if (!presenceValues.length) return 0;
+    const sorted = [...presenceValues].sort((a, b) => a - b);
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) * 0.5;
+  })();
 
+  // Forensic-owned windows. Do not read Problem Timeline / targeted-repair markers —
+  // those objects are stereo loudness dips and the like, not vocal-stem rides.
   const fromFrames = [];
-  for (const frame of analysis?.frames || []) {
-    if (!(frame.rmsDb > -55) || !(Number(frame.lowMidToPresenceDb) > clearDb)) continue;
+  for (const frame of frames) {
+    if (!(frame.rmsDb > -55)) continue;
+    const masking = mfWindowMaskingDb(frame) ?? Number(frame.lowMidToPresenceDb);
+    const vsOther = Number(frame.vocalVsOtherDb);
+    const ducked = medianPresenceRatio > 1e-6
+      && (frame.presenceRatio || 0) < medianPresenceRatio * 0.5
+      && Number.isFinite(masking)
+      && masking > 10;
+    const buried = Number.isFinite(masking) && masking > clearDb;
+    const stemDuck = Number.isFinite(vsOther) && vsOther < MF_VOCAL_VS_OTHER_DUCK_DB;
+    if (!(buried || ducked || stemDuck)) continue;
     fromFrames.push({
       start: frame.start,
       end: frame.end,
-      maskingDb: frame.lowMidToPresenceDb,
+      maskingDb: masking,
+      vocalVsOtherDb: vsOther,
+      presenceGapDb: Number(frame.presenceGapDb),
     });
   }
 
-  // A verse marker must not hide a milder buried frame later in the song.
-  let windows = mfMergeBuriedWindows([...fromMarkers, ...fromFrames]);
+  let windows = mfMergeBuriedWindows(fromFrames);
   if (options.vocalBuffer && options.otherBuffer) {
     windows = windows.map((window) => mfAnnotateWindowWithStems(window, options.vocalBuffer, options.otherBuffer));
     const ducked = [];
@@ -506,6 +516,7 @@ function mfApplyVocalUpPlan(stemPlans, evidence) {
   const vocalRides = rides.filter((ride) => (ride.stem || 'vocals') === 'vocals');
   const otherRides = rides.filter((ride) => ride.stem === 'other');
   const vocals = stemPlans.vocals;
+  // liftDb is the old song-length one-shot. Do not write it. Seat is last/global only.
   const seat = clamp(Number(evidence.globalSeatDb) || 0, 0, MF_VOCAL_SEAT_MAX_DB);
   vocals.mixGainDb = seat;
   vocals.rides = vocalRides;

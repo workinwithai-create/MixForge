@@ -48,12 +48,6 @@ const MF_TIMELINE_TYPES = Object.freeze({
     weight: 2,
     message: 'This section falls well below the song’s typical short-term level.',
   },
-  lead_masking: {
-    label: 'Buried vocal phrase',
-    severity: 'medium',
-    weight: 2,
-    message: 'Lead presence sits under low-mids in this window. A verse that ducks gets a ride; a forward chorus stays put.',
-  },
 });
 
 function mfTimelineClamp(value, minimum, maximum) {
@@ -280,11 +274,9 @@ async function mfTimelineAnalyze(buffer, options = {}) {
     }
   }
 
-  const activeFrames = frames.filter((frame) => frame.rmsDb > -55);
   const activeLevels = frames.filter((frame) => frame.rmsDb > -65).map((frame) => frame.rmsDb);
   const medianLevel = mfTimelineMedian(activeLevels);
-  const medianPresenceRatio = mfTimelineMedian(activeFrames.map((frame) => frame.presenceRatio || 0));
-  const context = { medianLevel, medianPresenceRatio };
+  const context = { medianLevel };
   const definitions = [
     {
       type: 'clipping', severity: 'high',
@@ -342,25 +334,6 @@ async function mfTimelineAnalyze(buffer, options = {}) {
           active: currentContext.medianLevel > -60 && frame.rmsDb > -65 && delta >= 8,
           intensity: delta,
           evidence: `Section level is ${delta.toFixed(1)} dB below the song median.`,
-        };
-      },
-    },
-    {
-      type: 'lead_masking', severity: 'medium',
-      evaluate: (frame, currentContext) => {
-        const masking = Number(frame.lowMidToPresenceDb);
-        const ducked = Number.isFinite(currentContext.medianPresenceRatio)
-          && currentContext.medianPresenceRatio > 1e-6
-          && (frame.presenceRatio || 0) < currentContext.medianPresenceRatio * 0.5
-          && masking > 10;
-        const buried = masking > 14;
-        return {
-          active: frame.rmsDb > -55 && Number.isFinite(masking) && (buried || ducked),
-          intensity: masking,
-          maskingDb: masking,
-          evidence: ducked && !buried
-            ? `This phrase’s lead presence is ducked ${masking.toFixed(1)} dB under low-mids versus the song’s more-forward sections.`
-            : `Lead presence is ${masking.toFixed(1)} dB below low-mids in this window.`,
         };
       },
     },

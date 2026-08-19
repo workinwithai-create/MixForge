@@ -62,18 +62,12 @@ const stillQuick = context.mfRecommendPath({
 assert.equal(stillQuick.path, 'quick', 'a vocal stem without masking must not force Forensic');
 
 const verseChorusAnalysis = {
-  markers: [
-    {
-      type: 'lead_masking',
-      start: 12,
-      end: 28,
-      maskingDb: 15.1,
-      intensity: 15.1,
-      evidence: 'Lead presence is 15.1 dB below low-mids in this window.',
-    },
+  markers: [],
+  frames: [
+    { start: 12, end: 28, rmsDb: -18, lowMidToPresenceDb: 15.1, presenceRatio: 0.04 },
+    { start: 40, end: 55, rmsDb: -16, lowMidToPresenceDb: 8.4, presenceRatio: 0.22 },
   ],
-  frames: [],
-  counts: { lead_masking: 1 },
+  counts: {},
 };
 const red = context.mfFindBuriedVocalWindows(verseChorusAnalysis);
 assert.equal(red.length, 1, 'the ducked verse must be a red window');
@@ -96,62 +90,48 @@ const deep = uneven.added.find((ride) => ride.stem === 'vocals' && ride.start ==
 assert.ok(mild && deep, 'both buried sections must get a ride');
 assert.ok(deep.gainDb > mild.gainDb + 0.6, `worse 18 dB section must get a larger ride than 12.4 dB (${deep.gainDb} vs ${mild.gainDb})`);
 
-const markerHidesFrame = context.mfFindBuriedVocalWindows({
-  markers: [{
-    type: 'lead_masking',
-    start: 10,
-    end: 22,
-    maskingDb: 18.0,
-    intensity: 18.0,
-  }],
+const twoSlices = context.mfFindBuriedVocalWindows({
+  markers: [],
   frames: [
-    { start: 10, end: 16, rmsDb: -18, lowMidToPresenceDb: 18.0 },
-    { start: 40, end: 56, rmsDb: -20, lowMidToPresenceDb: 12.4 },
+    { start: 10, end: 22, rmsDb: -18, lowMidToPresenceDb: 18.0, presenceRatio: 0.03 },
+    { start: 40, end: 56, rmsDb: -20, lowMidToPresenceDb: 12.4, presenceRatio: 0.08 },
   ],
 });
-assert.ok(markerHidesFrame.some((window) => window.start <= 10 && window.end >= 16), 'the 18 dB verse stays a window');
-assert.ok(markerHidesFrame.some((window) => window.start <= 40 && window.end >= 40), 'a milder 12.4 dB frame must not be dropped because a verse marker exists');
-const hiddenPlan = context.mfPlanVocalRides(markerHidesFrame, [], { otherAvailable: false });
+assert.ok(twoSlices.some((window) => window.start <= 10 && window.end >= 16), 'the 18 dB verse stays a window');
+assert.ok(twoSlices.some((window) => window.start <= 40 && window.end >= 40), 'a milder 12.4 dB slice must also get a window');
+const hiddenPlan = context.mfPlanVocalRides(twoSlices, [], { otherAvailable: false });
 const hiddenDeep = hiddenPlan.added.find((ride) => ride.stem === 'vocals' && ride.start <= 10);
 const hiddenMild = hiddenPlan.added.find((ride) => ride.stem === 'vocals' && ride.start >= 39);
 assert.ok(hiddenDeep && hiddenMild, 'both detected sections must be ridden');
 assert.ok(hiddenDeep.gainDb > hiddenMild.gainDb + 0.6, `worse section must get the larger ride (${hiddenDeep.gainDb} vs ${hiddenMild.gainDb})`);
 
 const duckedVsOther = context.mfFindBuriedVocalWindows({
-  markers: [{
-    type: 'lead_masking',
+  markers: [],
+  frames: [{
     start: 8,
     end: 16,
-    maskingDb: 9.2,
+    rmsDb: -20,
+    lowMidToPresenceDb: 9.2,
     vocalVsOtherDb: -8.5,
   }],
-  frames: [],
 });
 assert.ok(duckedVsOther.some((window) => window.start === 8), 'vocal-stem under competing other must count as a buried slice');
 const vsOtherPlan = context.mfPlanVocalRides(duckedVsOther, [], { otherAvailable: true });
 assert.ok(vsOtherPlan.added.some((ride) => ride.stem === 'vocals' && ride.start === 8 && ride.gainDb > 1));
 
-const uncreditedDuck = context.mfFindBuriedVocalWindows({
-  markers: [{
-    type: 'lead_masking',
-    start: 8,
-    end: 16,
-    maskingDb: 9.2,
-    vocalVsOtherDb: -8.5,
-  }],
-  frames: [],
-});
+const duckFrame = {
+  start: 8,
+  end: 16,
+  rmsDb: -20,
+  lowMidToPresenceDb: 9.2,
+  vocalVsOtherDb: -8.5,
+};
+const uncreditedDuck = context.mfFindBuriedVocalWindows({ markers: [], frames: [duckFrame] });
 assert.equal(uncreditedDuck.length, 1, 'original stem duck stays red before rides are credited');
-const creditedDuck = context.mfFindBuriedVocalWindows({
-  markers: [{
-    type: 'lead_masking',
-    start: 8,
-    end: 16,
-    maskingDb: 9.2,
-    vocalVsOtherDb: -8.5,
-  }],
-  frames: [],
-}, { appliedRides: [{ stem: 'vocals', start: 8, end: 16, gainDb: 5.0 }] });
+const creditedDuck = context.mfFindBuriedVocalWindows(
+  { markers: [], frames: [duckFrame] },
+  { appliedRides: [{ stem: 'vocals', start: 8, end: 16, gainDb: 5.0 }] },
+);
 assert.equal(creditedDuck.length, 0, 'remasure must credit written rides; original stems alone would never clear');
 
 assert.equal(context.mfGlobalVocalSeatDb({ songMaskingDb: 15.1, rideCount: 0 }), 0, 'a song-length seat is not the bury fix');
@@ -173,6 +153,14 @@ const plans = {
   vocals: { operations: [{ type: 'gain', gainDb: 0, label: 'No corrective processing required' }], candidates: [{ operations: [] }] },
   other: { operations: [] },
 };
+const scaledOnly = {
+  vocals: { operations: [], candidates: [{ operations: [] }] },
+  other: { operations: [] },
+};
+context.mfApplyVocalUpPlan(scaledOnly, { warranted: true, liftDb: 5.0 });
+assert.equal(scaledOnly.vocals.mixGainDb, 0, '2.5.3 must not scale vocals.mixGainDb as the bury fix');
+assert.ok(!scaledOnly.vocals.rides?.length, 'liftDb alone must not invent a song-length ride');
+
 context.mfApplyVocalUpPlan(plans, { warranted: true, liftDb: 5, rides: firstPlan.rides });
 assert.equal(plans.vocals.mixGainDb, 0, 'Forensic must not write a song-length +5 dB one-shot');
 const seated = {
@@ -189,16 +177,15 @@ assert.ok(plans.other.rides.some((ride) => ride.stem === 'other'));
 function analysisAt(maskingDb) {
   if (!(maskingDb > 10)) return { markers: [], frames: [], counts: {} };
   return {
-    markers: [{
-      type: 'lead_masking',
+    markers: [],
+    frames: [{
       start: 12,
       end: 28,
-      maskingDb,
-      intensity: maskingDb,
-      evidence: `Lead presence is ${maskingDb.toFixed(1)} dB below low-mids in this window.`,
+      rmsDb: -18,
+      lowMidToPresenceDb: maskingDb,
+      presenceRatio: 0.04,
     }],
-    frames: [],
-    counts: { lead_masking: 1 },
+    counts: {},
   };
 }
 
@@ -228,8 +215,8 @@ assert.ok(iterated.passes[0].redAfter > 0, 'first remasure that is still red mus
 
 const alreadyClear = await context.mfIterateVocalRides({
   initialAnalysis: {
-    markers: [{ type: 'lead_masking', start: 40, end: 55, maskingDb: 8.4, intensity: 8.4 }],
-    frames: [],
+    markers: [],
+    frames: [{ start: 40, end: 55, rmsDb: -16, lowMidToPresenceDb: 8.4, presenceRatio: 0.22 }],
   },
   applyRides: async () => {
     throw new Error('a forward chorus must not receive a ride');
@@ -264,13 +251,13 @@ assert.match(smashed.stop.detail, /smash|crest|squash/i);
 
 const stemDuckLoop = await context.mfIterateVocalRides({
   initialAnalysis: {
-    markers: [{ type: 'lead_masking', start: 8, end: 16, maskingDb: 9.2, vocalVsOtherDb: -8.5 }],
-    frames: [],
+    markers: [],
+    frames: [{ start: 8, end: 16, rmsDb: -20, lowMidToPresenceDb: 9.2, vocalVsOtherDb: -8.5 }],
   },
   applyRides: async () => ({
     analysis: {
-      markers: [{ type: 'lead_masking', start: 8, end: 16, maskingDb: 9.2, vocalVsOtherDb: -8.5 }],
-      frames: [],
+      markers: [],
+      frames: [{ start: 8, end: 16, rmsDb: -20, lowMidToPresenceDb: 9.2, vocalVsOtherDb: -8.5 }],
     },
   }),
 });

@@ -43,13 +43,6 @@ const MF_TARGET_REPAIR_TYPES = Object.freeze({
     explanation: 'A level dip can be intentional arrangement dynamics. This +1.5 dB ride requires your approval.',
     operation: { mode: 'gain', gainDb: 1.5, wet: 1 },
   },
-  lead_masking: {
-    label: 'Vocal ride written on Forensic',
-    safety: 'written',
-    defaultSelected: false,
-    explanation: 'Forensic already writes this ride on the isolated vocal stem (and eases residual other in the same slice). A stereo gain here would raise the masker too.',
-    operation: null,
-  },
   clipping: {
     label: 'Clipped source cannot be reconstructed safely',
     safety: 'blocked',
@@ -347,7 +340,7 @@ function mfTargetRenderWorkspace(analysis, root) {
   copy.append(title, paragraph);
   const count = document.createElement('span');
   count.className = 'targeted-repair-count';
-  count.textContent = `${plan.filter((item) => item.safety !== 'blocked' && item.safety !== 'written').length} repairable`;
+  count.textContent = `${plan.filter((item) => item.safety !== 'blocked').length} repairable`;
   head.append(copy, count);
   workspace.append(head);
 
@@ -360,7 +353,7 @@ function mfTargetRenderWorkspace(analysis, root) {
     checkbox.type = 'checkbox';
     checkbox.dataset.targetRepair = repair.id;
     checkbox.checked = repair.defaultSelected;
-    checkbox.disabled = repair.safety === 'blocked' || repair.safety === 'written';
+    checkbox.disabled = repair.safety === 'blocked';
     const cardCopy = document.createElement('span');
     cardCopy.className = 'targeted-repair-card-copy';
     const strong = document.createElement('strong');
@@ -370,13 +363,7 @@ function mfTargetRenderWorkspace(analysis, root) {
     cardCopy.append(strong, evidence, why);
     const badge = document.createElement('span');
     badge.className = 'targeted-repair-badge';
-    badge.textContent = repair.safety === 'safe'
-      ? 'Safe candidate'
-      : repair.safety === 'review'
-        ? 'Your approval'
-        : repair.safety === 'written'
-          ? 'Written on Forensic'
-          : 'Source required';
+    badge.textContent = repair.safety === 'safe' ? 'Safe candidate' : repair.safety === 'review' ? 'Your approval' : 'Source required';
     card.append(checkbox, cardCopy, badge);
     list.append(card);
   }
@@ -418,7 +405,7 @@ function mfTargetRenderWorkspace(analysis, root) {
   const status = document.createElement('div');
   status.dataset.targetStatus = 'true';
   status.className = 'targeted-repair-status';
-  status.textContent = 'Buried-lead vocal rides are written automatically on Forensic. Arrangement loudness dips still need your approval; clipped-source restoration is blocked.';
+  status.textContent = 'Automatic repairs are selected. Musical level rides require your approval; clipped-source restoration is blocked.';
   workspace.append(status);
   root.append(workspace);
 }

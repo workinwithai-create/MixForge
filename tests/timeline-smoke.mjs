@@ -79,10 +79,22 @@ for (let index = 0; index < rideSong.length; index++) {
 }
 context.rideSong = rideSong;
 const rideAnalysis = await vm.runInContext('mfTimelineAnalyze(rideSong)', context);
-const buried = rideAnalysis.markers.filter((marker) => marker.type === 'lead_masking');
-assert.ok(buried.length >= 1, 'a ducked verse under low-mids must create a buried-vocal window');
-assert.ok(buried.every((marker) => marker.start < 3.6), 'a forward chorus must not get a buried-vocal marker');
-assert.ok(buried.every((marker) => Number.isFinite(marker.start) && Number.isFinite(marker.end) && marker.end > marker.start));
+assert.doesNotMatch(
+  fs.readFileSync(new URL('../js/app-timeline-analysis.js', import.meta.url), 'utf8'),
+  /lead_masking/,
+  'Problem Timeline must not grow a buried-vocal type',
+);
+assert.ok(!rideAnalysis.markers.some((marker) => marker.type === 'lead_masking'), 'buried lead is not a targeted-repair / timeline ride');
+assert.ok(rideAnalysis.frames.some((frame) => frame.start < 3.4 && Number(frame.lowMidToPresenceDb) > 10), 'frames still expose presence masking for Forensic');
+
+context.clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+context.globalThis = context;
+vm.runInContext(fs.readFileSync(new URL('../js/app-musician-ux.js', import.meta.url), 'utf8'), context);
+context.rideAnalysis = rideAnalysis;
+const buried = vm.runInContext('mfFindBuriedVocalWindows(rideAnalysis)', context);
+assert.ok(buried.length >= 1, 'Forensic must find the ducked verse from frames, not a timeline type');
+assert.ok(buried.every((window) => window.start < 3.6), 'a forward chorus must not get a vocal-stem ride');
+assert.ok(buried.every((window) => Number.isFinite(window.start) && Number.isFinite(window.end) && window.end > window.start));
 
 context.sourceAnalysis = damagedAnalysis;
 context.masteredAnalysis = cleanAnalysis;
