@@ -96,6 +96,27 @@ const deep = uneven.added.find((ride) => ride.stem === 'vocals' && ride.start ==
 assert.ok(mild && deep, 'both buried sections must get a ride');
 assert.ok(deep.gainDb > mild.gainDb + 0.6, `worse 18 dB section must get a larger ride than 12.4 dB (${deep.gainDb} vs ${mild.gainDb})`);
 
+const markerHidesFrame = context.mfFindBuriedVocalWindows({
+  markers: [{
+    type: 'lead_masking',
+    start: 10,
+    end: 22,
+    maskingDb: 18.0,
+    intensity: 18.0,
+  }],
+  frames: [
+    { start: 10, end: 16, rmsDb: -18, lowMidToPresenceDb: 18.0 },
+    { start: 40, end: 56, rmsDb: -20, lowMidToPresenceDb: 12.4 },
+  ],
+});
+assert.ok(markerHidesFrame.some((window) => window.start <= 10 && window.end >= 16), 'the 18 dB verse stays a window');
+assert.ok(markerHidesFrame.some((window) => window.start <= 40 && window.end >= 40), 'a milder 12.4 dB frame must not be dropped because a verse marker exists');
+const hiddenPlan = context.mfPlanVocalRides(markerHidesFrame, [], { otherAvailable: false });
+const hiddenDeep = hiddenPlan.added.find((ride) => ride.stem === 'vocals' && ride.start <= 10);
+const hiddenMild = hiddenPlan.added.find((ride) => ride.stem === 'vocals' && ride.start >= 39);
+assert.ok(hiddenDeep && hiddenMild, 'both detected sections must be ridden');
+assert.ok(hiddenDeep.gainDb > hiddenMild.gainDb + 0.6, `worse section must get the larger ride (${hiddenDeep.gainDb} vs ${hiddenMild.gainDb})`);
+
 const duckedVsOther = context.mfFindBuriedVocalWindows({
   markers: [{
     type: 'lead_masking',
@@ -109,6 +130,29 @@ const duckedVsOther = context.mfFindBuriedVocalWindows({
 assert.ok(duckedVsOther.some((window) => window.start === 8), 'vocal-stem under competing other must count as a buried slice');
 const vsOtherPlan = context.mfPlanVocalRides(duckedVsOther, [], { otherAvailable: true });
 assert.ok(vsOtherPlan.added.some((ride) => ride.stem === 'vocals' && ride.start === 8 && ride.gainDb > 1));
+
+const uncreditedDuck = context.mfFindBuriedVocalWindows({
+  markers: [{
+    type: 'lead_masking',
+    start: 8,
+    end: 16,
+    maskingDb: 9.2,
+    vocalVsOtherDb: -8.5,
+  }],
+  frames: [],
+});
+assert.equal(uncreditedDuck.length, 1, 'original stem duck stays red before rides are credited');
+const creditedDuck = context.mfFindBuriedVocalWindows({
+  markers: [{
+    type: 'lead_masking',
+    start: 8,
+    end: 16,
+    maskingDb: 9.2,
+    vocalVsOtherDb: -8.5,
+  }],
+  frames: [],
+}, { appliedRides: [{ stem: 'vocals', start: 8, end: 16, gainDb: 5.0 }] });
+assert.equal(creditedDuck.length, 0, 'remasure must credit written rides; original stems alone would never clear');
 
 assert.equal(context.mfGlobalVocalSeatDb({ songMaskingDb: 15.1, rideCount: 0 }), 0, 'a song-length seat is not the bury fix');
 const seat = context.mfGlobalVocalSeatDb({ songMaskingDb: 13.6, rideCount: 2 });
@@ -205,6 +249,33 @@ const peaked = await context.mfIterateVocalRides({
 });
 assert.equal(peaked.stop.reason, 'true-peak');
 assert.match(peaked.stop.detail, /peak|smash|clip/i);
+
+const smashed = await context.mfIterateVocalRides({
+  initialAnalysis: analysisAt(15.1),
+  applyRides: async (rides) => ({
+    analysis: analysisAt(14.2),
+    qualityStop: 'smash',
+    qualityDetail: 'Smash stop: crest collapsed 18.0 → 16.2 dB. MixForge will not squash the mix to chase remaining windows.',
+    rides,
+  }),
+});
+assert.equal(smashed.stop.reason, 'smash');
+assert.match(smashed.stop.detail, /smash|crest|squash/i);
+
+const stemDuckLoop = await context.mfIterateVocalRides({
+  initialAnalysis: {
+    markers: [{ type: 'lead_masking', start: 8, end: 16, maskingDb: 9.2, vocalVsOtherDb: -8.5 }],
+    frames: [],
+  },
+  applyRides: async () => ({
+    analysis: {
+      markers: [{ type: 'lead_masking', start: 8, end: 16, maskingDb: 9.2, vocalVsOtherDb: -8.5 }],
+      frames: [],
+    },
+  }),
+});
+assert.equal(stemDuckLoop.stop.reason, 'clear', 'written rides must clear a stem-duck remasure; looping to the cap is a fail');
+assert.ok(stemDuckLoop.rides.some((ride) => (ride.stem || 'vocals') === 'vocals'));
 
 const applied = context.mfPlainWhatChanged(
   { lufs: -18, peakDb: -1.2, crestDb: 18, correlation: 0.87, clipPercent: 0 },
