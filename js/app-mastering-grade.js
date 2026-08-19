@@ -1,8 +1,10 @@
 'use strict';
 
-// MixForge 2.1 mastering-grade DSP layer.
+// MixForge 2.1 mastering-grade DSP layer (2.5.2: evidence-bounded Quick Master).
 // This file deliberately loads after the forensic rule engine and before the
 // signal-integrity wrapper so every later stage uses the upgraded renderer.
+// Quick Master must repair measured #1 issues (sub-bass accumulation, dark top)
+// before loudness — not wait for Forensic stems.
 
 const mfProLegacyMeasureBuffer = measureBuffer;
 const mfProLegacyRenderProcessedBuffer = renderProcessedBuffer;
@@ -137,13 +139,10 @@ function mfProEstimateTruePeakDb(buffer) {
       const p1 = data[index];
       const p2 = data[index + 1];
       const p3 = data[index + 2];
-      peak = Math.max(
-        peak,
-        Math.abs(p1),
-        Math.abs(mfProCubicSample(p0, p1, p2, p3, 0.25)),
-        Math.abs(mfProCubicSample(p0, p1, p2, p3, 0.5)),
-        Math.abs(mfProCubicSample(p0, p1, p2, p3, 0.75)),
-      );
+      peak = Math.max(peak, Math.abs(p1));
+      for (let step = 1; step <= 7; step++) {
+        peak = Math.max(peak, Math.abs(mfProCubicSample(p0, p1, p2, p3, step / 8)));
+      }
     }
   }
   const result = gainToDb(peak);
@@ -162,31 +161,191 @@ function mfProReferenceMove(metrics, referenceMetrics, name, side = false) {
   return mfProNormalizedBand(metrics, name, side) - mfProNormalizedBand(referenceMetrics, name, side);
 }
 
+const MF_TRUE_PEAK_EBUR_UNDERSHoot_DB = 0.55;
+const MF_QUICK_MASTER_SUB_GAP_DB = 8;
+const MF_TOKEN_AIR_SHELF_DB = 0.7;
+
+function mfSpectrumEnergyShares(metrics) {
+  const bands = Array.isArray(metrics?.midBands) ? metrics.midBands : [];
+  const parts = bands.map((item) => {
+    const width = Math.max(1, (Number(item.hi) || 0) - (Number(item.lo) || 0));
+    const energy = (10 ** ((Number(item.db) || -120) / 10)) * width;
+    return { name: item.name, energy };
+  });
+  const total = parts.reduce((sum, part) => sum + part.energy, 0) || 1;
+  const byName = {};
+  for (const part of parts) byName[part.name] = part.energy / total;
+  return {
+    byName,
+    sub20_60: byName.Sub || 0,
+    bass60_250: byName.Bass || 0,
+    mud250_500: byName['Low-mids'] || 0,
+    presence2_5k: byName.Presence || 0,
+    air5k: byName.Air || 0,
+    boom20_250: (byName.Sub || 0) + (byName.Bass || 0),
+  };
+}
+
+function mfMasterEvidence(metrics) {
+  const sub = band(metrics, 'Sub');
+  const bassBand = band(metrics, 'Bass');
+  const lowMids = band(metrics, 'Low-mids');
+  const mids = band(metrics, 'Mids');
+  const presence = band(metrics, 'Presence');
+  const air = band(metrics, 'Air');
+  const shares = mfSpectrumEnergyShares(metrics);
+  return {
+    subVsBass: sub - bassBand,
+    subVsLowMids: sub - lowMids,
+    bassVsLowMids: bassBand - lowMids,
+    lowEndGap: Math.max(sub - lowMids, bassBand - lowMids),
+    lowMidVsMids: lowMids - mids,
+    presenceMask: lowMids - presence,
+    airDrop: presence - air,
+    lowVsAir: lowMids - air,
+    shares,
+    boomShare: shares.boom20_250,
+    airShare: shares.air5k,
+  };
+}
+
+function mfEqGainAtHz(op, hz) {
+  if (!op || (op.type && op.type !== 'eq')) return 0;
+  const f0 = Math.max(10, Number(op.frequency) || 1000);
+  const gain = Number(op.gain) || 0;
+  const q = Math.max(0.2, Number(op.q) || 0.7);
+  const octave = Math.log2(Math.max(hz, 1) / f0);
+  const type = op.filterType || 'peaking';
+  if (type === 'highshelf') return gain / (1 + Math.exp(-octave * 2.4));
+  if (type === 'lowshelf') return gain / (1 + Math.exp(octave * 2.4));
+  if (type === 'peaking') return gain / (1 + (octave * q * 2.4) ** 2);
+  return 0;
+}
+
+function mfApplyEqToEnergyShares(shares, eq) {
+  const source = shares?.byName && typeof shares.byName === 'object' ? shares.byName : (shares || {});
+  const centers = { Sub: 40, Bass: 100, 'Low-mids': 350, Mids: 1000, Presence: 3200, Air: 11000 };
+  const gained = {};
+  let total = 0;
+  for (const [name, share] of Object.entries(source)) {
+    if (typeof share !== 'number') continue;
+    let db = 0;
+    for (const op of eq || []) db += mfEqGainAtHz(op, centers[name] || 1000);
+    const energy = share * (10 ** (db / 10));
+    gained[name] = energy;
+    total += energy;
+  }
+  const byName = {};
+  for (const [name, energy] of Object.entries(gained)) byName[name] = energy / Math.max(total, 1e-20);
+  return {
+    byName,
+    sub20_60: byName.Sub || 0,
+    bass60_250: byName.Bass || 0,
+    mud250_500: byName['Low-mids'] || 0,
+    air5k: byName.Air || 0,
+    boom20_250: (byName.Sub || 0) + (byName.Bass || 0),
+  };
+}
+
+function mfTonalProblemScore(shares) {
+  const boom = (shares?.sub20_60 || 0) + (shares?.bass60_250 || shares?.bass60_200 || 0);
+  const air = shares?.air5k || shares?.air10k || 0;
+  return boom * 100 + Math.max(0, 0.015 - air) * 400;
+}
+
+function mfPushMasterEq(eq, filterType, frequency, gain, q, label) {
+  if (!Number.isFinite(gain) || Math.abs(gain) < 0.35) return null;
+  const item = {
+    type: 'eq',
+    filterType,
+    frequency,
+    gain: clamp(gain, -3.5, 2.5),
+    q,
+    label,
+  };
+  eq.push(item);
+  return item;
+}
+
+function mfBuildEvidenceEq(metrics) {
+  const evidence = mfMasterEvidence(metrics);
+  const eq = [];
+  const boomFromShares = evidence.boomShare > 0.62 && evidence.shares.sub20_60 > 0.16;
+  const boomFromGap = evidence.lowEndGap > MF_QUICK_MASTER_SUB_GAP_DB;
+  if (boomFromGap || boomFromShares) {
+    const gap = Math.max(evidence.lowEndGap, boomFromShares ? 18 : 0);
+    const cut = -clamp((gap - 6) * 0.12, 1.2, 3.5);
+    mfPushMasterEq(eq, 'peaking', 70, cut, 0.55, 'Evidence-bounded sub-bass cut');
+  } else if (evidence.subVsBass > 3) {
+    mfPushMasterEq(eq, 'lowshelf', 55, -(evidence.subVsBass - 1.5) * 0.32, 0.7, 'Conservative sub trim');
+  }
+
+  if (evidence.lowMidVsMids > 9) {
+    mfPushMasterEq(eq, 'peaking', 350, -(evidence.lowMidVsMids - 7) * 0.22, 0.9, 'Broad low-mid cleanup');
+  }
+
+  const darkTop = evidence.airDrop > 8 || evidence.airShare < 0.008 || evidence.lowVsAir > 20;
+  if (darkTop) {
+    const lift = clamp(Math.max(evidence.airDrop - 6, (0.015 - evidence.airShare) * 80) * 0.22, 1.2, 2.4);
+    mfPushMasterEq(eq, 'highshelf', 10000, lift, 0.7, 'Presence/air lift');
+  }
+
+  return { eq, evidence };
+}
+
+function mfTruePeakHonesty(cubicDb, ceilingDb, undershootDb = MF_TRUE_PEAK_EBUR_UNDERSHoot_DB) {
+  const cubic = Number(cubicDb);
+  const ceiling = Number(ceilingDb);
+  const margin = Number(undershootDb);
+  if (!Number.isFinite(cubic) || !Number.isFinite(ceiling)) {
+    return { claimUnderCeiling: false, tone: 'warn', detail: 'True-peak estimate unavailable.' };
+  }
+  const eburLike = cubic + margin;
+  if (cubic > ceiling + 0.05) {
+    return {
+      claimUnderCeiling: false,
+      tone: 'fail',
+      cubicDb: cubic,
+      eburLikeDb: eburLike,
+      detail: `Cubic-interp ${cubic.toFixed(2)} dBTP is already over the ${ceiling.toFixed(1)} dBTP ceiling.`,
+    };
+  }
+  if (eburLike > ceiling + 0.05) {
+    return {
+      claimUnderCeiling: false,
+      tone: 'warn',
+      cubicDb: cubic,
+      eburLikeDb: eburLike,
+      detail: `Cubic-interp ${cubic.toFixed(2)} dBTP. An ebur128-class meter can read about ${margin.toFixed(2)} dB hotter (~${eburLike.toFixed(2)} dBTP), so this is not claimed under the ${ceiling.toFixed(1)} dBTP ceiling.`,
+    };
+  }
+  return {
+    claimUnderCeiling: true,
+    tone: 'ok',
+    cubicDb: cubic,
+    eburLikeDb: eburLike,
+    detail: `Cubic-interp ${cubic.toFixed(2)} dBTP vs ${ceiling.toFixed(1)} dBTP ceiling, with a ${margin.toFixed(2)} dB allowance for ebur128-class meters. Not a certified true-peak meter.`,
+  };
+}
+
 buildMasterPlan = function buildMasterPlanPro(metrics, requestedTargetLufs) {
   const targetLufs = clamp(Number(requestedTargetLufs) || -12, -18, -8);
   const referenceMetrics = forensicState?.references?.[0]?.metrics || null;
-  const eq = [];
-  const addEq = (filterType, frequency, gain, q, label) => {
-    if (Math.abs(gain) < 0.35) return;
-    eq.push({ type: 'eq', filterType, frequency, gain: clamp(gain, -2.5, 2.0), q, label });
-  };
+  const evidencePlan = mfBuildEvidenceEq(metrics);
+  const eq = evidencePlan.eq.slice();
+  const addEq = (filterType, frequency, gain, q, label) => mfPushMasterEq(eq, filterType, frequency, gain, q, label);
+  const hasSubCut = eq.some((item) => /sub-bass|sub trim|sub control/i.test(item.label || ''));
+  const hasAirLift = eq.some((item) => /air|presence/i.test(item.label || ''));
 
   if (referenceMetrics) {
     const subMove = mfProReferenceMove(metrics, referenceMetrics, 'Sub');
     const lowMidMove = mfProReferenceMove(metrics, referenceMetrics, 'Low-mids');
     const presenceMove = mfProReferenceMove(metrics, referenceMetrics, 'Presence');
     const airMove = mfProReferenceMove(metrics, referenceMetrics, 'Air');
-    if (subMove > 2.5) addEq('lowshelf', 55, -(subMove - 1.5) * 0.32, 0.7, 'Reference-bounded sub control');
+    if (!hasSubCut && subMove > 2.5) addEq('lowshelf', 55, -(subMove - 1.5) * 0.32, 0.7, 'Reference-bounded sub control');
     if (lowMidMove > 3) addEq('peaking', 340, -(lowMidMove - 1.5) * 0.28, 0.85, 'Reference-bounded low-mid cleanup');
     if (presenceMove < -4) addEq('peaking', 3200, (-presenceMove - 2.5) * 0.22, 0.8, 'Reference-bounded presence recovery');
-    if (airMove < -5) addEq('highshelf', 9500, (-airMove - 3) * 0.18, 0.7, 'Reference-bounded air recovery');
-  } else {
-    const subExcess = band(metrics, 'Sub') - band(metrics, 'Bass');
-    const lowMid = band(metrics, 'Low-mids') - band(metrics, 'Mids');
-    const airDrop = band(metrics, 'Presence') - band(metrics, 'Air');
-    if (subExcess > 3) addEq('lowshelf', 55, -(subExcess - 1.5) * 0.32, 0.7, 'Conservative sub trim');
-    if (lowMid > 9) addEq('peaking', 350, -(lowMid - 7) * 0.22, 0.9, 'Broad low-mid cleanup');
-    if (airDrop > 12) addEq('highshelf', 9500, (airDrop - 10) * 0.16, 0.7, 'Conservative air shelf');
+    if (!hasAirLift && airMove < -5) addEq('highshelf', 9500, (-airMove - 3) * 0.18, 0.7, 'Reference-bounded air recovery');
   }
 
   const compressionEligible = metrics.crestDb > 13
@@ -211,6 +370,7 @@ buildMasterPlan = function buildMasterPlanPro(metrics, requestedTargetLufs) {
     ceilingDb: -1.2,
     truePeakCeilingDb: -1.0,
     referenceUsed: Boolean(referenceMetrics),
+    evidence: evidencePlan.evidence,
   };
 };
 
@@ -224,7 +384,9 @@ renderMasterChain = function renderMasterChainPro(plan) {
   steps.push(['Loudness normalization', `${plan.gainDb >= 0 ? '+' : ''}${plan.gainDb.toFixed(1)} dB requested toward ${plan.targetLufs.toFixed(1)} LUFS`]);
   steps.push(['Linked look-ahead limiter', `${plan.ceilingDb.toFixed(1)} dBFS internal ceiling`]);
   steps.push(['True-peak safety trim', `${plan.truePeakCeilingDb.toFixed(1)} dBTP final ceiling · loudness yields to peak safety`]);
-  steps.push(['Tonal context', plan.referenceUsed ? 'Reference-informed, level-normalized and correction-limited' : 'Conservative internal guardrails; no blind match-EQ']);
+  steps.push(['Tonal context', plan.referenceUsed
+    ? 'Reference-informed, plus evidence-bounded repairs for measured #1 issues (sub-bass accumulation, dark top)'
+    : 'Evidence-bounded stereo EQ for measured #1 issues, then loudness; no blind match-EQ']);
 
   for (const [label, value] of steps) {
     const row = document.createElement('div');
@@ -369,8 +531,9 @@ renderReleaseMaster = async function renderReleaseMasterPro() {
   }
 
   let truePeakDb = mfProEstimateTruePeakDb(rendered);
-  if (truePeakDb > state.masterPlan.truePeakCeilingDb) {
-    rendered = mfProGainBuffer(rendered, state.masterPlan.truePeakCeilingDb - truePeakDb - 0.03);
+  const honestCeiling = state.masterPlan.truePeakCeilingDb - MF_TRUE_PEAK_EBUR_UNDERSHoot_DB;
+  if (truePeakDb > honestCeiling) {
+    rendered = mfProGainBuffer(rendered, honestCeiling - truePeakDb);
     truePeakDb = mfProEstimateTruePeakDb(rendered);
   }
 
@@ -392,10 +555,11 @@ renderVerification = function renderVerificationPro(metrics, plan) {
   const root = $('verificationList');
   const loudness = mfProLoudnessStats(state.master);
   const truePeakDb = state.masterConstraint?.truePeakDb ?? mfProEstimateTruePeakDb(state.master);
-  const peakSafe = truePeakDb <= plan.truePeakCeilingDb + 0.05;
+  const honesty = mfTruePeakHonesty(truePeakDb, plan.truePeakCeilingDb);
+  const peakIcon = honesty.tone === 'ok' ? '✓' : honesty.tone === 'warn' ? '!' : '×';
   const truePeakRow = document.createElement('div');
-  truePeakRow.className = `check ${peakSafe ? '' : 'fail'}`;
-  truePeakRow.innerHTML = `<b>${peakSafe ? '✓' : '×'}</b><div><strong>Cubic-interp peak estimate: </strong>${truePeakDb.toFixed(2)} dBTP vs ${plan.truePeakCeilingDb.toFixed(1)} dBTP ceiling. Not a certified true-peak meter.</div>`;
+  truePeakRow.className = `check ${honesty.tone === 'ok' ? '' : honesty.tone === 'warn' ? 'warn' : 'fail'}`;
+  truePeakRow.innerHTML = `<b>${peakIcon}</b><div><strong>Cubic-interp peak estimate: </strong>${honesty.detail}</div>`;
   root.append(truePeakRow);
 
   const rangeRow = document.createElement('div');
@@ -411,3 +575,15 @@ renderVerification = function renderVerificationPro(metrics, plan) {
     root.append(targetRow);
   }
 };
+
+if (typeof globalThis !== 'undefined') {
+  globalThis.mfMasterEvidence = mfMasterEvidence;
+  globalThis.mfBuildEvidenceEq = mfBuildEvidenceEq;
+  globalThis.mfSpectrumEnergyShares = mfSpectrumEnergyShares;
+  globalThis.mfApplyEqToEnergyShares = mfApplyEqToEnergyShares;
+  globalThis.mfEqGainAtHz = mfEqGainAtHz;
+  globalThis.mfTonalProblemScore = mfTonalProblemScore;
+  globalThis.mfTruePeakHonesty = mfTruePeakHonesty;
+  globalThis.MF_TRUE_PEAK_EBUR_UNDERSHoot_DB = MF_TRUE_PEAK_EBUR_UNDERSHoot_DB;
+  globalThis.MF_TOKEN_AIR_SHELF_DB = MF_TOKEN_AIR_SHELF_DB;
+}

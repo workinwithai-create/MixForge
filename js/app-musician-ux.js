@@ -32,7 +32,144 @@ const MixForgeHub = {
 };
 if (typeof globalThis !== 'undefined') globalThis.MixForgeHub = MixForgeHub;
 
-function mfRecommendPath(audit) {
+function mfOriginalPreviewPlan(stateLike = {}) {
+  if (!stateLike.original) return { show: false, selected: null, showAb: false };
+  return {
+    show: true,
+    selected: 'original',
+    showAb: Boolean(stateLike.master),
+  };
+}
+
+async function presentMeasuredAuditThenListen({ measure, present, listen }) {
+  if (typeof measure !== 'function' || typeof present !== 'function') {
+    throw new Error('measure and present are required');
+  }
+  const measured = await measure();
+  present(measured);
+  const listening = typeof listen === 'function'
+    ? Promise.resolve().then(() => listen(measured))
+    : Promise.resolve(null);
+  return { measured, listening };
+}
+
+const MF_LEAD_MASKING_DB = 14;
+const MF_VOCAL_UP_CONFIDENCE = 70;
+const MF_VOCAL_UP_SKIP_WARNING = "Can't unbury the vocal without isolation — stereo master will only raise everything.";
+
+function mfBandDb(metrics, name) {
+  if (!metrics) return null;
+  if (typeof band === 'function') {
+    const value = band(metrics, name);
+    if (Number.isFinite(value) && value > -119) return value;
+  }
+  const row = (metrics.midBands || []).find((item) => item.name === name);
+  return Number.isFinite(row?.db) ? row.db : null;
+}
+
+function mfPresenceMaskingSnapshot(metrics) {
+  const lowMids = mfBandDb(metrics, 'Low-mids');
+  const presence = mfBandDb(metrics, 'Presence');
+  if (!Number.isFinite(lowMids) || !Number.isFinite(presence)) return null;
+  return { lowMids, presence, maskingDb: lowMids - presence };
+}
+
+function mfParseMaskingFromFindings(findings) {
+  for (const finding of findings || []) {
+    const text = `${finding.problem || ''} ${finding.evidence || ''}`;
+    if (!/mask|presence|low-mid|buried|lead-band/i.test(text)) continue;
+    const match = text.match(/(\d+(?:\.\d+)?)\s*dB/i);
+    if (match) return Number(match[1]);
+  }
+  return null;
+}
+
+function mfLeadFindingText(findings) {
+  return (findings || []).map((finding) => `${finding.problem || ''} ${finding.evidence || ''} ${finding.action || ''}`).join(' ');
+}
+
+function mfLeadBuriedEvidence(audit = {}, metrics = null) {
+  const findings = Array.isArray(audit?.findings) ? audit.findings : [];
+  const snapshot = mfPresenceMaskingSnapshot(metrics);
+  const parsed = mfParseMaskingFromFindings(findings);
+  const maskingDb = Number.isFinite(snapshot?.maskingDb) ? snapshot.maskingDb : parsed;
+  const named = /buried|lead-band masking|lead.?band masking|masked lead|vocal.*recede|presence is .* below/i.test(mfLeadFindingText(findings));
+  const buriedFinding = findings.find((finding) => /buried|mask|lead-band|vocal/i.test(`${finding.problem || ''} ${finding.evidence || ''}`));
+  const candidateConfidence = Math.max(0, ...((buriedFinding?.candidates || []).map((item) => Number(item.likelihood) || 0)));
+  const confidence = Number(buriedFinding?.confidence) || candidateConfidence || (named ? 80 : 0);
+  const fromMetrics = Number.isFinite(maskingDb) && maskingDb > MF_LEAD_MASKING_DB;
+  const fromFinding = named && (confidence >= MF_VOCAL_UP_CONFIDENCE || !Number.isFinite(maskingDb) || maskingDb > 10);
+  const warranted = fromMetrics || fromFinding;
+  const liftDb = warranted ? clamp((Math.max(Number(maskingDb) || 15, 12) - 8) * 0.28, 1.8, 3.5) : 0;
+  const competingEaseDb = warranted && (maskingDb || 0) > 14 ? clamp(-((maskingDb - 12) * 0.12), -2.2, -0.6) : 0;
+  return {
+    warranted,
+    maskingDb: Number.isFinite(maskingDb) ? maskingDb : null,
+    presenceDb: snapshot?.presence ?? null,
+    lowMidsDb: snapshot?.lowMids ?? null,
+    confidence,
+    liftDb,
+    competingEaseDb,
+    stemsNeeded: competingEaseDb < -0.35 ? ['vocals', 'other'] : ['vocals'],
+    skipWarning: MF_VOCAL_UP_SKIP_WARNING,
+  };
+}
+
+function mfDbToGain(db) {
+  if (typeof dbToGain === 'function') return dbToGain(db);
+  return 10 ** (Number(db) / 20);
+}
+
+function mfStemBalanceDelta(raw, fixed, match, wet, mixGainDb) {
+  const safeWet = clamp(Number(wet) || 0, 0, 1);
+  const balance = mfDbToGain(clamp(Number(mixGainDb) || 0, -3, 4.5));
+  return (raw * (1 - safeWet) + fixed * match * safeWet) * balance - raw;
+}
+
+function mfApplyVocalUpPlan(stemPlans, evidence) {
+  if (!evidence?.warranted || !stemPlans?.vocals) return stemPlans;
+  const lift = clamp(Number(evidence.liftDb) || 0, 1.2, 3.5);
+  const note = {
+    type: 'mixgain',
+    gainDb: lift,
+    label: `Bring the lead up · +${lift.toFixed(1)} dB`,
+  };
+  const vocals = stemPlans.vocals;
+  vocals.mixGainDb = lift;
+  const ops = Array.isArray(vocals.operations)
+    ? vocals.operations.filter((op) => op.type !== 'mixgain' && op.label !== 'No corrective processing required')
+    : [];
+  vocals.operations = [note, ...ops];
+  if (Array.isArray(vocals.candidates)) {
+    for (const candidate of vocals.candidates) candidate.mixGainDb = lift;
+  }
+  if (stemPlans.other && evidence.competingEaseDb < -0.35) {
+    const ease = {
+      type: 'eq',
+      filterType: 'peaking',
+      frequency: 320,
+      gain: evidence.competingEaseDb,
+      q: 0.9,
+      label: 'Ease competing low-mids',
+    };
+    const otherOps = Array.isArray(stemPlans.other.operations) ? stemPlans.other.operations : [];
+    if (!otherOps.some((op) => /competing low-mid/i.test(op.label || ''))) {
+      stemPlans.other.operations = [ease, ...otherOps.filter((op) => op.label !== 'No corrective processing required')];
+    }
+  }
+  return stemPlans;
+}
+
+function mfRecommendPath(audit, metrics) {
+  const buried = mfLeadBuriedEvidence(audit, metrics);
+  if (buried.warranted) {
+    return {
+      path: 'forensic',
+      label: 'Forensic Fix',
+      reason: 'Lead-band masking needs isolation so the vocal can be raised in the mix. A stereo master would only raise everything.',
+      vocalUp: buried,
+    };
+  }
   const readiness = clamp(Number(audit?.readinessScore) || 0, 0, 100);
   const stems = Array.isArray(audit?.stemsToInspect) ? audit.stemsToInspect : [];
   const findings = Array.isArray(audit?.findings) ? audit.findings : [];
@@ -128,10 +265,23 @@ function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
       ? 'Path: Quick Master — stereo-only release processing, no stem isolation.'
       : 'Path: Forensic Fix — measured stem repairs, then a conservative master.',
   ];
-  if (plan?.eq?.length) bullets.push(`Tonal moves: ${plan.eq.map((item) => item.label).join('; ')}.`);
+  if (plan?.eq?.length) bullets.push(`Tonal moves: ${plan.eq.map((item) => mfFormatEqMove(item)).join('; ')}.`);
   else bullets.push('Tonal balance: no broad EQ was justified by the measurements.');
   if (plan?.compressor) bullets.push(`Dynamics: ${plan.compressor.label}.`);
   else bullets.push('Dynamics: no master compression (source already controlled or not justified).');
+  const vocalUp = options.vocalUp;
+  if (vocalUp?.applied && Number.isFinite(Number(vocalUp.appliedLiftDb ?? vocalUp.liftDb))) {
+    const lift = Number(vocalUp.appliedLiftDb ?? vocalUp.liftDb);
+    bullets.push(`Vocal lift: ${lift >= 0 ? '+' : ''}${lift.toFixed(1)} dB on the isolated vocal stem (mix balance, not pitch/timing).`);
+    if (Number.isFinite(Number(vocalUp.maskingBefore)) && Number.isFinite(Number(vocalUp.maskingAfter))) {
+      bullets.push(`Lead masking: ${Number(vocalUp.maskingBefore).toFixed(1)} → ${Number(vocalUp.maskingAfter).toFixed(1)} dB (low-mids vs presence).`);
+    }
+    if (Number.isFinite(Number(vocalUp.presenceBefore)) && Number.isFinite(Number(vocalUp.presenceAfter))) {
+      bullets.push(`Presence: ${Number(vocalUp.presenceBefore).toFixed(1)} → ${Number(vocalUp.presenceAfter).toFixed(1)} dB.`);
+    }
+  } else if (vocalUp?.warranted && (vocalUp.skipped || vocalUp.failed || path === 'quick')) {
+    bullets.push(vocalUp.skipWarning || MF_VOCAL_UP_SKIP_WARNING);
+  }
   const remaining = Array.isArray(options.remainingRisks) ? options.remainingRisks : [];
   return {
     headline: path === 'quick'
@@ -179,6 +329,40 @@ function mfBuildReadinessReportText(payload) {
   return `${lines.join('\n')}\n`;
 }
 
+function mfFormatEqMove(item) {
+  const hz = Math.round(Number(item?.frequency) || 0);
+  const gain = Number(item?.gain);
+  const label = item?.label || item?.filterType || 'EQ';
+  if (hz && Number.isFinite(gain)) return `${label} · ${hz} Hz · ${gain >= 0 ? '+' : ''}${gain.toFixed(1)} dB`;
+  if (hz) return `${label} · ${hz} Hz`;
+  if (Number.isFinite(gain)) return `${label} · ${gain >= 0 ? '+' : ''}${gain.toFixed(1)} dB`;
+  return label;
+}
+
+function mfCorrectedPreviewAvailable(stateLike = {}) {
+  return Boolean(stateLike.corrected) && stateLike.corrected !== stateLike.original;
+}
+
+function mfAbMatchOffsetDb(beforeLufs, afterLufs) {
+  const before = Number(beforeLufs);
+  const after = Number(afterLufs);
+  if (!Number.isFinite(before) || !Number.isFinite(after)) return 0;
+  return Math.max(0, Math.round((after - before) * 10) / 10);
+}
+
+function mfAbBarCopy(offsetDb) {
+  const offset = Math.max(0, Number(offsetDb) || 0);
+  return {
+    original: 'A · Original',
+    matched: offset > 0.05 ? `B · Master (matched −${offset.toFixed(1)} dB)` : 'B · Master (matched)',
+    release: 'Release master (loud)',
+    hint: offset > 0.05
+      ? `B is turned down ${offset.toFixed(1)} dB to match Original so louder ≠ better. Release master is the unmatched loud export.`
+      : 'Press B to A/B · Space play/pause · level-matched so louder ≠ better. Release master is the unmatched loud export.',
+    offsetDb: offset,
+  };
+}
+
 function mfMusicianEl(tag, className, text) {
   const el = document.createElement(tag);
   if (className) el.className = className;
@@ -212,8 +396,9 @@ function mfEnsureMusicianMounts() {
       <div class="ab-toggle-group" role="group" aria-label="A/B preview">
         <button type="button" class="ab-btn" data-ab="original" id="abOriginalBtn">A · Original</button>
         <button type="button" class="ab-btn active" data-ab="matched" id="abMasterBtn">B · Master (matched)</button>
+        <button type="button" class="ab-btn ab-release" data-ab="master" id="abReleaseBtn">Release master (loud)</button>
       </div>
-      <p class="ab-hint">Press <kbd>B</kbd> to A/B · <kbd>Space</kbd> play/pause · level-matched so louder ≠ better</p>`;
+      <p class="ab-hint" id="abHint">Press <kbd>B</kbd> to A/B · <kbd>Space</kbd> play/pause · level-matched so louder ≠ better. Release master is the unmatched loud export.</p>`;
     preview.insertBefore(bar, preview.firstChild);
   }
 
@@ -263,8 +448,9 @@ function mfEnsureMusicianMounts() {
 function mfRenderPathChooser(audit) {
   const root = $('pathChooser');
   if (!root) return;
-  const recommendation = mfRecommendPath(audit);
+  const recommendation = mfRecommendPath(audit, state.mixMetrics);
   state.mixforgeRecommendation = recommendation;
+  if (recommendation.vocalUp?.warranted) state.vocalUpRepair = { ...(state.vocalUpRepair || {}), ...recommendation.vocalUp };
   root.classList.remove('hidden');
   root.replaceChildren();
 
@@ -283,7 +469,9 @@ function mfRenderPathChooser(audit) {
   const forensic = mfMusicianEl('button', `path-card${recommendation.path === 'forensic' ? ' recommended' : ''}`);
   forensic.type = 'button';
   forensic.id = 'forensicPathBtn';
-  forensic.innerHTML = `<strong>Forensic Fix</strong><span>Timeline windows → honest stem investigation → targeted repair → verify. Opt-in; not required for a first A/B.</span><em>${recommendation.path === 'forensic' ? 'Suggested when isolation is needed' : 'Deeper path'}</em>`;
+  forensic.innerHTML = recommendation.vocalUp?.warranted
+    ? `<strong>Forensic Fix</strong><span>Isolate the vocal and raise it in the mix (level/balance only). A stereo master cannot unbury a masked lead.</span><em>Suggested — vocal-up repair</em>`
+    : `<strong>Forensic Fix</strong><span>Timeline windows → honest stem investigation → targeted repair → verify. Opt-in; not required for a first A/B.</span><em>${recommendation.path === 'forensic' ? 'Suggested when isolation is needed' : 'Deeper path'}</em>`;
   grid.append(quick, forensic);
   root.append(grid);
 
@@ -329,8 +517,18 @@ function mfUpdateMasterCopy() {
   if (!copy) return;
   const hasReference = Boolean(forensicState?.references?.length);
   copy.textContent = hasReference
-    ? 'Reference-bounded tonal balance is active because a reference file is loaded. Controlled dynamics, loudness, limiting, cubic-interp peak safety. First value is hearing Original vs Master.'
-    : 'Conservative stereo master. Optional reference-bounded tonal balance only if you load a reference. Controlled dynamics, loudness, limiting, cubic-interp peak safety. First value is hearing Original vs Master.';
+    ? 'Reference-bounded tonal balance is active because a reference file is loaded, plus evidence-bounded repairs for measured #1 issues. Controlled dynamics, loudness, limiting, cubic-interp peak safety. First value is hearing Original vs Master.'
+    : 'Evidence-bounded stereo master: measured #1 issues (sub-bass accumulation, dark top) are repaired before loudness. Optional reference-bounded tonal balance only if you load a reference. Controlled dynamics, loudness, limiting, cubic-interp peak safety. First value is hearing Original vs Master.';
+}
+
+function mfSyncAbBar(stateLike = state) {
+  const offset = mfAbMatchOffsetDb(stateLike?.mixMetrics?.lufs, stateLike?.finalMetrics?.lufs);
+  const copy = mfAbBarCopy(offset);
+  if ($('abOriginalBtn')) $('abOriginalBtn').textContent = copy.original;
+  if ($('abMasterBtn')) $('abMasterBtn').textContent = copy.matched;
+  if ($('abReleaseBtn')) $('abReleaseBtn').textContent = copy.release;
+  if ($('abHint')) $('abHint').textContent = copy.hint;
+  return copy;
 }
 
 function mfHideStemUi() {
@@ -355,7 +553,13 @@ async function mfStartQuickMaster() {
     $('pathChooser').querySelectorAll('.path-card').forEach((card) => card.classList.remove('active'));
     $('quickMasterPathBtn')?.classList.add('active');
   }
-  setStatus('auditStatus', 'Quick Master: rendering a stereo release master for A/B…', 'busy');
+  const buried = mfLeadBuriedEvidence(state.audit, state.mixMetrics);
+  if (buried.warranted && !state.vocalUpRepair?.applied) {
+    state.vocalUpRepair = { ...(state.vocalUpRepair || {}), ...buried, skipped: true, applied: false };
+    setStatus('auditStatus', buried.skipWarning, 'warn');
+  } else {
+    setStatus('auditStatus', 'Quick Master: rendering a stereo release master for A/B…', 'busy');
+  }
   state.corrected = state.original;
   state.correctedMetrics = state.mixMetrics || measureBuffer(state.original);
   prepareMastering();
@@ -369,8 +573,11 @@ async function mfStartQuickMaster() {
     renderMetrics('finalMetrics', state.finalMetrics);
     renderVerification(state.finalMetrics, state.masterPlan);
     reveal('previewBox');
+    if ($('abToggleBar')) $('abToggleBar').classList.remove('hidden');
+    if (typeof syncPreviewSourceAvailability === 'function') syncPreviewSourceAvailability();
     reveal('verifyPanel');
     mfSelectAbPreview('matched');
+    mfSyncAbBar(state);
     mfRenderWhatChanged();
     setStatus('masterStatus', 'Quick Master ready — A/B Original vs Master below.', 'ok');
     setStatus('auditStatus', 'Quick Master complete. Press B to flip A/B while listening.', 'ok');
@@ -397,10 +604,18 @@ function mfStartForensicPath() {
     $('forensicPathBtn')?.classList.add('active');
   }
 
-  const normalized = mfNormalizeDemucsStems(state.audit?.stemsToInspect || []);
+  const buried = mfLeadBuriedEvidence(state.audit, state.mixMetrics);
+  const requested = [...(state.audit?.stemsToInspect || [])];
+  if (buried.warranted) {
+    for (const stem of buried.stemsNeeded) {
+      if (!requested.includes(stem)) requested.push(stem);
+    }
+    state.vocalUpRepair = { ...(state.vocalUpRepair || {}), ...buried, skipped: false, failed: false };
+  }
+  const normalized = mfNormalizeDemucsStems(requested);
   state.audit = {
     ...(state.audit || {}),
-    stemsToInspect: normalized.stems.length ? normalized.stems : ['other'],
+    stemsToInspect: normalized.stems.length ? normalized.stems : (buried.warranted ? ['vocals'] : ['other']),
     stemRoutes: normalized.routes,
   };
   mfRenderStemConsent(state.audit);
@@ -439,10 +654,20 @@ function mfRenderStemConsent(audit) {
   skip.className = 'secondary';
   skip.id = 'skipStemsBtn';
   skip.textContent = framing.escapeLabel;
-  skip.onclick = () => { void mfStartQuickMaster(); };
+  skip.onclick = () => {
+    const buried = mfLeadBuriedEvidence(state.audit, state.mixMetrics);
+    if (buried.warranted) {
+      state.vocalUpRepair = { ...(state.vocalUpRepair || {}), ...buried, skipped: true, applied: false };
+      setStatus('auditStatus', buried.skipWarning, 'warn');
+    }
+    void mfStartQuickMaster();
+  };
   actions.append(skip);
   root.append(actions);
-  root.append(mfMusicianEl('small', '', 'After separation you get a heuristic leakage/fit score — not lab SDR. Demucs separates four buckets; guitars/keys share residual other.'));
+  const buried = mfLeadBuriedEvidence(audit, state.mixMetrics);
+  root.append(mfMusicianEl('small', '', buried.warranted
+    ? `${buried.skipWarning} After separation, Forensic defaults to a +${buried.liftDb.toFixed(1)} dB vocal-up mix balance — not pitch or timing (AuraMix).`
+    : 'After separation you get a heuristic leakage/fit score — not lab SDR. Demucs separates four buckets; guitars/keys share residual other.'));
 }
 
 function mfSelectAbPreview(value) {
@@ -454,11 +679,7 @@ function mfSelectAbPreview(value) {
     input.dispatchEvent(new Event('change', { bubbles: true }));
   }
   document.querySelectorAll('.ab-btn').forEach((button) => {
-    const target = button.getAttribute('data-ab');
-    const active = (preferred === 'matched' || preferred === 'master')
-      ? target === 'matched' || target === 'master'
-      : target === preferred;
-    button.classList.toggle('active', active);
+    button.classList.toggle('active', button.getAttribute('data-ab') === preferred);
   });
 }
 
@@ -484,6 +705,7 @@ function mfRenderWhatChanged() {
     readinessBefore: state.audit?.readinessScore,
     findingsCount: state.audit?.findings?.length || 0,
     remainingRisks: remaining,
+    vocalUp: state.vocalUpRepair,
   });
   state.mixforgeWhatChanged = summary;
   root.classList.remove('hidden');
@@ -497,6 +719,71 @@ function mfRenderWhatChanged() {
     root.append(mfMusicianEl('p', 'what-changed-remaining', `Still watch: ${summary.remaining.join('; ')}.`));
   } else {
     root.append(mfMusicianEl('p', 'what-changed-remaining', 'No major remaining marker risks listed after verification.'));
+  }
+}
+
+function mfShouldAutoVocalUp(stateLike = state) {
+  return Boolean(
+    stateLike.mixforgePath === 'forensic'
+    && stateLike.vocalUpRepair?.warranted
+    && !stateLike.vocalUpRepair?.autoRebuildStarted
+    && stateLike.stemBuffers?.vocals
+  );
+}
+
+async function mfRunVocalUpRebuildAndMaster() {
+  const evidence = state.vocalUpRepair || mfLeadBuriedEvidence(state.audit, state.mixMetrics);
+  if (!evidence?.warranted || !state.stemBuffers?.vocals) return;
+  state.vocalUpRepair = { ...evidence, autoRebuildStarted: true };
+  if ($('rebuildBtn')) {
+    $('rebuildBtn').disabled = true;
+    $('rebuildBtn').textContent = 'Apply vocal-up repair and rebuild mix';
+  }
+  setStatus('rebuildStatus', `Applying +${evidence.liftDb.toFixed(1)} dB vocal-up repair (level/balance only — not pitch or timing)…`, 'busy');
+  try {
+    if (typeof mfApplyVocalUpPlan === 'function') mfApplyVocalUpPlan(state.stemPlans, evidence);
+    state.corrected = await rebuildCorrectedMix();
+    state.correctedMetrics = measureBuffer(state.corrected);
+    const afterSnap = mfPresenceMaskingSnapshot(state.correctedMetrics);
+    const beforeSnap = mfPresenceMaskingSnapshot(state.mixMetrics);
+    state.vocalUpRepair = {
+      ...state.vocalUpRepair,
+      applied: true,
+      skipped: false,
+      failed: false,
+      appliedLiftDb: state.stemPlans?.vocals?.mixGainDb ?? evidence.liftDb,
+      maskingBefore: evidence.maskingDb ?? beforeSnap?.maskingDb,
+      maskingAfter: afterSnap?.maskingDb,
+      presenceBefore: evidence.presenceDb ?? beforeSnap?.presence,
+      presenceAfter: afterSnap?.presence,
+    };
+    setStatus('rebuildStatus', `Vocal-up reprint ready: +${state.vocalUpRepair.appliedLiftDb.toFixed(1)} dB lead lift.`, 'ok');
+    prepareMastering();
+    if (typeof renderReleaseMaster === 'function') {
+      $('renderMasterBtn') && ($('renderMasterBtn').disabled = true);
+      setStatus('masterStatus', 'Mastering the reprinted mix after vocal-up…', 'busy');
+      state.master = await renderReleaseMaster();
+      markMasterRendered(state.master);
+      state.finalMetrics = measureBuffer(state.master);
+      renderMetrics('finalMetrics', state.finalMetrics);
+      renderVerification(state.finalMetrics, state.masterPlan);
+      reveal('previewBox');
+      if ($('abToggleBar')) $('abToggleBar').classList.remove('hidden');
+      if (typeof syncPreviewSourceAvailability === 'function') syncPreviewSourceAvailability();
+      reveal('verifyPanel');
+      mfSelectAbPreview('matched');
+      mfSyncAbBar(state);
+      mfRenderWhatChanged();
+      setStatus('masterStatus', 'Forensic vocal-up master ready — A/B Original vs Master below.', 'ok');
+      setStatus('auditStatus', 'Vocal raised in the mix, then mastered. Press B to A/B.', 'ok');
+    }
+    $('masterPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (error) {
+    console.error(error);
+    setStatus('rebuildStatus', `Vocal-up rebuild failed: ${error.message}`, 'error');
+  } finally {
+    if ($('rebuildBtn')) $('rebuildBtn').disabled = false;
+    if ($('renderMasterBtn')) $('renderMasterBtn').disabled = false;
   }
 }
 
@@ -545,6 +832,7 @@ function mfInstallMusicianKeyboard() {
     if (tag === 'input' || tag === 'textarea' || tag === 'select' || event.target?.isContentEditable) return;
     if ($('previewBox')?.classList.contains('hidden')) return;
     if (event.code === 'KeyB' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      if (!state.master) return;
       event.preventDefault();
       mfToggleAbPreview();
       return;
@@ -577,7 +865,7 @@ function mfInstallMusicianUi() {
   };
 
   const previousRenderAudit = renderAudit;
-  renderAudit = function renderAuditMusicianPath(audit, metrics) {
+  renderAudit = function renderAuditMusicianPath(audit, metrics, options = {}) {
     const normalized = mfNormalizeDemucsStems(audit?.stemsToInspect || []);
     const patched = {
       ...audit,
@@ -585,7 +873,11 @@ function mfInstallMusicianUi() {
       stemRoutes: normalized.routes,
     };
     state.audit = patched;
-    previousRenderAudit(patched, metrics);
+    previousRenderAudit(patched, metrics, options);
+    if (options.attachOnly || state.mixforgePath) {
+      if (!state.mixforgePath) mfRenderPathChooser(patched);
+      return;
+    }
     // Path chooser owns the next step — never surprise the musician with stems
     // or an auto-opened master panel before they pick Quick Master vs Forensic.
     hide('separateActions');
@@ -604,11 +896,36 @@ function mfInstallMusicianUi() {
     const normalized = mfNormalizeDemucsStems(stems);
     if (state.audit) state.audit.stemRoutes = normalized.routes;
     onProgress?.(`Honest Demucs mapping: ${normalized.routes.map((route) => route.honest).join('; ') || normalized.stems.join(', ')}`);
-    return previousSeparateRequiredStems(normalized.stems, onProgress);
+    try {
+      return await previousSeparateRequiredStems(normalized.stems, onProgress);
+    } catch (error) {
+      const buried = mfLeadBuriedEvidence(state.audit, state.mixMetrics);
+      if (buried.warranted) {
+        state.vocalUpRepair = { ...(state.vocalUpRepair || {}), ...buried, failed: true, applied: false };
+        const message = `${buried.skipWarning} (${error.message})`;
+        throw Object.assign(error, { message });
+      }
+      throw error;
+    }
+  };
+
+  const previousBuildStemPlans = buildStemPlans;
+  buildStemPlans = async function buildStemPlansVocalUp(...args) {
+    const result = await previousBuildStemPlans(...args);
+    const evidence = state.vocalUpRepair?.warranted
+      ? state.vocalUpRepair
+      : mfLeadBuriedEvidence(state.audit, state.mixMetrics);
+    if (evidence.warranted && state.stemPlans) {
+      mfApplyVocalUpPlan(state.stemPlans, evidence);
+      state.vocalUpRepair = { ...(state.vocalUpRepair || {}), ...evidence, planned: true };
+      if ($('rebuildBtn')) $('rebuildBtn').textContent = 'Apply vocal-up repair and rebuild mix';
+    }
+    return result;
   };
 
   const previousRenderStemPlans = renderStemPlans;
   renderStemPlans = function renderStemPlansHonest() {
+    if (state.vocalUpRepair?.warranted && state.stemPlans) mfApplyVocalUpPlan(state.stemPlans, state.vocalUpRepair);
     previousRenderStemPlans();
     for (const card of document.querySelectorAll('#stemGrid .stem-card h3')) {
       const key = (card.textContent || '').trim().toLowerCase();
@@ -621,11 +938,23 @@ function mfInstallMusicianUi() {
       note.textContent = 'Leakage/fit is a heuristic, not lab SDR. Demucs separates vocals, bass, drums, and residual other — it does not confirm guitars or keys.';
       grid.prepend(note);
     }
+    if (state.vocalUpRepair?.warranted && grid && !$('vocalUpNote')) {
+      const lift = state.vocalUpRepair.liftDb;
+      const note = mfMusicianEl('p', 'extraction-integrity-note');
+      note.id = 'vocalUpNote';
+      note.textContent = `Default vocal-up: +${lift.toFixed(1)} dB mix-balance on the vocal stem so the lead comes forward. This is level/balance, not pitch or timing.`;
+      grid.prepend(note);
+    }
+    if (mfShouldAutoVocalUp(state)) {
+      state.vocalUpRepair = { ...state.vocalUpRepair, autoRebuildStarted: true };
+      queueMicrotask(() => { void mfRunVocalUpRebuildAndMaster(); });
+    }
   };
 
   const previousRenderVerification = renderVerification;
   renderVerification = function renderVerificationMusician(metrics, plan) {
     previousRenderVerification(metrics, plan);
+    mfSyncAbBar(state);
     mfRenderWhatChanged();
     if (typeof syncExportUi === 'function') syncExportUi(state);
   };
@@ -636,6 +965,7 @@ function mfInstallMusicianUi() {
     state.mixforgePath = null;
     state.mixforgeWhatChanged = null;
     state.mixforgeRecommendation = null;
+    state.vocalUpRepair = null;
     state.exportOverride = false;
     if ($('exportOverride')) $('exportOverride').checked = false;
     if ($('pathChooser')) {
@@ -678,6 +1008,18 @@ if (typeof globalThis !== 'undefined') {
   globalThis.mfBuildReadinessReportText = mfBuildReadinessReportText;
   globalThis.mfEstimateReadiness = mfEstimateReadiness;
   globalThis.mfSetPipeline = mfSetPipeline;
+  globalThis.mfOriginalPreviewPlan = mfOriginalPreviewPlan;
+  globalThis.mfFormatEqMove = mfFormatEqMove;
+  globalThis.mfCorrectedPreviewAvailable = mfCorrectedPreviewAvailable;
+  globalThis.mfAbMatchOffsetDb = mfAbMatchOffsetDb;
+  globalThis.mfAbBarCopy = mfAbBarCopy;
+  globalThis.mfLeadBuriedEvidence = mfLeadBuriedEvidence;
+  globalThis.mfStemBalanceDelta = mfStemBalanceDelta;
+  globalThis.mfApplyVocalUpPlan = mfApplyVocalUpPlan;
+  globalThis.mfPresenceMaskingSnapshot = mfPresenceMaskingSnapshot;
+  globalThis.mfShouldAutoVocalUp = mfShouldAutoVocalUp;
+  globalThis.MF_VOCAL_UP_SKIP_WARNING = MF_VOCAL_UP_SKIP_WARNING;
+  globalThis.presentMeasuredAuditThenListen = presentMeasuredAuditThenListen;
   globalThis.MF_STEM_HOURLY_LIMIT = MF_STEM_HOURLY_LIMIT;
   globalThis.MF_STEM_DAILY_LIMIT = MF_STEM_DAILY_LIMIT;
 }

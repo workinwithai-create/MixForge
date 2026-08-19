@@ -84,6 +84,10 @@ function mfForensicAudit(metrics, notes, targetLufs) {
   });
   if (metrics.clipPercent > .001 || metrics.peakDb > -.1) add('high', 'Source overload detected', `${metrics.clipPercent.toFixed(3)}% clipped frames; sample peak ${metrics.peakDb.toFixed(2)} dBFS.`, 'Distortion and reduced mastering headroom.', [], 'Obtain a clean pre-limiter bounce before repair.', 96);
   if (Math.abs(metrics.dcOffset) > .003) add('medium', 'Meaningful DC offset', `Average waveform offset ${(metrics.dcOffset * 100).toFixed(2)}%.`, 'Asymmetric headroom and possible edit clicks.', [], 'Apply DC removal before dynamics processing.', 98);
+  const subVsLowMids = band(metrics, 'Sub') - band(metrics, 'Low-mids');
+  const bassVsLowMids = band(metrics, 'Bass') - band(metrics, 'Low-mids');
+  const lowEndGap = Math.max(subVsLowMids, bassVsLowMids);
+  if (lowEndGap > 8) add('high', 'Excessive sub-bass accumulation', `Mid sub is ${subVsLowMids.toFixed(1)} dB above low-mids${bassVsLowMids > 8 ? `; bass band is ${bassVsLowMids.toFixed(1)} dB above low-mids` : ''}.`, 'Boom consumes headroom and masks the midrange.', [{ stem:'bass', likelihood: mfConfidence(52 + lowEndGap * 0.8) }], 'Quick Master can apply an evidence-bounded 40–120 Hz cut from the stereo mix. Stem isolation is optional confirmation, not required.', 90);
   const lowMid = band(metrics, 'Low-mids') - band(metrics, 'Mids');
   if (lowMid > 7) add('medium', 'Center low-mid congestion', `Center 250–500 Hz is ${lowMid.toFixed(1)} dB above the mid band.`, 'Reduced separation and perceived clarity.', [{ stem:'vocals', likelihood: mfConfidence(48 + lowMid*2) }, { stem:'other', likelihood: mfConfidence(52 + lowMid*1.7) }, { stem:'bass', likelihood: mfConfidence(18 + lowMid) }], 'Separate vocals and residual other first. Demucs cannot confirm guitars/keys as dedicated stems.', 86);
   const masking = band(metrics, 'Low-mids') - band(metrics, 'Presence');
@@ -111,18 +115,24 @@ fallbackMixAudit = mfForensicAudit;
 
 function mfEnsureForensicUI() {
   if ($('forensicProfile')) return;
-  const panel = $('loadPanel');
   const box = mfEl('div','forensic-setup'); box.id='forensicProfile';
   box.innerHTML = `<h3>Engineer context</h3><div class="controls-grid"><label>Genre / production style<input id="mfGenre" value=""></label><label>Repair intensity<select id="mfIntensity"><option value="preserve">Preserve</option><option value="balanced">Balanced</option><option value="assertive">Assertive</option></select></label></div><label class="field-label">Mix priorities</label><textarea id="mfPriorities"></textarea><label class="field-label">Reference track <em>optional</em></label><input id="mfReference" type="file" accept="audio/*,.wav,.mp3,.m4a,.aif,.aiff">`;
-  panel.insertBefore(box, panel.querySelector('.actions'));
+  const more = $('moreOptions');
+  if (more) more.append(box);
+  else {
+    const panel = $('loadPanel');
+    panel.insertBefore(box, panel.querySelector('.actions'));
+  }
   $('mfGenre').value=forensicState.profile.genre; $('mfIntensity').value=forensicState.profile.intensity; $('mfPriorities').value=forensicState.profile.priorities;
   ['mfGenre','mfIntensity','mfPriorities'].forEach(id => $(id).addEventListener('change',()=>{ forensicState.profile.genre=$('mfGenre').value; forensicState.profile.intensity=$('mfIntensity').value; forensicState.profile.priorities=$('mfPriorities').value; mfSaveProfile(); }));
   $('mfReference').addEventListener('change', async e => { const f=e.target.files?.[0]; if(!f)return; try { setStatus('auditStatus','Reading and level-matching reference…','busy'); const b=await decodeAudioDataSafe(await ensureAudioContext(false), await readFileBytes(f)); forensicState.references=[{name:f.name,metrics:measureBuffer(b)}]; setStatus('auditStatus',`Reference ready: ${f.name}`,'ok'); } catch(err){ setStatus('auditStatus',`Reference could not be read: ${err.message}`,'error'); } });
 }
 
-function mfRenderForensicAudit(audit, metrics) {
+function mfRenderForensicAudit(audit, metrics, options = {}) {
   $('readinessScore').textContent=Math.round(audit.readinessScore); $('auditSummary').textContent=audit.summary; renderMetrics('mixMetrics',metrics);
-  forensicState.timeline=mfSectionAnalysis(state.original); forensicState.sourceProfile=mfSourceProfile(metrics,$('notes').value);
+  if(!options.attachOnly || !forensicState.timeline.length){
+    forensicState.timeline=mfSectionAnalysis(state.original); forensicState.sourceProfile=mfSourceProfile(metrics,$('notes').value);
+  }
   const root=$('auditFindings'); root.replaceChildren();
   const profile=mfEl('section','forensic-block'); profile.innerHTML='<h3>Source profile <small>presence estimates, not isolated stems</small></h3>';
   const pg=mfEl('div','source-grid'); forensicState.sourceProfile.forEach(x=>{ const c=mfEl('div','source-card'); c.innerHTML=`<b>${x.source}</b><span>${x.status}</span><i>${x.confidence}% confidence</i>`; pg.append(c); }); profile.append(pg); root.append(profile);
@@ -131,7 +141,9 @@ function mfRenderForensicAudit(audit, metrics) {
   const heading=mfEl('h3','forensic-heading','Measured conditions'); root.append(heading);
   audit.findings.forEach(f=>{ const card=mfEl('article',`finding ${f.severity}`); const top=mfEl('div','finding-top'); top.append(mfEl('h3','',f.problem),mfEl('span','badge',`${f.stage} · ${f.confidence}% confidence`)); card.append(top,mfEl('p','',f.evidence),mfEl('p','consequence',`Audible consequence: ${f.consequence||'Translation risk.'}`)); if(f.candidates?.length){ const list=mfEl('div','hypothesis-list'); list.append(mfEl('b','','Source hypotheses — not confirmed')); f.candidates.sort((a,b)=>b.likelihood-a.likelihood).forEach(c=>list.append(mfEl('span','',`${c.stem}: ${c.likelihood}% likely`))); card.append(list); } card.append(mfEl('p','action',`Next test: ${f.nextTest||f.action}`)); root.append(card); });
   if(forensicState.references.length){ const r=forensicState.references[0], diff=metrics.lufs-r.metrics.lufs; const ref=mfEl('section','forensic-block'); ref.innerHTML=`<h3>Level-matched reference context</h3><p>${r.name}: tonal and dynamic comparison is interpreted as a range, not a match-EQ target. Raw loudness difference ${diff>=0?'+':''}${diff.toFixed(1)} LU before level matching.</p>`; root.append(ref); }
-  if(audit.stemsToInspect.length){ reveal('separateActions'); $('stemListLabel').textContent=`Investigation: ${audit.stemsToInspect.join(', ')} · attribution pending`; } else { hide('separateActions'); state.corrected=state.original; prepareMastering(); }
+  if(!(options.attachOnly || state.mixforgePath)){
+    if(audit.stemsToInspect.length){ reveal('separateActions'); $('stemListLabel').textContent=`Investigation: ${audit.stemsToInspect.join(', ')} · attribution pending`; } else { hide('separateActions'); state.corrected=state.original; prepareMastering(); }
+  }
   mfSaveSession('audit');
 }
 renderAudit = mfRenderForensicAudit;
@@ -172,7 +184,7 @@ renderStemPlans=function(){
     const confirms=mfEl('div','confirmation-list'); confirms.append(mfEl('b','','Measured conditions on this isolated Demucs bucket')); if(plan.confirmed.length)plan.confirmed.forEach(x=>confirms.append(mfEl('span','',`${x.condition}: ${x.evidence} · ${x.confidence}%`))); else confirms.append(mfEl('span','healthy','No strong defect measured on this bucket; leave it substantially unchanged.')); card.append(confirms);
     const choices=mfEl('div','candidate-choices'); plan.candidates.forEach((c,i)=>{ const b=mfEl('button',i===plan.selectedCandidate?'selected':'',c.name); b.type='button'; b.onclick=()=>{plan.selectedCandidate=i;plan.operations=c.operations;plan.wet=c.wet;renderStemPlans();};choices.append(b);}); card.append(choices);
     const list=mfEl('div','repair-list'); plan.operations.forEach(op=>{const row=mfEl('div','repair');row.append(mfEl('span','',op.label||op.type),mfEl('span','',describeOperation(op)));list.append(row);});card.append(list);
-    const note=mfEl('small','guardrail',`Guardrails: level matched · wet ${Math.round(plan.wet*100)}% · static EQ limited · original stem immutable`); card.append(note); root.append(card);
+    const note=mfEl('small','guardrail',`Guardrails: EQ is level-matched · wet ${Math.round(plan.wet*100)}% · mix-balance gain is not wet-diluted · original stem immutable`); card.append(note); root.append(card);
   }
 };
 
@@ -180,7 +192,7 @@ rebuildCorrectedMix=async function(){
   const out=cloneBuffer(state.original);
   for(const [stem,rawStem] of Object.entries(state.stemBuffers)){
     const plan=state.stemPlans[stem]; if(!plan)continue; const processed=await renderProcessedBuffer(rawStem,plan.operations); const rawRms=bufferRms(rawStem), fixedRms=bufferRms(processed), match=fixedRms>1e-8?clamp(rawRms/fixedRms,dbToGain(-2),dbToGain(2)):1; const wet=clamp(plan.wet||.2,.08,.45); const length=Math.min(out.length,rawStem.length,processed.length);
-    for(let c=0;c<out.numberOfChannels;c++){const dest=out.getChannelData(c),raw=rawStem.getChannelData(Math.min(c,rawStem.numberOfChannels-1)),fixed=processed.getChannelData(Math.min(c,processed.numberOfChannels-1));for(let i=0;i<length;i++)dest[i]+=(fixed[i]*match-raw[i])*wet;}
+    for(let c=0;c<out.numberOfChannels;c++){const dest=out.getChannelData(c),raw=rawStem.getChannelData(Math.min(c,rawStem.numberOfChannels-1)),fixed=processed.getChannelData(Math.min(c,processed.numberOfChannels-1));for(let i=0;i<length;i++)dest[i]+=typeof mfStemBalanceDelta==='function'?mfStemBalanceDelta(raw[i],fixed[i],match,wet,plan.mixGainDb):(fixed[i]*match-raw[i])*wet;}
     await sleep(0);
   }
   const before=measureBuffer(state.original),after=measureBuffer(out); forensicState.reconstruction={peakShift:after.peakDb-before.peakDb,lufsShift:after.lufs-before.lufs,widthShift:after.widthDb-before.widthDb,correlationShift:after.correlation-before.correlation};

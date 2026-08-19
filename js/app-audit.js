@@ -55,56 +55,127 @@ function validateAudit(value, fallback) {
   };
 }
 
-$('auditBtn').addEventListener('click', async () => {
+const listeningPass = {
+  token: 0,
+  controller: null,
+};
+
+function setListeningUi(active) {
+  ['skipListeningBtn', 'skipListeningAuditBtn', 'listeningSkipRow'].forEach((id) => {
+    if ($(id)) $(id).classList.toggle('hidden', !active);
+  });
+}
+
+function cancelListeningPass() {
+  listeningPass.token += 1;
+  if (listeningPass.controller) {
+    const reason = new Error('Listening skipped');
+    reason.name = 'AbortError';
+    try { listeningPass.controller.abort(reason); } catch (_) { listeningPass.controller.abort(); }
+    listeningPass.controller = null;
+  }
+  setListeningUi(false);
+}
+
+function skipListeningPass() {
+  cancelListeningPass();
+  setStatus('auditStatus', 'Listening skipped — using measurements only.', 'warn');
+}
+
+function presentMeasuredAudit(measured) {
+  state.mixMetrics = measured.metrics;
+  state.audit = measured.audit;
+  renderAudit(measured.audit, measured.metrics);
+  reveal('auditPanel');
+  $('auditPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function startListeningPass(measured) {
+  const token = ++listeningPass.token;
+  listeningPass.controller = typeof AbortController === 'function' ? new AbortController() : null;
+  setListeningUi(true);
+  const { metrics, audit: fallback, notes, targetLufs } = measured;
+  try {
+    const listeningStatus = typeof probeListeningStatus === 'function'
+      ? await probeListeningStatus()
+      : { listeningConfigured: null };
+    if (token !== listeningPass.token) return;
+    if (listeningStatus.listeningConfigured === false) {
+      throw Object.assign(new Error('GEMINI_API_KEY is not configured.'), { status: 400 });
+    }
+    setStatus('auditStatus', 'Building a compact listening excerpt from loudest/problem windows…', 'busy');
+    const listeningClip = typeof buildListeningClip === 'function'
+      ? await buildListeningClip(state.original, { markers: state.timelineAnalysis?.markers })
+      : null;
+    if (token !== listeningPass.token) return;
+    if (!listeningClip) throw new Error('Listening clip unavailable');
+    setStatus('auditStatus', 'Gemini is listening to the mix excerpt — not a vocal performance take…', 'busy');
+    const ai = await requestAI({ phase: 'mix', metrics, notes, targetLufs, listeningClip }, {
+      signal: listeningPass.controller?.signal,
+      onRetry() {
+        if (token === listeningPass.token) setStatus('auditStatus', 'Listening pass is retrying after a timeout…', 'busy');
+      },
+    });
+    if (token !== listeningPass.token) return;
+    const audit = validateAudit(ai, fallback);
+    state.audit = audit;
+    renderAudit(audit, metrics, { attachOnly: true });
+    const statusText = typeof auditCompleteStatusMessage === 'function'
+      ? auditCompleteStatusMessage(audit)
+      : 'Audit complete. Measurements kept as facts.';
+    setStatus('auditStatus', statusText, 'ok');
+  } catch (error) {
+    if (token !== listeningPass.token) return;
+    console.warn('Listening pass unavailable; using measured rule engine.', error);
+    setStatus('auditStatus', aiFallbackStatusMessage(error), 'warn');
+  } finally {
+    if (token === listeningPass.token) {
+      listeningPass.controller = null;
+      setListeningUi(false);
+    }
+  }
+}
+
+async function runMixAudit() {
   if (!state.original) return;
   $('auditBtn').disabled = true;
+  cancelListeningPass();
   setStatus('auditStatus', 'Measuring loudness, spectrum, dynamics, stereo field, clipping and translation risks…', 'busy');
   await sleep(30);
   try {
     const metrics = measureBuffer(state.original);
-    state.mixMetrics = metrics;
-    const notes = $('notes').value.trim();
-    const targetLufs = Number($('targetLufs').value);
-    const fallback = fallbackMixAudit(metrics, notes, targetLufs);
-    let audit = fallback;
-    try {
-      const listeningStatus = typeof probeListeningStatus === 'function'
-        ? await probeListeningStatus()
-        : { listeningConfigured: null };
-      if (listeningStatus.listeningConfigured === false) {
-        throw Object.assign(new Error('GEMINI_API_KEY is not configured.'), { status: 400 });
-      }
-      setStatus('auditStatus', 'Building a compact listening excerpt from loudest/problem windows…', 'busy');
-      const listeningClip = typeof buildListeningClip === 'function'
-        ? await buildListeningClip(state.original, { markers: state.timelineAnalysis?.markers })
-        : null;
-      if (!listeningClip) throw new Error('Listening clip unavailable');
-      setStatus('auditStatus', 'Gemini is listening to the mix excerpt — not a vocal performance take…', 'busy');
-      const ai = await requestAI({ phase: 'mix', metrics, notes, targetLufs, listeningClip }, {
-        onRetry() {
-          setStatus('auditStatus', 'Listening pass is retrying after a timeout…', 'busy');
-        },
-      });
-      audit = validateAudit(ai, fallback);
-      const statusText = typeof auditCompleteStatusMessage === 'function'
-        ? auditCompleteStatusMessage(audit)
-        : 'Audit complete. Measurements kept as facts.';
-      setStatus('auditStatus', statusText, 'ok');
-    } catch (error) {
-      console.warn('Listening pass unavailable; using measured rule engine.', error);
-      setStatus('auditStatus', aiFallbackStatusMessage(error), 'warn');
-    }
-    state.audit = audit;
-    renderAudit(audit, metrics);
-    reveal('auditPanel');
-    $('auditPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const notes = $('notes')?.value.trim() || '';
+    const targetLufs = Number($('targetLufs')?.value);
+    const measured = {
+      metrics,
+      notes,
+      targetLufs,
+      audit: fallbackMixAudit(metrics, notes, targetLufs),
+    };
+    const present = typeof presentMeasuredAuditThenListen === 'function'
+      ? presentMeasuredAuditThenListen
+      : async ({ measure, present: show, listen }) => {
+        const payload = await measure();
+        show(payload);
+        if (typeof listen === 'function') void listen(payload);
+        return { measured: payload };
+      };
+    await present({
+      measure: async () => measured,
+      present: presentMeasuredAudit,
+      listen: startListeningPass,
+    });
   } catch (error) {
     console.error(error);
     setStatus('auditStatus', `Audit failed: ${error.message}`, 'error');
   } finally {
     $('auditBtn').disabled = false;
   }
-});
+}
+
+$('auditBtn').addEventListener('click', () => { void runMixAudit(); });
+$('skipListeningBtn')?.addEventListener('click', skipListeningPass);
+$('skipListeningAuditBtn')?.addEventListener('click', skipListeningPass);
 
 function renderMetrics(containerId, metrics) {
   const items = [
@@ -124,7 +195,7 @@ function renderMetrics(containerId, metrics) {
   }));
 }
 
-function renderAudit(audit, metrics) {
+function renderAudit(audit, metrics, options = {}) {
   $('readinessScore').textContent = Math.round(audit.readinessScore);
   $('auditSummary').textContent = audit.summary;
   renderMetrics('mixMetrics', metrics);
@@ -140,6 +211,7 @@ function renderAudit(audit, metrics) {
     const action = document.createElement('p'); action.className = 'action'; action.textContent = `Fix: ${finding.action}`;
     card.append(top, evidence, action); root.append(card);
   }
+  if (options.attachOnly || state.mixforgePath) return;
   if (audit.stemsToInspect.length) {
     reveal('separateActions');
     $('stemListLabel').textContent = `Required: ${audit.stemsToInspect.join(', ')}`;
