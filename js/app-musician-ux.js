@@ -323,6 +323,28 @@ function mfFrameIsActuallyDucked(frame, baseline = {}, clearDb = MF_VOCAL_RIDE_C
   return presenceDuck || maskingDuck || stemDuck;
 }
 
+function mfWindowsOverlapSec(left, right) {
+  return Math.max(0, Math.min(Number(left.end), Number(right.end)) - Math.max(Number(left.start), Number(right.start)));
+}
+
+function mfCoalesceBuriedWindows(currentWindows, priorWindows) {
+  if (!priorWindows?.length) return [...(currentWindows || [])];
+  const still = [];
+  for (const prior of priorWindows) {
+    const span = Math.max(0.25, Number(prior.end) - Number(prior.start));
+    const fragments = (currentWindows || []).filter((window) => mfWindowsOverlapSec(window, prior) > 0.2 * span);
+    if (!fragments.length) continue;
+    const merged = { ...prior };
+    for (const fragment of fragments) mfMergeWindowStats(merged, fragment);
+    still.push(merged);
+  }
+  const extras = (currentWindows || []).filter((window) => {
+    const span = Math.max(0.25, Number(window.end) - Number(window.start));
+    return !priorWindows.some((prior) => mfWindowsOverlapSec(window, prior) > 0.2 * span);
+  });
+  return still.concat(extras).sort((left, right) => left.start - right.start);
+}
+
 function mfFindBuriedVocalWindows(analysis, options = {}) {
   const clearDb = Number.isFinite(Number(options.clearMaskingDb)) ? Number(options.clearMaskingDb) : MF_VOCAL_RIDE_CLEAR_DB;
   const remasure = options.remeasure === true;
@@ -338,7 +360,10 @@ function mfFindBuriedVocalWindows(analysis, options = {}) {
     ));
   }
 
-  const baseline = mfSongDuckBaseline(frames);
+  // Freeze the original song's forward chorus. Recomputing baseline after a ride
+  // makes newly brighter phrases the reference, so more frames look buried (56→59)
+  // or a hole-punched phrase splits into extra windows.
+  const baseline = options.baseline || mfSongDuckBaseline(frames);
   const toWindow = (frame, relativeDb) => ({
     start: frame.start,
     end: frame.end,
@@ -513,12 +538,16 @@ async function mfIterateVocalRides({
   let rides = [];
   const passes = [];
   let stop = { reason: 'clear', detail: 'No buried vocal windows on the timeline.' };
+  const frozenBaseline = windowOptions.baseline || mfSongDuckBaseline(analysis?.frames || []);
+  const remasureOptions = { remeasure: true, baseline: frozenBaseline };
+  let tracked = mfFindBuriedVocalWindows(analysis, remasureOptions);
 
   for (let pass = 1; pass <= maxPasses; pass++) {
-    const detectOptions = { ...windowOptions, remeasure: false };
-    const remasureOptions = { remeasure: true };
-    const red = mfFindBuriedVocalWindows(analysis, pass === 1 ? detectOptions : remasureOptions);
-    const redCount = mfFindBuriedVocalWindows(analysis, remasureOptions).length;
+    const detectOptions = { ...windowOptions, remeasure: false, baseline: frozenBaseline };
+    const red = pass === 1
+      ? mfFindBuriedVocalWindows(analysis, detectOptions)
+      : mfKeepWorstPhrases(tracked);
+    const redCount = tracked.length;
     if (!red.length) {
       stop = {
         reason: 'clear',
@@ -530,6 +559,7 @@ async function mfIterateVocalRides({
     }
     const ridesBefore = rides.map((ride) => ({ ...ride }));
     const analysisBefore = analysis;
+    const trackedBefore = tracked.map((window) => ({ ...window }));
     const planned = mfPlanVocalRides(mfKeepWorstPhrases(red), rides, { otherAvailable, pass });
     if (!planned.added.length) {
       stop = {
@@ -543,10 +573,12 @@ async function mfIterateVocalRides({
     }
     const applied = await applyRides(planned.rides, planned.added, pass);
     const nextAnalysis = applied?.analysis || (typeof analyze === 'function' ? await analyze(applied?.buffer) : analysis);
-    const stillRed = mfFindBuriedVocalWindows(nextAnalysis, remasureOptions);
+    const discovered = mfFindBuriedVocalWindows(nextAnalysis, remasureOptions);
+    const stillRed = mfCoalesceBuriedWindows(discovered, tracked);
     if (stillRed.length > redCount) {
       rides = ridesBefore;
       analysis = analysisBefore;
+      tracked = trackedBefore;
       if (ridesBefore.length || pass === 1) {
         await applyRides(ridesBefore, [], pass);
       }
@@ -565,15 +597,17 @@ async function mfIterateVocalRides({
     }
     rides = planned.rides;
     analysis = nextAnalysis;
+    tracked = stillRed;
     passes.push({
       pass,
-      redBefore: red.length,
+      redBefore: redCount,
       redAfter: stillRed.length,
       added: planned.added,
     });
     if (applied?.qualityStop) {
       rides = ridesBefore;
       analysis = analysisBefore;
+      tracked = trackedBefore;
       await applyRides(ridesBefore, [], pass);
       stop = {
         reason: applied.qualityStop,
@@ -601,7 +635,8 @@ async function mfIterateVocalRides({
     passes,
     analysis,
     stop,
-    windowsRemaining: mfFindBuriedVocalWindows(analysis, { remeasure: true }),
+    windowsRemaining: tracked,
+    baseline: frozenBaseline,
   };
 }
 
@@ -672,6 +707,25 @@ function mfStemBalanceDelta(raw, fixed, match, wet, mixGainDb) {
   const safeWet = clamp(Number(wet) || 0, 0, 1);
   const balance = mfDbToGain(clamp(Number(mixGainDb) || 0, MF_MIX_BALANCE_MIN_DB, MF_MIX_BALANCE_MAX_DB));
   return (raw * (1 - safeWet) + fixed * match * safeWet) * balance - raw;
+}
+
+function mfIsPresenceStackOp(op) {
+  return /lyric clarity|presence\/air|presence recovery|air recovery|air lift|open cymbal air/i.test(op?.label || '');
+}
+
+function mfStripPresenceStackOps(stemPlans) {
+  for (const plan of Object.values(stemPlans || {})) {
+    if (!Array.isArray(plan?.operations)) continue;
+    plan.operations = plan.operations.filter((op) => !mfIsPresenceStackOp(op));
+    if (Array.isArray(plan.candidates)) {
+      for (const candidate of plan.candidates) {
+        if (Array.isArray(candidate.operations)) {
+          candidate.operations = candidate.operations.filter((op) => !mfIsPresenceStackOp(op));
+        }
+      }
+    }
+  }
+  return stemPlans;
 }
 
 function mfApplyVocalUpPlan(stemPlans, evidence) {
@@ -862,11 +916,16 @@ function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
     if (vocalUp.stopDetail || vocalUp.stopReason) {
       bullets.push(`Stopped: ${vocalUp.stopDetail || vocalUp.stopReason}.`);
     }
-  } else if (vocalUp?.applied && Number.isFinite(Number(vocalUp.appliedLiftDb ?? vocalUp.liftDb))) {
-    const lift = Number(vocalUp.appliedLiftDb ?? vocalUp.liftDb);
-    bullets.push(`Vocal lift: ${lift >= 0 ? '+' : ''}${lift.toFixed(1)} dB on the isolated vocal stem (mix balance, not pitch/timing).`);
+  } else if (vocalUp?.applied) {
+    // Reverted / empty rides: never print leftover liftDb (+4.9 one-shot) as the unbury.
+    if (vocalUp.stopDetail || vocalUp.stopReason) {
+      bullets.push(`Stopped: ${vocalUp.stopDetail || vocalUp.stopReason}.`);
+    }
+    if (Number.isFinite(Number(vocalUp.windowsBefore)) && Number.isFinite(Number(vocalUp.windowsAfter))) {
+      bullets.push(`Buried windows: ${Number(vocalUp.windowsBefore)} → ${Number(vocalUp.windowsAfter)} (level-matched spectral check — louder is not done).`);
+    }
     if (Number.isFinite(Number(vocalUp.maskingBefore)) && Number.isFinite(Number(vocalUp.maskingAfter))) {
-      bullets.push(`Lead masking: ${Number(vocalUp.maskingBefore).toFixed(1)} → ${Number(vocalUp.maskingAfter).toFixed(1)} dB (low-mids vs presence).`);
+      bullets.push(`Song-level lead masking: ${Number(vocalUp.maskingBefore).toFixed(1)} → ${Number(vocalUp.maskingAfter).toFixed(1)} dB (low-mids vs presence).`);
     }
   } else if (vocalUp?.warranted && (vocalUp.skipped || vocalUp.failed || path === 'quick')) {
     bullets.push(vocalUp.skipWarning || MF_VOCAL_UP_SKIP_WARNING);
@@ -1348,6 +1407,7 @@ async function mfRunVocalUpRebuildAndMaster() {
   const evidence = state.vocalUpRepair || mfLeadBuriedEvidence(state.audit, state.mixMetrics);
   if (!evidence?.warranted || !state.stemBuffers?.vocals) return;
   state.vocalUpRepair = { ...evidence, autoRebuildStarted: true };
+  if (state.stemPlans) mfStripPresenceStackOps(state.stemPlans);
   if ($('rebuildBtn')) {
     $('rebuildBtn').disabled = true;
     $('rebuildBtn').textContent = 'Write vocal rides and rebuild mix';
@@ -1446,6 +1506,8 @@ async function mfRunVocalUpRebuildAndMaster() {
       applied: true,
       skipped: false,
       failed: unburyFailed,
+      liftDb: 0,
+      appliedLiftDb: 0,
       rides: result.rides,
       passes: result.passes,
       globalSeatDb: seat,
@@ -1751,6 +1813,9 @@ if (typeof globalThis !== 'undefined') {
   globalThis.mfRideEnvelope = mfRideEnvelope;
   globalThis.mfStemRideDbAt = mfStemRideDbAt;
   globalThis.mfFindBuriedVocalWindows = mfFindBuriedVocalWindows;
+  globalThis.mfCoalesceBuriedWindows = mfCoalesceBuriedWindows;
+  globalThis.mfSongDuckBaseline = mfSongDuckBaseline;
+  globalThis.mfStripPresenceStackOps = mfStripPresenceStackOps;
   globalThis.mfKeepWorstPhrases = mfKeepWorstPhrases;
   globalThis.mfVocalRideQualityStop = mfVocalRideQualityStop;
   globalThis.mfMergeBuriedWindows = mfMergeBuriedWindows;

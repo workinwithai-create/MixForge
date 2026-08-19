@@ -20,7 +20,17 @@ assert.equal(typeof context.mfLeadBuriedEvidence, 'function');
 assert.equal(typeof context.mfPlanVocalRides, 'function');
 assert.equal(typeof context.mfIterateVocalRides, 'function');
 assert.equal(typeof context.mfFindBuriedVocalWindows, 'function');
+assert.equal(typeof context.mfCoalesceBuriedWindows, 'function');
+assert.equal(typeof context.mfStripPresenceStackOps, 'function');
 assert.equal(typeof context.mfStemRideDbAt, 'function');
+
+const stacked = {
+  vocals: { operations: [{ type: 'eq', label: 'Restore lyric clarity' }, { type: 'highpass', label: 'Remove DC and inaudible rumble' }] },
+  drums: { operations: [{ type: 'eq', label: 'Open cymbal air gently' }] },
+};
+context.mfStripPresenceStackOps(stacked);
+assert.ok(!stacked.vocals.operations.some((op) => /lyric clarity/i.test(op.label)), 'vocal-up reprint must not stack the 3600 Hz lyric-clarity shelf');
+assert.ok(stacked.vocals.operations.some((op) => /DC/i.test(op.label)), 'safety ops stay');
 
 const bakeoffAudit = {
   readinessScore: 80,
@@ -437,6 +447,94 @@ const regression = await context.mfIterateVocalRides({
 });
 assert.equal(regression.stop.reason, 'regression', 'more buried windows after a pass must revert that pass');
 assert.equal(regression.rides.length, 0, 'the worsened pass must not be kept');
+
+const holeBefore = {
+  markers: [],
+  frames: [
+    { start: 12, end: 20, rmsDb: -18, lowMidToPresenceDb: 16.8, presenceRatio: 0.04 },
+    { start: 40, end: 55, rmsDb: -16, lowMidToPresenceDb: 8.4, presenceRatio: 0.22 },
+  ],
+  counts: {},
+};
+const holeAfter = {
+  markers: [],
+  frames: [
+    { start: 12, end: 14, rmsDb: -18, lowMidToPresenceDb: 16.2, presenceRatio: 0.05 },
+    { start: 14, end: 18, rmsDb: -17, lowMidToPresenceDb: 9.0, presenceRatio: 0.18 },
+    { start: 18, end: 20, rmsDb: -18, lowMidToPresenceDb: 16.0, presenceRatio: 0.05 },
+    { start: 40, end: 55, rmsDb: -16, lowMidToPresenceDb: 8.4, presenceRatio: 0.22 },
+  ],
+  counts: {},
+};
+const holePrior = context.mfFindBuriedVocalWindows(holeBefore, { remeasure: true });
+const holeDiscovered = context.mfFindBuriedVocalWindows(holeAfter, { remeasure: true });
+assert.equal(holePrior.length, 1, 'the verse starts as one phrase');
+assert.ok(holeDiscovered.length > holePrior.length, 'rediscovery after a hole punch must not be the remasure score');
+const holeScored = context.mfCoalesceBuriedWindows(holeDiscovered, holePrior);
+assert.equal(holeScored.length, holePrior.length, 'fragments inside the original phrase still count as that one window');
+
+const holeLoop = await context.mfIterateVocalRides({
+  initialAnalysis: holeBefore,
+  applyRides: async (rides) => ({
+    rides,
+    analysis: rides.some((ride) => (ride.stem || 'vocals') === 'vocals' && ride.gainDb > 0)
+      ? holeAfter
+      : holeBefore,
+  }),
+});
+assert.notEqual(holeLoop.stop.reason, 'regression', 'a hole-punched phrase must not revert the pass as 1→2 windows');
+assert.ok(holeLoop.rides.some((ride) => (ride.stem || 'vocals') === 'vocals'), 'the verse ride must be kept');
+
+const dropLoop = await context.mfIterateVocalRides({
+  initialAnalysis: {
+    markers: [],
+    frames: [
+      { start: 12, end: 20, rmsDb: -18, lowMidToPresenceDb: 16.8, presenceRatio: 0.04 },
+      { start: 40, end: 55, rmsDb: -16, lowMidToPresenceDb: 8.4, presenceRatio: 0.22 },
+    ],
+  },
+  applyRides: async (rides) => {
+    const lifted = rides.some((ride) => (ride.stem || 'vocals') === 'vocals' && ride.gainDb > 0);
+    return {
+      analysis: {
+        markers: [],
+        frames: [
+          { start: 12, end: 20, rmsDb: -16, lowMidToPresenceDb: lifted ? 8.6 : 16.8, presenceRatio: lifted ? 0.21 : 0.04 },
+          { start: 40, end: 55, rmsDb: -16, lowMidToPresenceDb: 8.4, presenceRatio: 0.22 },
+        ],
+      },
+    };
+  },
+});
+assert.notEqual(dropLoop.stop.reason, 'regression', 'a real phrase ride that unburies the verse is not revert-only');
+assert.ok(dropLoop.rides.some((ride) => (ride.stem || 'vocals') === 'vocals'), 'the successful verse ride must be kept');
+assert.ok(dropLoop.windowsRemaining.length < 1, 'buried window count must drop when the verse actually clears');
+assert.ok(dropLoop.passes[0].redAfter < dropLoop.passes[0].redBefore, 'pass 1 must drop window count, not rise');
+
+const revertedCopy = context.mfPlainWhatChanged(
+  { lufs: -18, peakDb: -1.2, crestDb: 18, correlation: 0.87, clipPercent: 0 },
+  { lufs: -18.2, peakDb: -1.2, crestDb: 18, correlation: 0.87, clipPercent: 0 },
+  { eq: [], compressor: null, truePeakCeilingDb: -1 },
+  'forensic',
+  {
+    vocalUp: {
+      warranted: true,
+      applied: true,
+      rides: [],
+      liftDb: 4.9,
+      appliedLiftDb: 4.9,
+      maskingBefore: 15.1,
+      maskingAfter: 14.2,
+      windowsBefore: 56,
+      windowsAfter: 59,
+      stopReason: 'regression',
+      stopDetail: 'Buried windows rose 56 → 59 after pass 1; that pass was reverted.',
+      failed: true,
+    },
+  },
+);
+assert.doesNotMatch(revertedCopy.bullets.join(' '), /Vocal lift: \+4\.9 dB on the isolated vocal stem/, 'reverted rides must not print the leftover +4.9 one-shot as the unbury');
+assert.ok(revertedCopy.bullets.some((line) => /56 → 59|reverted/i.test(line)), 'what-changed must say the ride pass was reverted');
 
 const skipped = context.mfPlainWhatChanged(
   { lufs: -18, peakDb: -1.2, crestDb: 18, correlation: 0.87, clipPercent: 0 },
