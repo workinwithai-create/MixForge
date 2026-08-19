@@ -64,8 +64,8 @@ assert.equal(stillQuick.path, 'quick', 'a vocal stem without masking must not fo
 const verseChorusAnalysis = {
   markers: [],
   frames: [
-    { start: 12, end: 28, rmsDb: -18, lowMidToPresenceDb: 15.1, presenceRatio: 0.04 },
-    { start: 40, end: 55, rmsDb: -16, lowMidToPresenceDb: 8.4, presenceRatio: 0.22 },
+    { start: 12, end: 28, rmsDb: -18, lowMidToPresenceDb: 15.1, presenceRatio: 0.04, vocalVsOtherDb: -8.5 },
+    { start: 40, end: 55, rmsDb: -16, lowMidToPresenceDb: 8.4, presenceRatio: 0.22, vocalVsOtherDb: 1.0 },
   ],
   counts: {},
 };
@@ -84,8 +84,15 @@ assert.ok(vocalPass.gainDb >= 0.5 && vocalPass.gainDb <= context.MF_VOCAL_RIDE_P
 assert.ok(vocalPass.gainDb < 3.0, 'a 15.1 verse must not pin the +3 hard cap when other can ease');
 assert.ok(!firstPlan.added.some((ride) => ride.start >= 40), 'a forward chorus without a red window stays put');
 const otherEase = firstPlan.added.find((ride) => ride.stem === 'other');
-assert.ok(otherEase.gainDb <= -1.0, 'competing other must take more of the unbury than a token dip');
-assert.ok(Math.abs(otherEase.gainDb) >= vocalPass.gainDb - 0.15, 'ease should do at least as much work as slamming the vocal');
+assert.ok(otherEase, 'ease other only where the residual is sitting on the vocal');
+assert.ok(otherEase.start < 32, 'do not ease a forward chorus');
+assert.ok(otherEase.gainDb <= -0.55 && otherEase.gainDb >= -1.25, `first-pass ease should be remasure-sized, not a -1.8 smear (${otherEase.gainDb})`);
+const noSit = context.mfPlanVocalRides(
+  [{ start: 12, end: 20, maskingDb: 15.1, relativeDb: 6.7 }],
+  [],
+  { otherAvailable: true },
+);
+assert.ok(!noSit.added.some((ride) => ride.stem === 'other'), 'other must not be eased unless that slice is sitting on the vocal');
 
 const uneven = context.mfPlanVocalRides([
   { start: 10, end: 22, maskingDb: 12.4 },
@@ -236,6 +243,36 @@ const peaked = await context.mfIterateVocalRides({
 assert.equal(peaked.stop.reason, 'true-peak');
 assert.match(peaked.stop.detail, /peak|smash|clip/i);
 
+assert.equal(context.mfVocalRideQualityStop({ harshness_band: 1 }, { harshness_band: 2 }).qualityStop, 'harshness');
+assert.equal(context.mfVocalRideQualityStop({ sibilance: 0 }, { sibilance: 1 }).qualityStop, 'sibilance');
+assert.equal(context.mfVocalRideQualityStop({ sub_bass_heavy: 1 }, { sub_bass_heavy: 2 }).qualityStop, 'boom');
+assert.equal(context.mfVocalRideQualityStop({ harshness_band: 2, sibilance: 1, sub_bass_heavy: 3 }, { harshness_band: 2, sibilance: 1, sub_bass_heavy: 3 }), null);
+
+const harsher = await context.mfIterateVocalRides({
+  initialAnalysis: analysisAt(15.1),
+  applyRides: async (rides) => ({
+    analysis: analysisAt(14.2),
+    qualityStop: 'harshness',
+    qualityDetail: 'Harshness got worse after the last ride pass. That pass is wrong — MixForge will not tear the top to unbury the lead.',
+    rides,
+  }),
+});
+assert.equal(harsher.stop.reason, 'harshness');
+assert.equal(harsher.rides.length, 0, 'a harsher pass must be reverted');
+assert.match(harsher.stop.detail, /harshness|tear the top/i);
+
+const moreSibilance = await context.mfIterateVocalRides({
+  initialAnalysis: analysisAt(15.1),
+  applyRides: async (rides) => ({
+    analysis: analysisAt(14.2),
+    qualityStop: 'sibilance',
+    qualityDetail: 'Sibilance got worse after the last ride pass. That pass is wrong — MixForge will not stack presence/air until the top tears.',
+    rides,
+  }),
+});
+assert.equal(moreSibilance.stop.reason, 'sibilance');
+assert.equal(moreSibilance.rides.length, 0, 'a more-sibilant pass must be reverted');
+
 const smashed = await context.mfIterateVocalRides({
   initialAnalysis: analysisAt(15.1),
   applyRides: async (rides) => ({
@@ -349,6 +386,7 @@ const liveSmear = context.mfPlainWhatChanged(
 );
 assert.ok(liveSmear.remaining.some((line) => /increased|failed|still red|not enough to unbury/i.test(line)), '15.1 → 14.2 with 37 → 50 windows is a fail');
 assert.ok(liveSmear.remaining.some((line) => /increased/i.test(line)), 'a pass that creates more buried windows must be called a fail');
+assert.ok(liveSmear.remaining.some((line) => /louder is not done/i.test(line)), 'LUFS −18.0 → −13.4 is not the unbury');
 
 const longLastMinute = {
   markers: [],
@@ -378,9 +416,8 @@ assert.ok(vocalChunks.every((ride) => ride.end - ride.start <= context.MF_VOCAL_
 assert.ok(!vocalChunks.some((ride) => ride.end - ride.start >= 59), 'a 59s block is not a ride');
 const pinned = vocalChunks.filter((ride) => Math.abs(ride.gainDb - 3) < 0.05);
 assert.ok(pinned.length < Math.max(3, vocalChunks.length * 0.25), `must not pin most rides at +3.0 (${pinned.length}/${vocalChunks.length})`);
-assert.ok(vocalChunks.length < 37, `must not emit 37 identical chunks, got ${vocalChunks.length}`);
-const gainSpread = Math.max(...vocalChunks.map((ride) => ride.gainDb)) - Math.min(...vocalChunks.map((ride) => ride.gainDb));
-assert.ok(gainSpread > 0.15 || vocalChunks.length <= 6, 'ducked phrases must not all smear to the same gain');
+assert.ok(vocalChunks.length <= context.MF_VOCAL_RIDE_MAX_PHRASES, `must ride the worst phrases only, not 37 chunks (got ${vocalChunks.length})`);
+assert.ok(vocalChunks.every((ride) => ride.gainDb < 2.95), 'must not pin phrase rides to the +3 hard cap');
 
 const regression = await context.mfIterateVocalRides({
   initialAnalysis: analysisAt(15.1),
