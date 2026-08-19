@@ -1,6 +1,42 @@
 'use strict';
 function writeString(view, offset, string) { for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i)); }
 
+let mfLastExportObjectUrl = null;
+
+function mfMasterContentToken(buffer) {
+  if (!buffer || typeof buffer.getChannelData !== 'function') return 'nomaster';
+  const data = buffer.getChannelData(0);
+  let hash = ((Number(buffer.length) || 0) ^ (Number(buffer.sampleRate) || 0)) >>> 0;
+  const step = Math.max(1, Math.floor((data.length || 1) / 96));
+  for (let i = 0; i < data.length; i += step) {
+    hash = (Math.imul(hash || 2166136261, 16777619) ^ ((Math.abs(data[i]) * 1e7) | 0)) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+function mfReleaseDownloadName({ fileName, path, revision, contentToken, bitDepth } = {}) {
+  const base = String(fileName || 'mix').replace(/\.[^.]+$/, '').replace(/[^a-z0-9._-]/gi, '_') || 'mix';
+  const route = path === 'forensic' ? 'forensic' : 'quick';
+  const rev = Math.max(1, Number(revision) || 1);
+  const token = String(contentToken || 'r').replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'r';
+  const depth = Number(bitDepth) === 16 ? 16 : 24;
+  return `${base}-mixforge-${route}-r${rev}-${token}-${depth}bit.wav`;
+}
+
+function mfBindExportableMaster(snapshot, buffer) {
+  if (!snapshot || !buffer) return null;
+  const token = mfMasterContentToken(buffer);
+  snapshot.masterExportId = `${snapshot.masterRevision || 0}:${token}`;
+  snapshot.masterRenderSignature = `${buffer.length}:${buffer.sampleRate}:${buffer.numberOfChannels}:${token}`;
+  return snapshot.masterExportId;
+}
+
+function mfRevokeExportUrl() {
+  if (!mfLastExportObjectUrl) return;
+  try { URL.revokeObjectURL(mfLastExportObjectUrl); } catch { /* already revoked */ }
+  mfLastExportObjectUrl = null;
+}
+
 function evaluateExportGate(snapshot) {
   const current = snapshot && typeof snapshot === 'object' ? snapshot : {};
   if (!current.master) {
@@ -95,16 +131,36 @@ $('exportBtn').addEventListener('click', async () => {
     syncExportUi(state);
     return;
   }
+  const buffer = state.master;
+  const exportId = state.masterExportId || (typeof mfBindExportableMaster === 'function' ? mfBindExportableMaster(state, buffer) : null);
   $('exportBtn').disabled = true;
   setStatus('exportStatus', 'Encoding release WAV…', 'busy');
   try {
     const bitDepth = Number($('bitDepth').value) === 16 ? 16 : 24;
-    const blob = await encodeWav(state.master, bitDepth, (percent) => setStatus('exportStatus', `Encoding ${bitDepth}-bit WAV… ${percent}%`, 'busy'));
+    const blob = await encodeWav(buffer, bitDepth, (percent) => setStatus('exportStatus', `Encoding ${bitDepth}-bit WAV… ${percent}%`, 'busy'));
+    if (state.master !== buffer || (exportId && state.masterExportId && state.masterExportId !== exportId)) {
+      setStatus('exportStatus', 'That encode was cancelled because a newer master rendered. Download again.', 'warn');
+      return;
+    }
+    mfRevokeExportUrl();
     const url = URL.createObjectURL(blob);
+    mfLastExportObjectUrl = url;
     const anchor = document.createElement('a');
-    const base = (state.file?.name || 'mix').replace(/\.[^.]+$/, '').replace(/[^a-z0-9._-]/gi, '_');
-    anchor.href = url; anchor.download = `${base}-mixforge-release-${bitDepth}bit.wav`; document.body.append(anchor); anchor.click(); anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    const token = String(exportId || '').split(':')[1] || mfMasterContentToken(buffer);
+    anchor.href = url;
+    anchor.download = mfReleaseDownloadName({
+      fileName: state.file?.name,
+      path: state.mixforgePath,
+      revision: state.masterRevision,
+      contentToken: token,
+      bitDepth,
+    });
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => {
+      if (mfLastExportObjectUrl === url) mfRevokeExportUrl();
+    }, 30000);
     setStatus('exportStatus', gate.verified ? 'Verified release WAV exported.' : 'Release WAV exported. Hard checks did not all pass.', gate.verified ? 'ok' : 'warn');
   } catch (error) {
     console.error(error);
@@ -124,4 +180,7 @@ if ($('exportOverride')) {
 if (typeof globalThis !== 'undefined') {
   globalThis.evaluateExportGate = evaluateExportGate;
   globalThis.syncExportUi = syncExportUi;
+  globalThis.mfMasterContentToken = mfMasterContentToken;
+  globalThis.mfReleaseDownloadName = mfReleaseDownloadName;
+  globalThis.mfBindExportableMaster = mfBindExportableMaster;
 }

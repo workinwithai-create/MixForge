@@ -56,6 +56,56 @@ async function presentMeasuredAuditThenListen({ measure, present, listen }) {
 const MF_LEAD_MASKING_DB = 14;
 const MF_VOCAL_UP_CONFIDENCE = 70;
 const MF_VOCAL_UP_SKIP_WARNING = "Can't unbury the vocal without isolation — stereo master will only raise everything.";
+const MF_VOCAL_UP_MASK_FLOOR_DB = 8;
+const MF_VOCAL_UP_LIFT_COEFF = 0.70;
+const MF_VOCAL_UP_MIN_DB = 2.2;
+const MF_VOCAL_UP_MAX_DB = 6.0;
+const MF_VOCAL_UP_EASE_START_DB = 12;
+const MF_VOCAL_UP_EASE_COEFF = 0.38;
+const MF_VOCAL_UP_EASE_MIN_DB = -2.4;
+const MF_VOCAL_UP_EASE_MAX_DB = -0.7;
+const MF_MIX_BALANCE_MIN_DB = -3;
+const MF_MIX_BALANCE_MAX_DB = 6;
+// Live 2.5.2: +2.0 dB vocal on a 15.1 dB bury moved presence +0.7 and masking −0.6.
+const MF_VOCAL_PRESENCE_TRANSFER = 0.30;
+const MF_OTHER_MIX_TRANSFER = 0.40;
+const MF_TOKEN_MASKING_DROP_DB = 0.6;
+
+function mfVocalUpLiftDb(maskingDb) {
+  const masking = Number(maskingDb);
+  const depth = Math.max(Number.isFinite(masking) ? masking : 15, 12);
+  return clamp((depth - MF_VOCAL_UP_MASK_FLOOR_DB) * MF_VOCAL_UP_LIFT_COEFF, MF_VOCAL_UP_MIN_DB, MF_VOCAL_UP_MAX_DB);
+}
+
+function mfCompetingEaseDb(maskingDb) {
+  const masking = Number.isFinite(Number(maskingDb)) ? Number(maskingDb) : 15;
+  if (masking <= MF_VOCAL_UP_EASE_START_DB) return 0;
+  return clamp(-(masking - MF_VOCAL_UP_EASE_START_DB) * MF_VOCAL_UP_EASE_COEFF, MF_VOCAL_UP_EASE_MIN_DB, MF_VOCAL_UP_EASE_MAX_DB);
+}
+
+function mfPredictMaskingAfter(maskingBefore, liftDb, competingEaseDb = 0, options = {}) {
+  const before = Number(maskingBefore);
+  if (!Number.isFinite(before)) return null;
+  const lift = Math.max(0, Number(liftDb) || 0);
+  const ease = Math.min(0, Number(competingEaseDb) || 0);
+  const mixEase = options.competingEaseApplied !== false && ease < -0.05;
+  const drop = lift * MF_VOCAL_PRESENCE_TRANSFER + (mixEase ? (-ease) * MF_OTHER_MIX_TRANSFER : 0);
+  return before - drop;
+}
+
+function mfVocalUpMaskingProgress(maskingBefore, maskingAfter) {
+  const before = Number(maskingBefore);
+  const after = Number(maskingAfter);
+  if (!Number.isFinite(before) || !Number.isFinite(after)) {
+    return { drop: null, enough: false, token: true };
+  }
+  const drop = before - after;
+  return {
+    drop,
+    enough: drop > MF_TOKEN_MASKING_DROP_DB,
+    token: drop <= MF_TOKEN_MASKING_DROP_DB,
+  };
+}
 
 function mfBandDb(metrics, name) {
   if (!metrics) return null;
@@ -100,8 +150,8 @@ function mfLeadBuriedEvidence(audit = {}, metrics = null) {
   const fromMetrics = Number.isFinite(maskingDb) && maskingDb > MF_LEAD_MASKING_DB;
   const fromFinding = named && (confidence >= MF_VOCAL_UP_CONFIDENCE || !Number.isFinite(maskingDb) || maskingDb > 10);
   const warranted = fromMetrics || fromFinding;
-  const liftDb = warranted ? clamp((Math.max(Number(maskingDb) || 15, 12) - 8) * 0.28, 1.8, 3.5) : 0;
-  const competingEaseDb = warranted && (maskingDb || 0) > 14 ? clamp(-((maskingDb - 12) * 0.12), -2.2, -0.6) : 0;
+  const liftDb = warranted ? mfVocalUpLiftDb(maskingDb) : 0;
+  const competingEaseDb = warranted ? mfCompetingEaseDb(maskingDb) : 0;
   return {
     warranted,
     maskingDb: Number.isFinite(maskingDb) ? maskingDb : null,
@@ -122,13 +172,13 @@ function mfDbToGain(db) {
 
 function mfStemBalanceDelta(raw, fixed, match, wet, mixGainDb) {
   const safeWet = clamp(Number(wet) || 0, 0, 1);
-  const balance = mfDbToGain(clamp(Number(mixGainDb) || 0, -3, 4.5));
+  const balance = mfDbToGain(clamp(Number(mixGainDb) || 0, MF_MIX_BALANCE_MIN_DB, MF_MIX_BALANCE_MAX_DB));
   return (raw * (1 - safeWet) + fixed * match * safeWet) * balance - raw;
 }
 
 function mfApplyVocalUpPlan(stemPlans, evidence) {
   if (!evidence?.warranted || !stemPlans?.vocals) return stemPlans;
-  const lift = clamp(Number(evidence.liftDb) || 0, 1.2, 3.5);
+  const lift = clamp(Number(evidence.liftDb) || 0, MF_VOCAL_UP_MIN_DB, MF_VOCAL_UP_MAX_DB);
   const note = {
     type: 'mixgain',
     gainDb: lift,
@@ -144,18 +194,31 @@ function mfApplyVocalUpPlan(stemPlans, evidence) {
     for (const candidate of vocals.candidates) candidate.mixGainDb = lift;
   }
   if (stemPlans.other && evidence.competingEaseDb < -0.35) {
-    const ease = {
+    const ease = clamp(Number(evidence.competingEaseDb) || 0, MF_VOCAL_UP_EASE_MIN_DB, MF_VOCAL_UP_EASE_MAX_DB);
+    stemPlans.other.mixGainDb = ease;
+    if (Array.isArray(stemPlans.other.candidates)) {
+      for (const candidate of stemPlans.other.candidates) candidate.mixGainDb = ease;
+    }
+    const easeNote = {
+      type: 'mixgain',
+      gainDb: ease,
+      label: `Ease competing residual · ${ease.toFixed(1)} dB`,
+    };
+    const lowMid = {
       type: 'eq',
       filterType: 'peaking',
       frequency: 320,
-      gain: evidence.competingEaseDb,
+      gain: ease,
       q: 0.9,
       label: 'Ease competing low-mids',
     };
     const otherOps = Array.isArray(stemPlans.other.operations) ? stemPlans.other.operations : [];
-    if (!otherOps.some((op) => /competing low-mid/i.test(op.label || ''))) {
-      stemPlans.other.operations = [ease, ...otherOps.filter((op) => op.label !== 'No corrective processing required')];
-    }
+    const cleaned = otherOps.filter((op) => (
+      op.label !== 'No corrective processing required'
+      && op.type !== 'mixgain'
+      && !/competing (low-mid|residual)/i.test(op.label || '')
+    ));
+    stemPlans.other.operations = [easeNote, lowMid, ...cleaned];
   }
   return stemPlans;
 }
@@ -273,6 +336,12 @@ function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
   if (vocalUp?.applied && Number.isFinite(Number(vocalUp.appliedLiftDb ?? vocalUp.liftDb))) {
     const lift = Number(vocalUp.appliedLiftDb ?? vocalUp.liftDb);
     bullets.push(`Vocal lift: ${lift >= 0 ? '+' : ''}${lift.toFixed(1)} dB on the isolated vocal stem (mix balance, not pitch/timing).`);
+    const ease = Number(vocalUp.appliedEaseDb ?? (vocalUp.competingEaseApplied ? vocalUp.competingEaseDb : NaN));
+    if (Number.isFinite(ease) && ease < -0.05) {
+      bullets.push(`Competing other: ${ease.toFixed(1)} dB mix-balance on residual other (low-mid masker).`);
+    } else if (Number(vocalUp.competingEaseDb) < -0.35 && vocalUp.competingEaseApplied === false) {
+      bullets.push('Competing low-mids were not eased — residual other stem was not isolated.');
+    }
     if (Number.isFinite(Number(vocalUp.maskingBefore)) && Number.isFinite(Number(vocalUp.maskingAfter))) {
       bullets.push(`Lead masking: ${Number(vocalUp.maskingBefore).toFixed(1)} → ${Number(vocalUp.maskingAfter).toFixed(1)} dB (low-mids vs presence).`);
     }
@@ -282,7 +351,13 @@ function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
   } else if (vocalUp?.warranted && (vocalUp.skipped || vocalUp.failed || path === 'quick')) {
     bullets.push(vocalUp.skipWarning || MF_VOCAL_UP_SKIP_WARNING);
   }
-  const remaining = Array.isArray(options.remainingRisks) ? options.remainingRisks : [];
+  const remaining = Array.isArray(options.remainingRisks) ? options.remainingRisks.slice() : [];
+  if (vocalUp?.applied) {
+    const progress = mfVocalUpMaskingProgress(vocalUp.maskingBefore, vocalUp.maskingAfter);
+    if (progress.token) {
+      remaining.push('Lead masking barely moved — this lift was not enough to unbury the vocal.');
+    }
+  }
   return {
     headline: path === 'quick'
       ? 'Measured change on Quick Master'
@@ -598,6 +673,14 @@ function mfStartForensicPath() {
     return;
   }
   state.mixforgePath = 'forensic';
+  if (typeof invalidateRenderedMaster === 'function') {
+    invalidateRenderedMaster('Forensic Fix started. The previous stereo master is not the vocal-up export — isolate and rebuild first.');
+  } else {
+    state.master = null;
+    state.finalMetrics = null;
+    state.masterDirty = true;
+    state.masterExportId = null;
+  }
   mfSetPipeline('forensic');
   if ($('pathChooser')) {
     $('pathChooser').querySelectorAll('.path-card').forEach((card) => card.classList.remove('active'));
@@ -752,6 +835,8 @@ async function mfRunVocalUpRebuildAndMaster() {
       skipped: false,
       failed: false,
       appliedLiftDb: state.stemPlans?.vocals?.mixGainDb ?? evidence.liftDb,
+      appliedEaseDb: state.stemPlans?.other?.mixGainDb ?? null,
+      competingEaseApplied: Number(state.stemPlans?.other?.mixGainDb) < -0.35,
       maskingBefore: evidence.maskingDb ?? beforeSnap?.maskingDb,
       maskingAfter: afterSnap?.maskingDb,
       presenceBefore: evidence.presenceDb ?? beforeSnap?.presence,
@@ -942,13 +1027,31 @@ function mfInstallMusicianUi() {
       const lift = state.vocalUpRepair.liftDb;
       const note = mfMusicianEl('p', 'extraction-integrity-note');
       note.id = 'vocalUpNote';
-      note.textContent = `Default vocal-up: +${lift.toFixed(1)} dB mix-balance on the vocal stem so the lead comes forward. This is level/balance, not pitch or timing.`;
+      const ease = Number(state.vocalUpRepair.competingEaseDb) || 0;
+      note.textContent = ease < -0.35
+        ? `Default vocal-up: +${lift.toFixed(1)} dB mix-balance on the vocal stem, and ${ease.toFixed(1)} dB on residual other. This is level/balance, not pitch or timing.`
+        : `Default vocal-up: +${lift.toFixed(1)} dB mix-balance on the vocal stem so the lead comes forward. This is level/balance, not pitch or timing.`;
       grid.prepend(note);
     }
     if (mfShouldAutoVocalUp(state)) {
       state.vocalUpRepair = { ...state.vocalUpRepair, autoRebuildStarted: true };
       queueMicrotask(() => { void mfRunVocalUpRebuildAndMaster(); });
     }
+  };
+
+  const previousRenderReleaseMaster = renderReleaseMaster;
+  renderReleaseMaster = async function renderReleaseMasterVocalUpGuard(...args) {
+    const buried = state.vocalUpRepair;
+    if (
+      state.mixforgePath === 'forensic'
+      && buried?.warranted
+      && !buried.applied
+      && !buried.skipped
+      && (!state.corrected || state.corrected === state.original)
+    ) {
+      throw new Error('Vocal-up repair has not reprinted the mix yet. Wait for isolation to finish, or skip stems.');
+    }
+    return previousRenderReleaseMaster(...args);
   };
 
   const previousRenderVerification = renderVerification;
@@ -966,6 +1069,7 @@ function mfInstallMusicianUi() {
     state.mixforgeWhatChanged = null;
     state.mixforgeRecommendation = null;
     state.vocalUpRepair = null;
+    state.masterExportId = null;
     state.exportOverride = false;
     if ($('exportOverride')) $('exportOverride').checked = false;
     if ($('pathChooser')) {
@@ -1014,11 +1118,17 @@ if (typeof globalThis !== 'undefined') {
   globalThis.mfAbMatchOffsetDb = mfAbMatchOffsetDb;
   globalThis.mfAbBarCopy = mfAbBarCopy;
   globalThis.mfLeadBuriedEvidence = mfLeadBuriedEvidence;
+  globalThis.mfVocalUpLiftDb = mfVocalUpLiftDb;
+  globalThis.mfCompetingEaseDb = mfCompetingEaseDb;
+  globalThis.mfPredictMaskingAfter = mfPredictMaskingAfter;
+  globalThis.mfVocalUpMaskingProgress = mfVocalUpMaskingProgress;
   globalThis.mfStemBalanceDelta = mfStemBalanceDelta;
   globalThis.mfApplyVocalUpPlan = mfApplyVocalUpPlan;
   globalThis.mfPresenceMaskingSnapshot = mfPresenceMaskingSnapshot;
   globalThis.mfShouldAutoVocalUp = mfShouldAutoVocalUp;
   globalThis.MF_VOCAL_UP_SKIP_WARNING = MF_VOCAL_UP_SKIP_WARNING;
+  globalThis.MF_VOCAL_UP_MAX_DB = MF_VOCAL_UP_MAX_DB;
+  globalThis.MF_TOKEN_MASKING_DROP_DB = MF_TOKEN_MASKING_DROP_DB;
   globalThis.presentMeasuredAuditThenListen = presentMeasuredAuditThenListen;
   globalThis.MF_STEM_HOURLY_LIMIT = MF_STEM_HOURLY_LIMIT;
   globalThis.MF_STEM_DAILY_LIMIT = MF_STEM_DAILY_LIMIT;

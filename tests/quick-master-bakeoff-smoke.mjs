@@ -161,6 +161,19 @@ const balanced = context.buildMasterPlan({
 }, -12);
 assert.ok(!balanced.eq.some((item) => /sub-bass/i.test(item.label)), 'a balanced mix must not get a boom cut');
 
+const afterVocalLift = {
+  ...bakeoffMetrics,
+  midBands: bakeoffMetrics.midBands.map((band) => (
+    band.name === 'Presence' ? { ...band, db: band.db + 2 } : band
+  )),
+};
+const weakened = context.mfBuildEvidenceEq(afterVocalLift);
+const retained = context.mfBuildEvidenceEq(afterVocalLift, { sourceMetrics: bakeoffMetrics });
+const weakenedCut = weakened.eq.find((item) => /sub-bass/i.test(item.label));
+const retainedCut = retained.eq.find((item) => /sub-bass/i.test(item.label));
+assert.ok(retainedCut, 'vocal-up reprint must still inherit the source boom cut');
+assert.ok(retainedCut.gain <= (weakenedCut?.gain ?? 0), 'source boom evidence must not get weaker after a vocal lift');
+
 const falseWin = context.mfTruePeakHonesty(-1.03, -1.0, 0.55);
 assert.equal(falseWin.claimUnderCeiling, false, 'cubic −1.03 vs ebur128-hotter must not print an under-ceiling win');
 assert.equal(falseWin.tone, 'warn');

@@ -1,6 +1,6 @@
 'use strict';
 
-// MixForge 2.1 mastering-grade DSP layer (2.5.2: evidence-bounded Quick Master).
+// MixForge 2.1 mastering-grade DSP layer (2.5.3: evidence-bounded Quick Master + scaled vocal-up).
 // This file deliberately loads after the forensic rule engine and before the
 // signal-integrity wrapper so every later stage uses the upgraded renderer.
 // Quick Master must repair measured #1 issues (sub-bass accumulation, dark top)
@@ -267,8 +267,21 @@ function mfPushMasterEq(eq, filterType, frequency, gain, q, label) {
   return item;
 }
 
-function mfBuildEvidenceEq(metrics) {
-  const evidence = mfMasterEvidence(metrics);
+function mfBuildEvidenceEq(metrics, options = {}) {
+  const measured = mfMasterEvidence(metrics);
+  const source = options.sourceMetrics ? mfMasterEvidence(options.sourceMetrics) : null;
+  const evidence = source ? {
+    ...measured,
+    lowEndGap: Math.max(measured.lowEndGap, source.lowEndGap),
+    boomShare: Math.max(measured.boomShare, source.boomShare),
+    subVsLowMids: Math.max(measured.subVsLowMids, source.subVsLowMids),
+    bassVsLowMids: Math.max(measured.bassVsLowMids, source.bassVsLowMids),
+    shares: {
+      ...measured.shares,
+      sub20_60: Math.max(measured.shares.sub20_60, source.shares.sub20_60),
+      bass60_250: Math.max(measured.shares.bass60_250, source.shares.bass60_250),
+    },
+  } : measured;
   const eq = [];
   const boomFromShares = evidence.boomShare > 0.62 && evidence.shares.sub20_60 > 0.16;
   const boomFromGap = evidence.lowEndGap > MF_QUICK_MASTER_SUB_GAP_DB;
@@ -331,7 +344,8 @@ function mfTruePeakHonesty(cubicDb, ceilingDb, undershootDb = MF_TRUE_PEAK_EBUR_
 buildMasterPlan = function buildMasterPlanPro(metrics, requestedTargetLufs) {
   const targetLufs = clamp(Number(requestedTargetLufs) || -12, -18, -8);
   const referenceMetrics = forensicState?.references?.[0]?.metrics || null;
-  const evidencePlan = mfBuildEvidenceEq(metrics);
+  const sourceMetrics = state?.mixMetrics && state.mixMetrics !== metrics ? state.mixMetrics : null;
+  const evidencePlan = mfBuildEvidenceEq(metrics, { sourceMetrics });
   const eq = evidencePlan.eq.slice();
   const addEq = (filterType, frequency, gain, q, label) => mfPushMasterEq(eq, filterType, frequency, gain, q, label);
   const hasSubCut = eq.some((item) => /sub-bass|sub trim|sub control/i.test(item.label || ''));

@@ -46,6 +46,7 @@ const state = {
   masterPlan: null,
   masterDirty: true,
   masterRevision: 0,
+  masterExportId: null,
   exportOverride: false,
   source: null,
   analyser: null,
@@ -182,6 +183,7 @@ async function loadFile(file) {
     state.master = null;
     state.masterDirty = true;
     state.masterRevision += 1;
+    state.masterExportId = null;
     state.exportOverride = false;
     state.audit = null;
     state.storagePath = null;

@@ -21,6 +21,7 @@ function prepareMastering() {
   state.master = null;
   state.finalMetrics = null;
   state.masterDirty = true;
+  state.masterExportId = null;
   state.masterRevision = (state.masterRevision || 0) + 1;
   state.correctedMetrics = state.correctedMetrics || measureBuffer(state.corrected);
   state.masterPlan = buildMasterPlan(state.correctedMetrics, Number($('targetLufs').value));
@@ -34,6 +35,7 @@ function invalidateRenderedMaster(message = 'The release settings changed. Rende
   state.finalMetrics = null;
   state.masterDelta = null;
   state.masterChange = null;
+  state.masterExportId = null;
   state.masterDirty = true;
   if ($('exportBtn')) $('exportBtn').disabled = true;
   if (state.original && $('previewBox')) {
@@ -52,7 +54,8 @@ function markMasterRendered(buffer) {
   if (!buffer) throw new Error('The renderer returned no audio buffer.');
   state.masterDirty = false;
   state.masterRevision = (state.masterRevision || 0) + 1;
-  state.masterRenderSignature = `${buffer.length}:${buffer.sampleRate}:${buffer.numberOfChannels}`;
+  if (typeof mfBindExportableMaster === 'function') mfBindExportableMaster(state, buffer);
+  else state.masterRenderSignature = `${buffer.length}:${buffer.sampleRate}:${buffer.numberOfChannels}`;
   if ($('exportBtn')) $('exportBtn').disabled = false;
   if (typeof syncExportUi === 'function') syncExportUi(state);
 }
