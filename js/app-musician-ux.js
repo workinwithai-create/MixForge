@@ -77,7 +77,7 @@ const MF_VOCAL_RIDE_PASS_MAX_DB = 3.0;
 const MF_VOCAL_RIDE_TOTAL_MAX_DB = 6.0;
 const MF_VOCAL_RIDE_EASE_TOTAL_MAX_DB = -4.5;
 const MF_VOCAL_RIDE_EASE_PASS_MAX_DB = -3.2;
-const MF_VOCAL_RIDE_MAX_PASSES = 4;
+const MF_VOCAL_RIDE_MAX_PASSES = 8;
 const MF_VOCAL_RIDE_PEAK_STOP_DB = -0.2;
 const MF_VOCAL_RIDE_MIN_WINDOW_SEC = 0.45;
 const MF_VOCAL_RIDE_MAX_WINDOW_SEC = 8;
@@ -440,6 +440,26 @@ function mfKeepWorstPhrases(windows, maxPhrases = MF_VOCAL_RIDE_MAX_PHRASES) {
   return sorted.slice(0, maxPhrases).sort((left, right) => left.start - right.start);
 }
 
+function mfMeasureWindowMaskingDb(analysis, window) {
+  if (!window) return null;
+  const frames = (analysis?.frames || []).filter((frame) => mfWindowsOverlapSec(frame, window) > 0);
+  const maskings = frames.map((frame) => mfWindowMaskingDb(frame)).filter((value) => Number.isFinite(value));
+  if (maskings.length) return Math.max(...maskings);
+  return mfWindowMaskingDb(window);
+}
+
+function mfNextBuriedPhrase(windows, rides = []) {
+  const remaining = (windows || []).filter((window) => mfExistingRideGain(rides, window, 'vocals') < 0.4);
+  return mfKeepWorstPhrases(remaining, 1)[0] || null;
+}
+
+function mfPhraseRideClearer(beforeDb, afterDb) {
+  const before = Number(beforeDb);
+  const after = Number(afterDb);
+  if (!Number.isFinite(before) || !Number.isFinite(after)) return false;
+  return after < before - 0.05;
+}
+
 function mfVocalRideQualityStop(beforeCounts = {}, afterCounts = {}) {
   const harshBefore = Number(beforeCounts.harshness_band || 0);
   const harshAfter = Number(afterCounts.harshness_band || 0);
@@ -529,7 +549,7 @@ async function mfIterateVocalRides({
   analyze,
   applyRides,
   initialAnalysis = null,
-  otherAvailable = true,
+  otherAvailable = false,
   windowOptions = {},
   maxPasses = MF_VOCAL_RIDE_MAX_PASSES,
 } = {}) {
@@ -543,24 +563,24 @@ async function mfIterateVocalRides({
   let tracked = mfFindBuriedVocalWindows(analysis, remasureOptions);
 
   for (let pass = 1; pass <= maxPasses; pass++) {
-    const detectOptions = { ...windowOptions, remeasure: false, baseline: frozenBaseline };
-    const red = pass === 1
-      ? mfFindBuriedVocalWindows(analysis, detectOptions)
-      : mfKeepWorstPhrases(tracked);
+    const phrase = mfNextBuriedPhrase(tracked, rides);
     const redCount = tracked.length;
-    if (!red.length) {
+    if (!phrase) {
       stop = {
-        reason: 'clear',
-        detail: pass === 1
-          ? 'No buried vocal windows on the timeline.'
-          : 'Buried phrases are clear after time-sliced rides.',
+        reason: tracked.length ? (rides.length ? 'held' : 'clear') : 'clear',
+        detail: tracked.length
+          ? `Stopped after ${passes.filter((row) => !row.reverted).length} kept phrase ride(s); ${tracked.length} window(s) still masked.`
+          : (pass === 1 ? 'No buried vocal windows on the timeline.' : 'Buried phrases are clear after time-sliced rides.'),
       };
       break;
     }
     const ridesBefore = rides.map((ride) => ({ ...ride }));
     const analysisBefore = analysis;
     const trackedBefore = tracked.map((window) => ({ ...window }));
-    const planned = mfPlanVocalRides(mfKeepWorstPhrases(red), rides, { otherAvailable, pass });
+    const maskingBefore = mfMeasureWindowMaskingDb(analysis, phrase);
+    // Pass 1 (and later phrase attempts) are vocal-stem only. A 34-window other
+    // ease is the old one-shot cut into slices and is why bury count rose.
+    const planned = mfPlanVocalRides([phrase], rides, { otherAvailable: false, pass });
     if (!planned.added.length) {
       stop = {
         reason: 'cap',
@@ -573,26 +593,47 @@ async function mfIterateVocalRides({
     }
     const applied = await applyRides(planned.rides, planned.added, pass);
     const nextAnalysis = applied?.analysis || (typeof analyze === 'function' ? await analyze(applied?.buffer) : analysis);
+    const maskingAfter = mfMeasureWindowMaskingDb(nextAnalysis, phrase);
+    const vocalAdded = planned.added.find((ride) => (ride.stem || 'vocals') === 'vocals');
+    const phraseLabel = `${mfFormatRideRange(phrase.start, phrase.end)} ${vocalAdded && Number(vocalAdded.gainDb) >= 0 ? '+' : ''}${Number(vocalAdded?.gainDb || 0).toFixed(1)} dB`;
     const discovered = mfFindBuriedVocalWindows(nextAnalysis, remasureOptions);
     const stillRed = mfCoalesceBuriedWindows(discovered, tracked);
-    if (stillRed.length > redCount) {
+    const phraseClearer = mfPhraseRideClearer(maskingBefore, maskingAfter);
+
+    const revertPass = async (reason, detail) => {
       rides = ridesBefore;
       analysis = analysisBefore;
       tracked = trackedBefore;
       if (ridesBefore.length || pass === 1) {
         await applyRides(ridesBefore, [], pass);
       }
-      stop = {
-        reason: 'regression',
-        detail: `Buried windows rose ${redCount} → ${stillRed.length} after pass ${pass}; that pass was reverted.`,
-      };
+      stop = { reason, detail };
       passes.push({
         pass,
         redBefore: redCount,
         redAfter: stillRed.length,
         added: planned.added,
+        phrase,
+        maskingBefore,
+        maskingAfter,
         reverted: true,
       });
+    };
+
+    if (applied?.qualityStop) {
+      await revertPass(
+        applied.qualityStop,
+        `${applied.qualityDetail || `Quality stop (${applied.qualityStop}) after pass ${pass}.`} Vocal ride ${phraseLabel} was reverted.`,
+      );
+      break;
+    }
+    if (!phraseClearer) {
+      const beforeText = Number.isFinite(maskingBefore) ? maskingBefore.toFixed(1) : '—';
+      const afterText = Number.isFinite(maskingAfter) ? maskingAfter.toFixed(1) : '—';
+      await revertPass(
+        'no-move',
+        `Vocal ride ${phraseLabel} did not lower that window’s masking (${beforeText} → ${afterText}); that ride was reverted.`,
+      );
       break;
     }
     rides = planned.rides;
@@ -603,19 +644,10 @@ async function mfIterateVocalRides({
       redBefore: redCount,
       redAfter: stillRed.length,
       added: planned.added,
+      phrase,
+      maskingBefore,
+      maskingAfter,
     });
-    if (applied?.qualityStop) {
-      rides = ridesBefore;
-      analysis = analysisBefore;
-      tracked = trackedBefore;
-      await applyRides(ridesBefore, [], pass);
-      stop = {
-        reason: applied.qualityStop,
-        detail: applied.qualityDetail || `Quality stop (${applied.qualityStop}) after pass ${pass}. Last pass reverted.`,
-      };
-      passes[passes.length - 1].reverted = true;
-      break;
-    }
     if (!stillRed.length) {
       stop = { reason: 'clear', detail: 'Buried phrases are clear after time-sliced rides.' };
       break;
@@ -623,9 +655,7 @@ async function mfIterateVocalRides({
     if (pass === maxPasses) {
       stop = {
         reason: 'max-passes',
-        detail: stillRed.length > MF_VOCAL_RIDE_MAX_PHRASES
-          ? `Stopped after ${maxPasses} ride passes; ${stillRed.length} window(s) still masked. MixForge only rides the ${MF_VOCAL_RIDE_MAX_PHRASES} worst phrases per pass so a 37-window smear is not a one-shot.`
-          : `Stopped after ${maxPasses} ride passes; ${stillRed.length} window(s) still masked.`,
+        detail: `Stopped after ${maxPasses} phrase ride(s); ${stillRed.length} window(s) still masked.`,
       };
     }
   }
@@ -1466,12 +1496,7 @@ async function mfRunVocalUpRebuildAndMaster() {
             qualityDetail: `Smash stop: crest collapsed ${crestBefore.toFixed(1)} → ${crestAfter.toFixed(1)} dB. MixForge will not squash the mix to chase remaining windows.`,
           };
         }
-        const stillRed = mfFindBuriedVocalWindows(analysis, { remeasure: true });
-        if (stillRed.length > windowsBefore) {
-          setStatus('rebuildStatus', `Remeasure worsened: ${windowsBefore} → ${stillRed.length} buried windows. Reverting that pass…`, 'warn');
-        } else if (stillRed.length) {
-          setStatus('rebuildStatus', `Remeasure still red: ${stillRed.length} buried window(s). Writing another ride pass instead of mastering…`, 'busy');
-        }
+        setStatus('rebuildStatus', `Remeasuring the ridden phrase (window masking, not a 56-wide count)…`, 'busy');
         return { buffer: state.corrected, analysis };
       },
     });
@@ -1814,6 +1839,9 @@ if (typeof globalThis !== 'undefined') {
   globalThis.mfStemRideDbAt = mfStemRideDbAt;
   globalThis.mfFindBuriedVocalWindows = mfFindBuriedVocalWindows;
   globalThis.mfCoalesceBuriedWindows = mfCoalesceBuriedWindows;
+  globalThis.mfMeasureWindowMaskingDb = mfMeasureWindowMaskingDb;
+  globalThis.mfNextBuriedPhrase = mfNextBuriedPhrase;
+  globalThis.mfPhraseRideClearer = mfPhraseRideClearer;
   globalThis.mfSongDuckBaseline = mfSongDuckBaseline;
   globalThis.mfStripPresenceStackOps = mfStripPresenceStackOps;
   globalThis.mfKeepWorstPhrases = mfKeepWorstPhrases;

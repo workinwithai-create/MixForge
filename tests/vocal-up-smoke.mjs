@@ -22,6 +22,7 @@ assert.equal(typeof context.mfIterateVocalRides, 'function');
 assert.equal(typeof context.mfFindBuriedVocalWindows, 'function');
 assert.equal(typeof context.mfCoalesceBuriedWindows, 'function');
 assert.equal(typeof context.mfStripPresenceStackOps, 'function');
+assert.equal(typeof context.mfMeasureWindowMaskingDb, 'function');
 assert.equal(typeof context.mfStemRideDbAt, 'function');
 
 const stacked = {
@@ -208,7 +209,9 @@ function analysisAt(maskingDb) {
 let measured = 15.1;
 const iterated = await context.mfIterateVocalRides({
   initialAnalysis: analysisAt(15.1),
-  applyRides: async (rides) => {
+  applyRides: async (rides, added) => {
+    assert.ok(!added.some((ride) => ride.stem === 'other'), 'pass 1 must be vocal-stem only — no other-ease');
+    assert.equal(added.filter((ride) => (ride.stem || 'vocals') === 'vocals').length, 1, 'each pass writes one worst phrase');
     const vocal = rides.filter((ride) => (ride.stem || 'vocals') === 'vocals')
       .reduce((sum, ride) => sum + Number(ride.gainDb), 0);
     const ease = rides.filter((ride) => ride.stem === 'other')
@@ -218,12 +221,47 @@ const iterated = await context.mfIterateVocalRides({
     return { analysis: analysisAt(measured) };
   },
 });
-assert.ok(iterated.passes.length >= 2, `a 15.1 dB bury must not end at one token lift, got ${iterated.passes.length} pass(es)`);
-assert.ok(iterated.rides.filter((ride) => (ride.stem || 'vocals') === 'vocals').length >= 2, 'still-red remasure must write another ride');
+assert.ok(iterated.rides.filter((ride) => (ride.stem || 'vocals') === 'vocals').length >= 1, 'a clearer phrase ride must be kept');
+assert.ok(!iterated.rides.some((ride) => ride.stem === 'other'), 'first kept rides must not include a 34-window other cut');
+assert.ok(iterated.passes[0].maskingAfter < iterated.passes[0].maskingBefore, 'remasure that window’s masking, not only a global count');
+assert.ok(!iterated.passes[0].reverted, 'a phrase that remasures clearer must be kept');
 assert.ok(iterated.stop?.reason, 'what-changed needs a stop reason');
 assert.ok(iterated.stop.detail, 'stop reason must say why the loop ended');
 assert.ok(iterated.rides.every((ride) => ride.end > ride.start && Number.isFinite(ride.gainDb)));
 assert.ok(iterated.rides.filter((ride) => (ride.stem || 'vocals') === 'vocals').every((ride) => ride.gainDb <= context.MF_VOCAL_RIDE_TOTAL_MAX_DB));
+
+function twoPhraseAnalysis(earlyDb, lateDb) {
+  return {
+    markers: [],
+    frames: [
+      { start: 12, end: 20, rmsDb: -18, lowMidToPresenceDb: earlyDb, presenceRatio: 0.04 },
+      { start: 40, end: 55, rmsDb: -16, lowMidToPresenceDb: 8.4, presenceRatio: 0.22 },
+      { start: 60, end: 68, rmsDb: -19, lowMidToPresenceDb: lateDb, presenceRatio: 0.03 },
+    ],
+    counts: {},
+  };
+}
+const twoPhrase = await context.mfIterateVocalRides({
+  initialAnalysis: twoPhraseAnalysis(15.1, 18.0),
+  applyRides: async (rides, added) => {
+    assert.equal(added.filter((ride) => (ride.stem || 'vocals') === 'vocals').length, 1);
+    assert.ok(!added.some((ride) => ride.stem === 'other'));
+    const frames = [
+      { start: 12, end: 20, rmsDb: -18, lowMidToPresenceDb: 15.1, presenceRatio: 0.04 },
+      { start: 40, end: 55, rmsDb: -16, lowMidToPresenceDb: 8.4, presenceRatio: 0.22 },
+      { start: 60, end: 68, rmsDb: -19, lowMidToPresenceDb: 18.0, presenceRatio: 0.03 },
+    ];
+    for (const frame of frames) {
+      const vocal = rides
+        .filter((ride) => (ride.stem || 'vocals') === 'vocals' && ride.end > frame.start && ride.start < frame.end)
+        .reduce((sum, ride) => sum + Number(ride.gainDb), 0);
+      frame.lowMidToPresenceDb -= vocal * 0.30;
+    }
+    return { analysis: { markers: [], frames, counts: {} } };
+  },
+});
+assert.ok(twoPhrase.passes.filter((row) => !row.reverted).length >= 2, 'after a kept phrase, consider a second phrase');
+assert.ok(twoPhrase.rides.filter((ride) => (ride.stem || 'vocals') === 'vocals').length >= 2, 'two buried phrases can each keep a vocal ride');
 
 const tokenOneShot = context.mfVocalUpMaskingProgress(15.1, 14.5);
 assert.equal(tokenOneShot.enough, false, '15.1 → 14.5 is still a fail');
@@ -445,8 +483,35 @@ const regression = await context.mfIterateVocalRides({
     },
   }),
 });
-assert.equal(regression.stop.reason, 'regression', 'more buried windows after a pass must revert that pass');
+assert.equal(regression.stop.reason, 'no-move', 'a phrase whose window masking did not drop must revert');
 assert.equal(regression.rides.length, 0, 'the worsened pass must not be kept');
+assert.match(regression.stop.detail, /0:12|12–20/, 'revert copy must name the window start–end');
+assert.match(regression.stop.detail, /did not lower that window/i);
+
+const countRosePhraseDown = await context.mfIterateVocalRides({
+  initialAnalysis: analysisAt(16.8),
+  applyRides: async (rides) => {
+    const lifted = rides.some((ride) => (ride.stem || 'vocals') === 'vocals' && ride.gainDb > 0);
+    return {
+      analysis: {
+        markers: [],
+        frames: [
+          { start: 12, end: 20, rmsDb: -16, lowMidToPresenceDb: lifted ? 12.4 : 16.8, presenceRatio: lifted ? 0.12 : 0.04 },
+          { start: 40, end: 55, rmsDb: -16, lowMidToPresenceDb: 8.4, presenceRatio: 0.22 },
+          ...Array.from({ length: 20 }, (_, index) => ({
+            start: 80 + index,
+            end: 81 + index,
+            rmsDb: -18,
+            lowMidToPresenceDb: 15.6,
+            presenceRatio: 0.03,
+          })),
+        ],
+      },
+    };
+  },
+});
+assert.ok(countRosePhraseDown.rides.some((ride) => (ride.stem || 'vocals') === 'vocals'), '56→59 must not reject a phrase whose own masking dropped');
+assert.ok(countRosePhraseDown.passes.some((row) => !row.reverted && row.maskingAfter < row.maskingBefore));
 
 const holeBefore = {
   markers: [],

@@ -120,7 +120,8 @@ assert.match(indexHtml, /Quick Master/, 'hero/path copy must mention Quick Maste
 assert.match(indexHtml, /Forensic Fix/, 'hero/path copy must mention Forensic Fix');
 assert.match(indexHtml, /AuraMix/, 'seat clarification should mention AuraMix');
 assert.match(indexHtml, /auramix\.workinwithai\.com/, 'AuraMix must be a real link');
-assert.match(indexHtml, /2\.5\.5/, 'version must be 2.5.5 so the preview cannot serve stale 2.5.4 JS');
+assert.match(indexHtml, /2\.5\.6/, 'version must be 2.5.6 so the preview cannot serve stale 2.5.4 JS');
+assert.doesNotMatch(indexHtml, /2\.5\.5/, 'visible version must leave 2.5.5');
 assert.doesNotMatch(indexHtml, /2\.5\.4/, 'visible version must leave 2.5.4');
 assert.doesNotMatch(indexHtml, /2\.5\.3/, 'visible version must leave 2.5.3');
 assert.doesNotMatch(indexHtml, /2\.5\.2/, 'visible version must leave 2.5.2');
