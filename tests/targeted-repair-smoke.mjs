@@ -58,8 +58,12 @@ assert.equal(clipping.operation, null);
 assert.equal(sustainedDip.safety, 'review');
 assert.equal(sustainedDip.defaultSelected, false);
 const vocalWindow = plan.find((item) => item.marker.type === 'lead_masking');
-assert.equal(vocalWindow.safety, 'blocked');
+assert.equal(vocalWindow.safety, 'written');
 assert.equal(vocalWindow.operation, null, 'stereo targeted repair must not raise the masker with the vocal');
+assert.match(
+  fs.readFileSync(new URL('../js/app-targeted-repair.js', import.meta.url), 'utf8'),
+  /Buried-lead vocal rides are written automatically on Forensic/,
+);
 
 context.before = {
   issueLoad: 6,

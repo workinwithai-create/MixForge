@@ -84,8 +84,35 @@ assert.ok(firstPlan.added.some((ride) => ride.stem === 'other' && ride.start ===
 assert.ok(firstPlan.added.every((ride) => Number.isFinite(ride.start) && Number.isFinite(ride.end) && Number.isFinite(ride.gainDb)));
 assert.ok(!firstPlan.added.some((ride) => ride.start <= 0 && ride.end >= 200), 'rides must be time-sliced, not a song-length one-shot');
 const vocalPass = firstPlan.added.find((ride) => ride.stem === 'vocals');
-assert.ok(vocalPass.gainDb >= 1.2 && vocalPass.gainDb <= context.MF_VOCAL_RIDE_PASS_MAX_DB);
+assert.ok(vocalPass.gainDb >= 0.8 && vocalPass.gainDb <= context.MF_VOCAL_RIDE_PASS_MAX_DB);
 assert.ok(!firstPlan.added.some((ride) => ride.start >= 40), 'a forward chorus without a red window stays put');
+
+const uneven = context.mfPlanVocalRides([
+  { start: 10, end: 22, maskingDb: 12.4 },
+  { start: 40, end: 56, maskingDb: 18.0 },
+], [], { otherAvailable: false });
+const mild = uneven.added.find((ride) => ride.stem === 'vocals' && ride.start === 10);
+const deep = uneven.added.find((ride) => ride.stem === 'vocals' && ride.start === 40);
+assert.ok(mild && deep, 'both buried sections must get a ride');
+assert.ok(deep.gainDb > mild.gainDb + 0.6, `worse 18 dB section must get a larger ride than 12.4 dB (${deep.gainDb} vs ${mild.gainDb})`);
+
+const duckedVsOther = context.mfFindBuriedVocalWindows({
+  markers: [{
+    type: 'lead_masking',
+    start: 8,
+    end: 16,
+    maskingDb: 9.2,
+    vocalVsOtherDb: -8.5,
+  }],
+  frames: [],
+});
+assert.ok(duckedVsOther.some((window) => window.start === 8), 'vocal-stem under competing other must count as a buried slice');
+const vsOtherPlan = context.mfPlanVocalRides(duckedVsOther, [], { otherAvailable: true });
+assert.ok(vsOtherPlan.added.some((ride) => ride.stem === 'vocals' && ride.start === 8 && ride.gainDb > 1));
+
+assert.equal(context.mfGlobalVocalSeatDb({ songMaskingDb: 15.1, rideCount: 0 }), 0, 'a song-length seat is not the bury fix');
+const seat = context.mfGlobalVocalSeatDb({ songMaskingDb: 13.6, rideCount: 2 });
+assert.ok(seat >= 0.5 && seat <= 1.2, `global seat must stay a last trim, got ${seat}`);
 
 const cancelled = context.mfStemBalanceDelta(1, 1.25, 1 / 1.25, 0.28, 0);
 assert.ok(Math.abs(cancelled) < 1e-9, 'level-matched EQ must not change mix balance');
@@ -104,6 +131,13 @@ const plans = {
 };
 context.mfApplyVocalUpPlan(plans, { warranted: true, liftDb: 5, rides: firstPlan.rides });
 assert.equal(plans.vocals.mixGainDb, 0, 'Forensic must not write a song-length +5 dB one-shot');
+const seated = {
+  vocals: { operations: [], candidates: [{ operations: [] }] },
+  other: { operations: [] },
+};
+context.mfApplyVocalUpPlan(seated, { warranted: true, rides: firstPlan.rides, globalSeatDb: 1.0, liftDb: 5 });
+assert.equal(seated.vocals.mixGainDb, 1.0, 'last/global seat is a small trim after rides');
+assert.ok(seated.vocals.rides.length, 'seat must not replace the time-sliced rides');
 assert.ok(plans.vocals.rides.some((ride) => ride.start === 12 && ride.end === 28));
 assert.ok(plans.vocals.operations.some((op) => /Vocal ride /i.test(op.label || '')));
 assert.ok(plans.other.rides.some((ride) => ride.stem === 'other'));
@@ -187,6 +221,7 @@ const applied = context.mfPlainWhatChanged(
       stopDetail: iterated.stop.detail,
       windowsBefore: 1,
       windowsAfter: iterated.windowsRemaining.length,
+      globalSeatDb: 0.8,
       competingEaseApplied: true,
       maskingBefore: 15.1,
       maskingAfter: measured,
@@ -196,6 +231,7 @@ const applied = context.mfPlainWhatChanged(
 assert.ok(applied.bullets.some((line) => /Vocal rides/.test(line) && /0:12–0:28/.test(line)));
 assert.ok(applied.bullets.some((line) => /Stopped:/.test(line)));
 assert.ok(applied.bullets.some((line) => /Buried windows:/.test(line)));
+assert.ok(applied.bullets.some((line) => /Global vocal seat: \+0\.8 dB/.test(line)));
 assert.doesNotMatch(applied.bullets.join(' '), /out of tune|intonation|feel of the take/i);
 assert.doesNotMatch(applied.bullets.join(' '), /Vocal lift: \+5\.0 dB on the isolated vocal stem/);
 
