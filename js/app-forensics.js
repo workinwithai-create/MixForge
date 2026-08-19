@@ -84,6 +84,10 @@ function mfForensicAudit(metrics, notes, targetLufs) {
   });
   if (metrics.clipPercent > .001 || metrics.peakDb > -.1) add('high', 'Source overload detected', `${metrics.clipPercent.toFixed(3)}% clipped frames; sample peak ${metrics.peakDb.toFixed(2)} dBFS.`, 'Distortion and reduced mastering headroom.', [], 'Obtain a clean pre-limiter bounce before repair.', 96);
   if (Math.abs(metrics.dcOffset) > .003) add('medium', 'Meaningful DC offset', `Average waveform offset ${(metrics.dcOffset * 100).toFixed(2)}%.`, 'Asymmetric headroom and possible edit clicks.', [], 'Apply DC removal before dynamics processing.', 98);
+  const subVsLowMids = band(metrics, 'Sub') - band(metrics, 'Low-mids');
+  const bassVsLowMids = band(metrics, 'Bass') - band(metrics, 'Low-mids');
+  const lowEndGap = Math.max(subVsLowMids, bassVsLowMids);
+  if (lowEndGap > 8) add('high', 'Excessive sub-bass accumulation', `Mid sub is ${subVsLowMids.toFixed(1)} dB above low-mids${bassVsLowMids > 8 ? `; bass band is ${bassVsLowMids.toFixed(1)} dB above low-mids` : ''}.`, 'Boom consumes headroom and masks the midrange.', [{ stem:'bass', likelihood: mfConfidence(52 + lowEndGap * 0.8) }], 'Quick Master can apply an evidence-bounded 40–120 Hz cut from the stereo mix. Stem isolation is optional confirmation, not required.', 90);
   const lowMid = band(metrics, 'Low-mids') - band(metrics, 'Mids');
   if (lowMid > 7) add('medium', 'Center low-mid congestion', `Center 250–500 Hz is ${lowMid.toFixed(1)} dB above the mid band.`, 'Reduced separation and perceived clarity.', [{ stem:'vocals', likelihood: mfConfidence(48 + lowMid*2) }, { stem:'other', likelihood: mfConfidence(52 + lowMid*1.7) }, { stem:'bass', likelihood: mfConfidence(18 + lowMid) }], 'Separate vocals and residual other first. Demucs cannot confirm guitars/keys as dedicated stems.', 86);
   const masking = band(metrics, 'Low-mids') - band(metrics, 'Presence');

@@ -21,6 +21,9 @@ assert.equal(typeof context.mfRecommendPath, 'function');
 assert.equal(typeof context.mfNormalizeDemucsStems, 'function');
 assert.equal(typeof context.mfPlainWhatChanged, 'function');
 assert.equal(typeof context.mfBuildReadinessReportText, 'function');
+assert.equal(typeof context.mfFormatEqMove, 'function');
+assert.equal(typeof context.mfAbBarCopy, 'function');
+assert.equal(typeof context.mfCorrectedPreviewAvailable, 'function');
 
 const highReady = context.mfRecommendPath({
   readinessScore: 86,
@@ -58,10 +61,20 @@ assert.match(framing.escapeLabel, /Skip stems/i);
 const summary = context.mfPlainWhatChanged(
   { lufs: -16.2, peakDb: -0.4, crestDb: 12, correlation: 0.6, clipPercent: 0 },
   { lufs: -12.1, peakDb: -1.1, crestDb: 11, correlation: 0.62, clipPercent: 0 },
-  { eq: [{ label: 'Conservative sub trim' }], compressor: null, truePeakCeilingDb: -1, ceilingDb: -1.2 },
+  { eq: [{ label: 'Evidence-bounded sub-bass cut', frequency: 70, gain: -2.9 }], compressor: null, truePeakCeilingDb: -1, ceilingDb: -1.2 },
   'quick',
   { readinessBefore: 74, remainingRisks: ['mono incompatibility'] },
 );
+assert.ok(summary.bullets.some((line) => /70 Hz/.test(line) && /-2\.9 dB/.test(line)), 'what-changed must list EQ Hz/dB');
+
+const originalBuf = { id: 'orig' };
+assert.equal(context.mfCorrectedPreviewAvailable({ original: originalBuf, corrected: originalBuf }), false);
+assert.equal(context.mfCorrectedPreviewAvailable({ original: originalBuf, corrected: { id: 'fixed' } }), true);
+assert.equal(context.mfAbMatchOffsetDb(-18, -12.3), 5.7);
+const abCopy = context.mfAbBarCopy(5.7);
+assert.match(abCopy.matched, /−5\.7 dB|5\.7 dB/);
+assert.match(abCopy.hint, /turned down 5\.7 dB/);
+assert.match(abCopy.release, /Release master \(loud\)/);
 assert.match(summary.headline, /Quick Master/i);
 assert.ok(summary.bullets.some((line) => /LUFS/.test(line)));
 assert.ok(summary.bullets.some((line) => /no stem isolation/i.test(line)));
@@ -94,7 +107,8 @@ assert.match(indexHtml, /Quick Master/, 'hero/path copy must mention Quick Maste
 assert.match(indexHtml, /Forensic Fix/, 'hero/path copy must mention Forensic Fix');
 assert.match(indexHtml, /AuraMix/, 'seat clarification should mention AuraMix');
 assert.match(indexHtml, /auramix\.workinwithai\.com/, 'AuraMix must be a real link');
-assert.match(indexHtml, /2\.5\.1/, 'version must be 2.5.1');
+assert.match(indexHtml, /2\.5\.2/, 'version must be 2.5.2');
+assert.doesNotMatch(indexHtml, /2\.5\.1/, 'visible version must leave 2.5.1');
 assert.doesNotMatch(indexHtml, /prove the master improved/);
 assert.doesNotMatch(indexHtml, /AI and measured evidence agree/);
 assert.match(indexHtml, /app-listening-clip\.js/, 'listening clip builder must load');

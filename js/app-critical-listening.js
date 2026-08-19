@@ -192,7 +192,7 @@ function mfInstallCriticalListeningUI() {
   const previewSelect = document.querySelector('.preview-select');
   if (previewSelect && !$('mfMatchedPreview')) {
     const label = document.createElement('label');
-    label.innerHTML = '<input id="mfMatchedPreview" type="radio" name="preview" value="matched"> Master · loudness matched';
+    label.innerHTML = '<input id="mfMatchedPreview" type="radio" name="preview" value="matched"> Master · loudness matched (B turned down)';
     previewSelect.append(label);
   }
 }

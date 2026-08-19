@@ -88,7 +88,8 @@ assert.match(loadPanel, /id="notes"/);
 assert.match(indexHtml, /Skip listening · measurements only/);
 assert.match(indexHtml, /id="skipListeningBtn"/);
 assert.doesNotMatch(indexHtml, /2\.5\.0/, 'visible version must leave 2.5.0');
-assert.match(indexHtml, /2\.5\.1/);
+assert.doesNotMatch(indexHtml, /2\.5\.1/, 'visible version must leave 2.5.1');
+assert.match(indexHtml, /2\.5\.2/);
 
 const initSrc = fs.readFileSync(new URL('../js/app-init.js', import.meta.url), 'utf8');
 assert.match(initSrc, /function revealOriginalPreview/);

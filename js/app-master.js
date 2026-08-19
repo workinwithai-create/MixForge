@@ -1,10 +1,14 @@
 'use strict';
 function buildMasterPlan(metrics, targetLufs) {
   const eq = [];
+  const subVsLowMids = band(metrics, 'Sub') - band(metrics, 'Low-mids');
+  const bassVsLowMids = band(metrics, 'Bass') - band(metrics, 'Low-mids');
+  const lowEndGap = Math.max(subVsLowMids, bassVsLowMids);
   const subExcess = band(metrics, 'Sub') - band(metrics, 'Bass');
-  if (subExcess > 2.5) eq.push({ type: 'eq', filterType: 'lowshelf', frequency: 55, gain: -clamp(subExcess - 1, 1, 3.5), q: 0.7, label: 'Final sub trim' });
+  if (lowEndGap > 8) eq.push({ type: 'eq', filterType: 'peaking', frequency: 70, gain: -clamp((lowEndGap - 6) * 0.12, 1.2, 3.5), q: 0.55, label: 'Evidence-bounded sub-bass cut' });
+  else if (subExcess > 2.5) eq.push({ type: 'eq', filterType: 'lowshelf', frequency: 55, gain: -clamp(subExcess - 1, 1, 3.5), q: 0.7, label: 'Final sub trim' });
   const airDrop = band(metrics, 'Presence') - band(metrics, 'Air');
-  if (airDrop > 10) eq.push({ type: 'eq', filterType: 'highshelf', frequency: 9000, gain: clamp((airDrop - 8) * 0.25, 0.8, 2.5), q: 0.7, label: 'Final air shelf' });
+  if (airDrop > 8) eq.push({ type: 'eq', filterType: 'highshelf', frequency: 10000, gain: clamp((airDrop - 6) * 0.22, 1.2, 2.4), q: 0.7, label: 'Presence/air lift' });
   const lowMid = band(metrics, 'Low-mids') - band(metrics, 'Mids');
   if (lowMid > 8) eq.push({ type: 'eq', filterType: 'peaking', frequency: 350, gain: -clamp((lowMid - 6) * 0.25, 0.8, 2.5), q: 0.9, label: 'Broad low-mid cleanup' });
   const compressor = metrics.crestDb > 16 && metrics.lra > 9 ? { type: 'compressor', threshold: -22, ratio: 1.7, attack: 0.035, release: 0.2, knee: 6, label: 'Gentle master glue' } : null;

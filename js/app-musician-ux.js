@@ -149,7 +149,7 @@ function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
       ? 'Path: Quick Master — stereo-only release processing, no stem isolation.'
       : 'Path: Forensic Fix — measured stem repairs, then a conservative master.',
   ];
-  if (plan?.eq?.length) bullets.push(`Tonal moves: ${plan.eq.map((item) => item.label).join('; ')}.`);
+  if (plan?.eq?.length) bullets.push(`Tonal moves: ${plan.eq.map((item) => mfFormatEqMove(item)).join('; ')}.`);
   else bullets.push('Tonal balance: no broad EQ was justified by the measurements.');
   if (plan?.compressor) bullets.push(`Dynamics: ${plan.compressor.label}.`);
   else bullets.push('Dynamics: no master compression (source already controlled or not justified).');
@@ -200,6 +200,40 @@ function mfBuildReadinessReportText(payload) {
   return `${lines.join('\n')}\n`;
 }
 
+function mfFormatEqMove(item) {
+  const hz = Math.round(Number(item?.frequency) || 0);
+  const gain = Number(item?.gain);
+  const label = item?.label || item?.filterType || 'EQ';
+  if (hz && Number.isFinite(gain)) return `${label} · ${hz} Hz · ${gain >= 0 ? '+' : ''}${gain.toFixed(1)} dB`;
+  if (hz) return `${label} · ${hz} Hz`;
+  if (Number.isFinite(gain)) return `${label} · ${gain >= 0 ? '+' : ''}${gain.toFixed(1)} dB`;
+  return label;
+}
+
+function mfCorrectedPreviewAvailable(stateLike = {}) {
+  return Boolean(stateLike.corrected) && stateLike.corrected !== stateLike.original;
+}
+
+function mfAbMatchOffsetDb(beforeLufs, afterLufs) {
+  const before = Number(beforeLufs);
+  const after = Number(afterLufs);
+  if (!Number.isFinite(before) || !Number.isFinite(after)) return 0;
+  return Math.max(0, Math.round((after - before) * 10) / 10);
+}
+
+function mfAbBarCopy(offsetDb) {
+  const offset = Math.max(0, Number(offsetDb) || 0);
+  return {
+    original: 'A · Original',
+    matched: offset > 0.05 ? `B · Master (matched −${offset.toFixed(1)} dB)` : 'B · Master (matched)',
+    release: 'Release master (loud)',
+    hint: offset > 0.05
+      ? `B is turned down ${offset.toFixed(1)} dB to match Original so louder ≠ better. Release master is the unmatched loud export.`
+      : 'Press B to A/B · Space play/pause · level-matched so louder ≠ better. Release master is the unmatched loud export.',
+    offsetDb: offset,
+  };
+}
+
 function mfMusicianEl(tag, className, text) {
   const el = document.createElement(tag);
   if (className) el.className = className;
@@ -233,8 +267,9 @@ function mfEnsureMusicianMounts() {
       <div class="ab-toggle-group" role="group" aria-label="A/B preview">
         <button type="button" class="ab-btn" data-ab="original" id="abOriginalBtn">A · Original</button>
         <button type="button" class="ab-btn active" data-ab="matched" id="abMasterBtn">B · Master (matched)</button>
+        <button type="button" class="ab-btn ab-release" data-ab="master" id="abReleaseBtn">Release master (loud)</button>
       </div>
-      <p class="ab-hint">Press <kbd>B</kbd> to A/B · <kbd>Space</kbd> play/pause · level-matched so louder ≠ better</p>`;
+      <p class="ab-hint" id="abHint">Press <kbd>B</kbd> to A/B · <kbd>Space</kbd> play/pause · level-matched so louder ≠ better. Release master is the unmatched loud export.</p>`;
     preview.insertBefore(bar, preview.firstChild);
   }
 
@@ -350,8 +385,18 @@ function mfUpdateMasterCopy() {
   if (!copy) return;
   const hasReference = Boolean(forensicState?.references?.length);
   copy.textContent = hasReference
-    ? 'Reference-bounded tonal balance is active because a reference file is loaded. Controlled dynamics, loudness, limiting, cubic-interp peak safety. First value is hearing Original vs Master.'
-    : 'Conservative stereo master. Optional reference-bounded tonal balance only if you load a reference. Controlled dynamics, loudness, limiting, cubic-interp peak safety. First value is hearing Original vs Master.';
+    ? 'Reference-bounded tonal balance is active because a reference file is loaded, plus evidence-bounded repairs for measured #1 issues. Controlled dynamics, loudness, limiting, cubic-interp peak safety. First value is hearing Original vs Master.'
+    : 'Evidence-bounded stereo master: measured #1 issues (sub-bass accumulation, dark top) are repaired before loudness. Optional reference-bounded tonal balance only if you load a reference. Controlled dynamics, loudness, limiting, cubic-interp peak safety. First value is hearing Original vs Master.';
+}
+
+function mfSyncAbBar(stateLike = state) {
+  const offset = mfAbMatchOffsetDb(stateLike?.mixMetrics?.lufs, stateLike?.finalMetrics?.lufs);
+  const copy = mfAbBarCopy(offset);
+  if ($('abOriginalBtn')) $('abOriginalBtn').textContent = copy.original;
+  if ($('abMasterBtn')) $('abMasterBtn').textContent = copy.matched;
+  if ($('abReleaseBtn')) $('abReleaseBtn').textContent = copy.release;
+  if ($('abHint')) $('abHint').textContent = copy.hint;
+  return copy;
 }
 
 function mfHideStemUi() {
@@ -394,6 +439,7 @@ async function mfStartQuickMaster() {
     if (typeof syncPreviewSourceAvailability === 'function') syncPreviewSourceAvailability();
     reveal('verifyPanel');
     mfSelectAbPreview('matched');
+    mfSyncAbBar(state);
     mfRenderWhatChanged();
     setStatus('masterStatus', 'Quick Master ready — A/B Original vs Master below.', 'ok');
     setStatus('auditStatus', 'Quick Master complete. Press B to flip A/B while listening.', 'ok');
@@ -477,11 +523,7 @@ function mfSelectAbPreview(value) {
     input.dispatchEvent(new Event('change', { bubbles: true }));
   }
   document.querySelectorAll('.ab-btn').forEach((button) => {
-    const target = button.getAttribute('data-ab');
-    const active = (preferred === 'matched' || preferred === 'master')
-      ? target === 'matched' || target === 'master'
-      : target === preferred;
-    button.classList.toggle('active', active);
+    button.classList.toggle('active', button.getAttribute('data-ab') === preferred);
   });
 }
 
@@ -654,6 +696,7 @@ function mfInstallMusicianUi() {
   const previousRenderVerification = renderVerification;
   renderVerification = function renderVerificationMusician(metrics, plan) {
     previousRenderVerification(metrics, plan);
+    mfSyncAbBar(state);
     mfRenderWhatChanged();
     if (typeof syncExportUi === 'function') syncExportUi(state);
   };
@@ -707,6 +750,10 @@ if (typeof globalThis !== 'undefined') {
   globalThis.mfEstimateReadiness = mfEstimateReadiness;
   globalThis.mfSetPipeline = mfSetPipeline;
   globalThis.mfOriginalPreviewPlan = mfOriginalPreviewPlan;
+  globalThis.mfFormatEqMove = mfFormatEqMove;
+  globalThis.mfCorrectedPreviewAvailable = mfCorrectedPreviewAvailable;
+  globalThis.mfAbMatchOffsetDb = mfAbMatchOffsetDb;
+  globalThis.mfAbBarCopy = mfAbBarCopy;
   globalThis.presentMeasuredAuditThenListen = presentMeasuredAuditThenListen;
   globalThis.MF_STEM_HOURLY_LIMIT = MF_STEM_HOURLY_LIMIT;
   globalThis.MF_STEM_DAILY_LIMIT = MF_STEM_DAILY_LIMIT;

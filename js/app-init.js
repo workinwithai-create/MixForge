@@ -220,10 +220,12 @@ function syncPreviewSourceAvailability() {
   document.querySelectorAll('input[name="preview"]').forEach((input) => {
     const value = input.value;
     const available = value === 'original' ? Boolean(state.original)
-      : value === 'corrected' ? Boolean(state.corrected)
+      : value === 'corrected' ? Boolean(state.corrected) && state.corrected !== state.original
       : Boolean(state.master);
     input.disabled = !available;
-    input.closest('label')?.classList.toggle('unavailable', !available);
+    const label = input.closest('label');
+    label?.classList.toggle('unavailable', !available);
+    if (value === 'corrected') label?.classList.toggle('hidden-source', !available);
   });
 }
 
