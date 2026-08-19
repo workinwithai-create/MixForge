@@ -84,6 +84,9 @@ function isRetryableAIError(error) {
 
 function aiFallbackStatusMessage(error) {
   const text = String(error?.message || error || '');
+  if (/skipped/i.test(text)) {
+    return 'Listening skipped — using measurements only.';
+  }
   if (/GEMINI_API_KEY|listening model not configured/i.test(text)) {
     return 'Listening model not configured — using measurements only.';
   }
@@ -128,6 +131,13 @@ async function probeListeningStatus(options = {}) {
 async function requestAIOnce(payload, options) {
   const controller = new AbortController();
   const timer = setTimeout(() => abortAITimeout(controller), options.timeoutMs);
+  const onUserAbort = () => {
+    try { controller.abort(options.signal.reason); } catch (_) { controller.abort(); }
+  };
+  if (options.signal) {
+    if (options.signal.aborted) onUserAbort();
+    else options.signal.addEventListener('abort', onUserAbort, { once: true });
+  }
   try {
     const response = await options.fetch('/api/analyze', {
       method: 'POST',
@@ -146,6 +156,7 @@ async function requestAIOnce(payload, options) {
     throw normalizeAIRequestError(error, controller.signal);
   } finally {
     clearTimeout(timer);
+    if (options.signal) options.signal.removeEventListener('abort', onUserAbort);
   }
 }
 
@@ -158,8 +169,9 @@ async function requestAI(payload, options = {}) {
   const compact = compactAuditPayload(payload);
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (options.signal?.aborted) throw normalizeAIRequestError(options.signal.reason || new Error('Listening skipped'), options.signal);
     try {
-      return await requestAIOnce(compact, { timeoutMs, fetch: fetchImpl });
+      return await requestAIOnce(compact, { timeoutMs, fetch: fetchImpl, signal: options.signal });
     } catch (error) {
       lastError = error;
       if (!isRetryableAIError(error) || attempt === maxAttempts) throw error;

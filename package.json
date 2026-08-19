@@ -1,10 +1,10 @@
 {
   "name": "mixforge",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --check js/app-mastering-grade.js && node --check js/app-critical-listening.js && node --check js/app-vocal-cleanup.js && node --check js/app-vocal-cleanup-guard.js && node --check js/app-timeline-analysis.js && node --check js/app-timeline-ui.js && node --check js/app-targeted-repair.js && node --check js/app-targeted-repair-guard.js && node --check js/app-musician-ux.js && node --check js/app-audit-request.js && node --check js/app-listening-clip.js && node --check js/app-forensics-guard.js && node --check js/app-export.js && node --check api/analyze.js && node tests/mastering-grade-smoke.mjs && node tests/vocal-cleanup-guard-smoke.mjs && node tests/timeline-smoke.mjs && node tests/targeted-repair-smoke.mjs && node tests/musician-ux-smoke.mjs && node tests/ai-audit-smoke.mjs && node tests/export-state-smoke.mjs && node tests/listening-clip-smoke.mjs && node tests/forensics-merge-smoke.mjs && node tests/analyze-listen-smoke.mjs && node tests/stems-normalize-smoke.mjs"
+    "test": "node --check js/app-init.js && node --check js/app-audit.js && node --check js/app-forensics.js && node --check js/app-master.js && node --check js/app-mastering-grade.js && node --check js/app-critical-listening.js && node --check js/app-vocal-cleanup.js && node --check js/app-vocal-cleanup-guard.js && node --check js/app-timeline-analysis.js && node --check js/app-timeline-ui.js && node --check js/app-targeted-repair.js && node --check js/app-targeted-repair-guard.js && node --check js/app-musician-ux.js && node --check js/app-audit-request.js && node --check js/app-listening-clip.js && node --check js/app-forensics-guard.js && node --check js/app-export.js && node --check api/analyze.js && node tests/mastering-grade-smoke.mjs && node tests/vocal-cleanup-guard-smoke.mjs && node tests/timeline-smoke.mjs && node tests/targeted-repair-smoke.mjs && node tests/musician-ux-smoke.mjs && node tests/ai-audit-smoke.mjs && node tests/export-state-smoke.mjs && node tests/listening-clip-smoke.mjs && node tests/forensics-merge-smoke.mjs && node tests/analyze-listen-smoke.mjs && node tests/stems-normalize-smoke.mjs && node tests/first-listen-smoke.mjs"
   },
   "engines": {
     "node": "24.x"

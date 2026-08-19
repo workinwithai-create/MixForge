@@ -32,6 +32,27 @@ const MixForgeHub = {
 };
 if (typeof globalThis !== 'undefined') globalThis.MixForgeHub = MixForgeHub;
 
+function mfOriginalPreviewPlan(stateLike = {}) {
+  if (!stateLike.original) return { show: false, selected: null, showAb: false };
+  return {
+    show: true,
+    selected: 'original',
+    showAb: Boolean(stateLike.master),
+  };
+}
+
+async function presentMeasuredAuditThenListen({ measure, present, listen }) {
+  if (typeof measure !== 'function' || typeof present !== 'function') {
+    throw new Error('measure and present are required');
+  }
+  const measured = await measure();
+  present(measured);
+  const listening = typeof listen === 'function'
+    ? Promise.resolve().then(() => listen(measured))
+    : Promise.resolve(null);
+  return { measured, listening };
+}
+
 function mfRecommendPath(audit) {
   const readiness = clamp(Number(audit?.readinessScore) || 0, 0, 100);
   const stems = Array.isArray(audit?.stemsToInspect) ? audit.stemsToInspect : [];
@@ -369,6 +390,8 @@ async function mfStartQuickMaster() {
     renderMetrics('finalMetrics', state.finalMetrics);
     renderVerification(state.finalMetrics, state.masterPlan);
     reveal('previewBox');
+    if ($('abToggleBar')) $('abToggleBar').classList.remove('hidden');
+    if (typeof syncPreviewSourceAvailability === 'function') syncPreviewSourceAvailability();
     reveal('verifyPanel');
     mfSelectAbPreview('matched');
     mfRenderWhatChanged();
@@ -545,6 +568,7 @@ function mfInstallMusicianKeyboard() {
     if (tag === 'input' || tag === 'textarea' || tag === 'select' || event.target?.isContentEditable) return;
     if ($('previewBox')?.classList.contains('hidden')) return;
     if (event.code === 'KeyB' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      if (!state.master) return;
       event.preventDefault();
       mfToggleAbPreview();
       return;
@@ -577,7 +601,7 @@ function mfInstallMusicianUi() {
   };
 
   const previousRenderAudit = renderAudit;
-  renderAudit = function renderAuditMusicianPath(audit, metrics) {
+  renderAudit = function renderAuditMusicianPath(audit, metrics, options = {}) {
     const normalized = mfNormalizeDemucsStems(audit?.stemsToInspect || []);
     const patched = {
       ...audit,
@@ -585,7 +609,11 @@ function mfInstallMusicianUi() {
       stemRoutes: normalized.routes,
     };
     state.audit = patched;
-    previousRenderAudit(patched, metrics);
+    previousRenderAudit(patched, metrics, options);
+    if (options.attachOnly || state.mixforgePath) {
+      if (!state.mixforgePath) mfRenderPathChooser(patched);
+      return;
+    }
     // Path chooser owns the next step — never surprise the musician with stems
     // or an auto-opened master panel before they pick Quick Master vs Forensic.
     hide('separateActions');
@@ -678,6 +706,8 @@ if (typeof globalThis !== 'undefined') {
   globalThis.mfBuildReadinessReportText = mfBuildReadinessReportText;
   globalThis.mfEstimateReadiness = mfEstimateReadiness;
   globalThis.mfSetPipeline = mfSetPipeline;
+  globalThis.mfOriginalPreviewPlan = mfOriginalPreviewPlan;
+  globalThis.presentMeasuredAuditThenListen = presentMeasuredAuditThenListen;
   globalThis.MF_STEM_HOURLY_LIMIT = MF_STEM_HOURLY_LIMIT;
   globalThis.MF_STEM_DAILY_LIMIT = MF_STEM_DAILY_LIMIT;
 }

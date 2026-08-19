@@ -32,7 +32,14 @@ function invalidateRenderedMaster(message = 'The release settings changed. Rende
   state.masterChange = null;
   state.masterDirty = true;
   if ($('exportBtn')) $('exportBtn').disabled = true;
-  hide('previewBox');
+  if (state.original && $('previewBox')) {
+    const originalRadio = document.querySelector('input[name="preview"][value="original"]');
+    if (originalRadio) originalRadio.checked = true;
+    if ($('abToggleBar')) $('abToggleBar').classList.add('hidden');
+    if (typeof syncPreviewSourceAvailability === 'function') syncPreviewSourceAvailability();
+  } else {
+    hide('previewBox');
+  }
   hide('verifyPanel');
   if ($('masterStatus')) setStatus('masterStatus', message, 'warn');
 }
@@ -149,7 +156,10 @@ $('renderMasterBtn').addEventListener('click', async () => {
     state.finalMetrics = measureBuffer(state.master);
     renderMetrics('finalMetrics', state.finalMetrics);
     renderVerification(state.finalMetrics, state.masterPlan);
-    reveal('previewBox'); reveal('verifyPanel');
+    reveal('previewBox');
+    if ($('abToggleBar')) $('abToggleBar').classList.remove('hidden');
+    if (typeof syncPreviewSourceAvailability === 'function') syncPreviewSourceAvailability();
+    reveal('verifyPanel');
     setStatus('masterStatus', 'Release master rendered and measured again after limiting.', 'ok');
     $('verifyPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (error) {

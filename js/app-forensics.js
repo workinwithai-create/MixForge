@@ -111,18 +111,24 @@ fallbackMixAudit = mfForensicAudit;
 
 function mfEnsureForensicUI() {
   if ($('forensicProfile')) return;
-  const panel = $('loadPanel');
   const box = mfEl('div','forensic-setup'); box.id='forensicProfile';
   box.innerHTML = `<h3>Engineer context</h3><div class="controls-grid"><label>Genre / production style<input id="mfGenre" value=""></label><label>Repair intensity<select id="mfIntensity"><option value="preserve">Preserve</option><option value="balanced">Balanced</option><option value="assertive">Assertive</option></select></label></div><label class="field-label">Mix priorities</label><textarea id="mfPriorities"></textarea><label class="field-label">Reference track <em>optional</em></label><input id="mfReference" type="file" accept="audio/*,.wav,.mp3,.m4a,.aif,.aiff">`;
-  panel.insertBefore(box, panel.querySelector('.actions'));
+  const more = $('moreOptions');
+  if (more) more.append(box);
+  else {
+    const panel = $('loadPanel');
+    panel.insertBefore(box, panel.querySelector('.actions'));
+  }
   $('mfGenre').value=forensicState.profile.genre; $('mfIntensity').value=forensicState.profile.intensity; $('mfPriorities').value=forensicState.profile.priorities;
   ['mfGenre','mfIntensity','mfPriorities'].forEach(id => $(id).addEventListener('change',()=>{ forensicState.profile.genre=$('mfGenre').value; forensicState.profile.intensity=$('mfIntensity').value; forensicState.profile.priorities=$('mfPriorities').value; mfSaveProfile(); }));
   $('mfReference').addEventListener('change', async e => { const f=e.target.files?.[0]; if(!f)return; try { setStatus('auditStatus','Reading and level-matching reference…','busy'); const b=await decodeAudioDataSafe(await ensureAudioContext(false), await readFileBytes(f)); forensicState.references=[{name:f.name,metrics:measureBuffer(b)}]; setStatus('auditStatus',`Reference ready: ${f.name}`,'ok'); } catch(err){ setStatus('auditStatus',`Reference could not be read: ${err.message}`,'error'); } });
 }
 
-function mfRenderForensicAudit(audit, metrics) {
+function mfRenderForensicAudit(audit, metrics, options = {}) {
   $('readinessScore').textContent=Math.round(audit.readinessScore); $('auditSummary').textContent=audit.summary; renderMetrics('mixMetrics',metrics);
-  forensicState.timeline=mfSectionAnalysis(state.original); forensicState.sourceProfile=mfSourceProfile(metrics,$('notes').value);
+  if(!options.attachOnly || !forensicState.timeline.length){
+    forensicState.timeline=mfSectionAnalysis(state.original); forensicState.sourceProfile=mfSourceProfile(metrics,$('notes').value);
+  }
   const root=$('auditFindings'); root.replaceChildren();
   const profile=mfEl('section','forensic-block'); profile.innerHTML='<h3>Source profile <small>presence estimates, not isolated stems</small></h3>';
   const pg=mfEl('div','source-grid'); forensicState.sourceProfile.forEach(x=>{ const c=mfEl('div','source-card'); c.innerHTML=`<b>${x.source}</b><span>${x.status}</span><i>${x.confidence}% confidence</i>`; pg.append(c); }); profile.append(pg); root.append(profile);
@@ -131,7 +137,9 @@ function mfRenderForensicAudit(audit, metrics) {
   const heading=mfEl('h3','forensic-heading','Measured conditions'); root.append(heading);
   audit.findings.forEach(f=>{ const card=mfEl('article',`finding ${f.severity}`); const top=mfEl('div','finding-top'); top.append(mfEl('h3','',f.problem),mfEl('span','badge',`${f.stage} · ${f.confidence}% confidence`)); card.append(top,mfEl('p','',f.evidence),mfEl('p','consequence',`Audible consequence: ${f.consequence||'Translation risk.'}`)); if(f.candidates?.length){ const list=mfEl('div','hypothesis-list'); list.append(mfEl('b','','Source hypotheses — not confirmed')); f.candidates.sort((a,b)=>b.likelihood-a.likelihood).forEach(c=>list.append(mfEl('span','',`${c.stem}: ${c.likelihood}% likely`))); card.append(list); } card.append(mfEl('p','action',`Next test: ${f.nextTest||f.action}`)); root.append(card); });
   if(forensicState.references.length){ const r=forensicState.references[0], diff=metrics.lufs-r.metrics.lufs; const ref=mfEl('section','forensic-block'); ref.innerHTML=`<h3>Level-matched reference context</h3><p>${r.name}: tonal and dynamic comparison is interpreted as a range, not a match-EQ target. Raw loudness difference ${diff>=0?'+':''}${diff.toFixed(1)} LU before level matching.</p>`; root.append(ref); }
-  if(audit.stemsToInspect.length){ reveal('separateActions'); $('stemListLabel').textContent=`Investigation: ${audit.stemsToInspect.join(', ')} · attribution pending`; } else { hide('separateActions'); state.corrected=state.original; prepareMastering(); }
+  if(!(options.attachOnly || state.mixforgePath)){
+    if(audit.stemsToInspect.length){ reveal('separateActions'); $('stemListLabel').textContent=`Investigation: ${audit.stemsToInspect.join(', ')} · attribution pending`; } else { hide('separateActions'); state.corrected=state.original; prepareMastering(); }
+  }
   mfSaveSession('audit');
 }
 renderAudit = mfRenderForensicAudit;
