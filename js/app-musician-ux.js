@@ -1131,7 +1131,7 @@ async function mfRunVocalUpRebuildAndMaster() {
     prepareMastering();
     if (typeof renderReleaseMaster === 'function') {
       $('renderMasterBtn') && ($('renderMasterBtn').disabled = true);
-      setStatus('masterStatus', 'Mastering the reprinted mix after vocal-up…', 'busy');
+      setStatus('masterStatus', 'Mastering the reprinted mix after vocal rides…', 'busy');
       state.master = await renderReleaseMaster();
       markMasterRendered(state.master);
       state.finalMetrics = measureBuffer(state.master);
@@ -1144,7 +1144,7 @@ async function mfRunVocalUpRebuildAndMaster() {
       mfSelectAbPreview('matched');
       mfSyncAbBar(state);
       mfRenderWhatChanged();
-      setStatus('masterStatus', 'Forensic vocal-up master ready — A/B Original vs Master below.', 'ok');
+      setStatus('masterStatus', 'Forensic vocal-ride master ready — A/B Original vs Master below.', 'ok');
       setStatus('auditStatus', 'Time-sliced vocal rides written, then mastered. Press B to A/B.', 'ok');
     }
     $('masterPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
