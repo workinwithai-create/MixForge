@@ -48,6 +48,12 @@ const MF_TIMELINE_TYPES = Object.freeze({
     weight: 2,
     message: 'This section falls well below the song’s typical short-term level.',
   },
+  lead_masking: {
+    label: 'Buried vocal phrase',
+    severity: 'medium',
+    weight: 2,
+    message: 'Lead presence sits under low-mids in this window. A verse that ducks gets a ride; a forward chorus stays put.',
+  },
 });
 
 function mfTimelineClamp(value, minimum, maximum) {
@@ -131,6 +137,7 @@ function mfTimelineSpectralFeatures(left, right, sampleRate, startSample, endSam
     lowMid: 0,
     mids: 0,
     body: 0,
+    presence: 0,
     harsh: 0,
     sibilance: 0,
   };
@@ -144,6 +151,7 @@ function mfTimelineSpectralFeatures(left, right, sampleRate, startSample, endSam
     if (frequency >= 250 && frequency < 500) energy.lowMid += power;
     if (frequency >= 500 && frequency < 2000) energy.mids += power;
     if (frequency >= 300 && frequency < 4000) energy.body += power;
+    if (frequency >= 2000 && frequency < 5000) energy.presence += power;
     if (frequency >= 3000 && frequency < 9000) energy.harsh += power;
     if (frequency >= 6000 && frequency < 10000) energy.sibilance += power;
   }
@@ -154,7 +162,9 @@ function mfTimelineSpectralFeatures(left, right, sampleRate, startSample, endSam
     subRatio: energy.sub / total,
     harshRatio: energy.harsh / total,
     sibilanceRatio: energy.sibilance / bodyAndSibilance,
+    presenceRatio: energy.presence / total,
     lowMidToMidDb: 10 * Math.log10(Math.max(energy.lowMid, 1e-20) / Math.max(energy.mids, 1e-20)),
+    lowMidToPresenceDb: 10 * Math.log10(Math.max(energy.lowMid, 1e-20) / Math.max(energy.presence, 1e-20)),
   };
 }
 
@@ -193,7 +203,7 @@ function mfTimelineFrame(buffer, startSeconds, windowSeconds) {
   const rms = Math.sqrt((leftEnergy + rightEnergy) / Math.max(1, sampleCount * 2));
   const spectral = rms > 1e-5
     ? mfTimelineSpectralFeatures(left, right, sampleRate, startSample, endSample)
-    : { subRatio: 0, harshRatio: 0, sibilanceRatio: 0, lowMidToMidDb: 0 };
+    : { subRatio: 0, harshRatio: 0, sibilanceRatio: 0, presenceRatio: 0, lowMidToMidDb: 0, lowMidToPresenceDb: 0 };
 
   return {
     start: startSeconds,
@@ -233,6 +243,7 @@ function mfTimelineMergeEvents(frames, definition, context, windowSeconds, hopSe
       intensity: result.intensity,
       evidence: result.evidence,
       message: MF_TIMELINE_TYPES[definition.type].message,
+      maskingDb: result.maskingDb,
     };
     if (!current) {
       current = event;
@@ -243,6 +254,7 @@ function mfTimelineMergeEvents(frames, definition, context, windowSeconds, hopSe
       if (event.intensity > current.intensity) {
         current.intensity = event.intensity;
         current.evidence = event.evidence;
+        if (Number.isFinite(event.maskingDb)) current.maskingDb = event.maskingDb;
       }
     } else {
       flush();
@@ -268,9 +280,11 @@ async function mfTimelineAnalyze(buffer, options = {}) {
     }
   }
 
+  const activeFrames = frames.filter((frame) => frame.rmsDb > -55);
   const activeLevels = frames.filter((frame) => frame.rmsDb > -65).map((frame) => frame.rmsDb);
   const medianLevel = mfTimelineMedian(activeLevels);
-  const context = { medianLevel };
+  const medianPresenceRatio = mfTimelineMedian(activeFrames.map((frame) => frame.presenceRatio || 0));
+  const context = { medianLevel, medianPresenceRatio };
   const definitions = [
     {
       type: 'clipping', severity: 'high',
@@ -328,6 +342,25 @@ async function mfTimelineAnalyze(buffer, options = {}) {
           active: currentContext.medianLevel > -60 && frame.rmsDb > -65 && delta >= 8,
           intensity: delta,
           evidence: `Section level is ${delta.toFixed(1)} dB below the song median.`,
+        };
+      },
+    },
+    {
+      type: 'lead_masking', severity: 'medium',
+      evaluate: (frame, currentContext) => {
+        const masking = Number(frame.lowMidToPresenceDb);
+        const ducked = Number.isFinite(currentContext.medianPresenceRatio)
+          && currentContext.medianPresenceRatio > 1e-6
+          && (frame.presenceRatio || 0) < currentContext.medianPresenceRatio * 0.5
+          && masking > 10;
+        const buried = masking > 14;
+        return {
+          active: frame.rmsDb > -55 && Number.isFinite(masking) && (buried || ducked),
+          intensity: masking,
+          maskingDb: masking,
+          evidence: ducked && !buried
+            ? `This phrase’s lead presence is ducked ${masking.toFixed(1)} dB under low-mids versus the song’s more-forward sections.`
+            : `Lead presence is ${masking.toFixed(1)} dB below low-mids in this window.`,
         };
       },
     },

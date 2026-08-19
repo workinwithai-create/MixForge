@@ -43,6 +43,13 @@ const MF_TARGET_REPAIR_TYPES = Object.freeze({
     explanation: 'A level dip can be intentional arrangement dynamics. This +1.5 dB ride requires your approval.',
     operation: { mode: 'gain', gainDb: 1.5, wet: 1 },
   },
+  lead_masking: {
+    label: 'Vocal ride lives on the isolated stem',
+    safety: 'blocked',
+    defaultSelected: false,
+    explanation: 'A stereo gain in this window would raise the masker too. Forensic writes the ride on the isolated vocal stem (and eases residual other in the same slice).',
+    operation: null,
+  },
   clipping: {
     label: 'Clipped source cannot be reconstructed safely',
     safety: 'blocked',

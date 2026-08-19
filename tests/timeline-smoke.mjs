@@ -68,6 +68,22 @@ context.clean = clean;
 const cleanAnalysis = await vm.runInContext('mfTimelineAnalyze(clean)', context);
 assert.ok(cleanAnalysis.issueLoad < damagedAnalysis.issueLoad, 'clean signal should score lower than damaged signal');
 
+const rideSong = new FakeBuffer(2, sampleRate * 8, sampleRate);
+for (let index = 0; index < rideSong.length; index++) {
+  const time = index / sampleRate;
+  const verse = time < 3.4;
+  const lowMid = Math.sin(2 * Math.PI * 350 * time) * (verse ? 0.55 : 0.10);
+  const presence = Math.sin(2 * Math.PI * 3200 * time) * (verse ? 0.035 : 0.42);
+  rideSong.data[0][index] = lowMid + presence;
+  rideSong.data[1][index] = lowMid + presence;
+}
+context.rideSong = rideSong;
+const rideAnalysis = await vm.runInContext('mfTimelineAnalyze(rideSong)', context);
+const buried = rideAnalysis.markers.filter((marker) => marker.type === 'lead_masking');
+assert.ok(buried.length >= 1, 'a ducked verse under low-mids must create a buried-vocal window');
+assert.ok(buried.every((marker) => marker.start < 3.6), 'a forward chorus must not get a buried-vocal marker');
+assert.ok(buried.every((marker) => Number.isFinite(marker.start) && Number.isFinite(marker.end) && marker.end > marker.start));
+
 context.sourceAnalysis = damagedAnalysis;
 context.masteredAnalysis = cleanAnalysis;
 const selfCheck = vm.runInContext('mfTimelineSelfCheck(sourceAnalysis, masteredAnalysis)', context);

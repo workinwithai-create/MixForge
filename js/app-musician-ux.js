@@ -70,6 +70,15 @@ const MF_MIX_BALANCE_MAX_DB = 6;
 const MF_VOCAL_PRESENCE_TRANSFER = 0.30;
 const MF_OTHER_MIX_TRANSFER = 0.40;
 const MF_TOKEN_MASKING_DROP_DB = 0.6;
+const MF_VOCAL_RIDE_CLEAR_DB = 10;
+const MF_VOCAL_RIDE_RED_DB = 14;
+const MF_VOCAL_RIDE_PASS_MIN_DB = 1.2;
+const MF_VOCAL_RIDE_PASS_MAX_DB = 3.0;
+const MF_VOCAL_RIDE_TOTAL_MAX_DB = 6.0;
+const MF_VOCAL_RIDE_EASE_TOTAL_MAX_DB = -3.0;
+const MF_VOCAL_RIDE_MAX_PASSES = 4;
+const MF_VOCAL_RIDE_PEAK_STOP_DB = -0.2;
+const MF_VOCAL_RIDE_MIN_WINDOW_SEC = 0.45;
 
 function mfVocalUpLiftDb(maskingDb) {
   const masking = Number(maskingDb);
@@ -104,6 +113,213 @@ function mfVocalUpMaskingProgress(maskingBefore, maskingAfter) {
     drop,
     enough: drop > MF_TOKEN_MASKING_DROP_DB,
     token: drop <= MF_TOKEN_MASKING_DROP_DB,
+  };
+}
+
+function mfRideEnvelope(time, start, end, fadeSeconds = 0.14) {
+  if (typeof mfTargetEnvelope === 'function') return mfTargetEnvelope(time, start, end, fadeSeconds);
+  const outerStart = Math.max(0, start - fadeSeconds);
+  const outerEnd = end + fadeSeconds;
+  if (time < outerStart || time > outerEnd) return 0;
+  if (time >= start && time <= end) return 1;
+  if (time < start) {
+    const position = (time - outerStart) / Math.max(1e-6, start - outerStart);
+    return 0.5 - 0.5 * Math.cos(Math.PI * clamp(position, 0, 1));
+  }
+  const position = (outerEnd - time) / Math.max(1e-6, outerEnd - end);
+  return 0.5 - 0.5 * Math.cos(Math.PI * clamp(position, 0, 1));
+}
+
+function mfStemRideDbAt(plan, time) {
+  let db = Number(plan?.mixGainDb) || 0;
+  for (const ride of plan?.rides || []) {
+    const env = mfRideEnvelope(time, Number(ride.start), Number(ride.end));
+    if (env > 0) db += (Number(ride.gainDb) || 0) * env;
+  }
+  return clamp(db, MF_MIX_BALANCE_MIN_DB, MF_VOCAL_RIDE_TOTAL_MAX_DB);
+}
+
+function mfFormatRideRange(start, end) {
+  if (typeof mfTimelineFormatTime === 'function') {
+    return `${mfTimelineFormatTime(start)}–${mfTimelineFormatTime(end)}`;
+  }
+  const fmt = (value) => {
+    const safe = Math.max(0, Number(value) || 0);
+    const minutes = Math.floor(safe / 60);
+    const seconds = Math.floor(safe % 60).toString().padStart(2, '0');
+    return `${minutes}:${seconds}`;
+  };
+  return `${fmt(start)}–${fmt(end)}`;
+}
+
+function mfWindowMaskingDb(windowLike) {
+  const masking = Number(windowLike?.maskingDb);
+  if (Number.isFinite(masking)) return masking;
+  const intensity = Number(windowLike?.intensity);
+  return Number.isFinite(intensity) ? intensity : null;
+}
+
+function mfFindBuriedVocalWindows(analysis, options = {}) {
+  const clearDb = Number.isFinite(Number(options.clearMaskingDb)) ? Number(options.clearMaskingDb) : MF_VOCAL_RIDE_CLEAR_DB;
+  const fromMarkers = (analysis?.markers || [])
+    .filter((marker) => marker.type === 'lead_masking')
+    .map((marker) => ({
+      start: Number(marker.start),
+      end: Number(marker.end),
+      maskingDb: mfWindowMaskingDb(marker),
+      evidence: marker.evidence,
+    }))
+    .filter((window) => (
+      Number.isFinite(window.start)
+      && Number.isFinite(window.end)
+      && window.end - window.start >= MF_VOCAL_RIDE_MIN_WINDOW_SEC
+      && Number(window.maskingDb) > clearDb
+    ));
+  if (fromMarkers.length) return fromMarkers;
+
+  const frames = (analysis?.frames || []).filter((frame) => (
+    frame.rmsDb > -55 && Number(frame.lowMidToPresenceDb) > clearDb
+  ));
+  const windows = [];
+  let current = null;
+  for (const frame of frames) {
+    if (!current || frame.start > current.end + 0.35) {
+      if (current) windows.push(current);
+      current = { start: frame.start, end: frame.end, maskingDb: frame.lowMidToPresenceDb };
+      continue;
+    }
+    current.end = Math.max(current.end, frame.end);
+    current.maskingDb = Math.max(current.maskingDb, frame.lowMidToPresenceDb);
+  }
+  if (current) windows.push(current);
+  return windows.filter((window) => window.end - window.start >= MF_VOCAL_RIDE_MIN_WINDOW_SEC);
+}
+
+function mfExistingRideGain(rides, window, stem = 'vocals') {
+  const span = Math.max(0.25, (window.end - window.start));
+  let sum = 0;
+  for (const ride of rides || []) {
+    if ((ride.stem || 'vocals') !== stem) continue;
+    const overlap = Math.min(ride.end, window.end) - Math.max(ride.start, window.start);
+    if (overlap > 0.25 * span) sum += Number(ride.gainDb) || 0;
+  }
+  return sum;
+}
+
+function mfVocalRideAmountDb(maskingDb) {
+  const depth = Math.max(0, Number(maskingDb) - MF_VOCAL_RIDE_CLEAR_DB);
+  return clamp(depth * 0.40, MF_VOCAL_RIDE_PASS_MIN_DB, MF_VOCAL_RIDE_PASS_MAX_DB);
+}
+
+function mfPlanVocalRides(windows, existingRides = [], options = {}) {
+  const added = [];
+  const rides = (existingRides || []).map((ride) => ({ ...ride }));
+  const otherAvailable = options.otherAvailable !== false;
+  for (const window of windows || []) {
+    const duration = window.end - window.start;
+    if (duration < MF_VOCAL_RIDE_MIN_WINDOW_SEC) continue;
+    const vocalAlready = mfExistingRideGain(rides, window, 'vocals');
+    const vocalRoom = MF_VOCAL_RIDE_TOTAL_MAX_DB - vocalAlready;
+    if (vocalRoom >= 0.4) {
+      const gainDb = clamp(mfVocalRideAmountDb(window.maskingDb), 0.4, vocalRoom);
+      added.push({
+        stem: 'vocals',
+        start: window.start,
+        end: window.end,
+        gainDb,
+        maskingDb: window.maskingDb,
+        label: `Vocal ride ${mfFormatRideRange(window.start, window.end)} · +${gainDb.toFixed(1)} dB`,
+      });
+    }
+    if (!otherAvailable || !(Number(window.maskingDb) > 12)) continue;
+    const otherAlready = mfExistingRideGain(rides, window, 'other');
+    const otherRoom = otherAlready - MF_VOCAL_RIDE_EASE_TOTAL_MAX_DB;
+    if (otherRoom < 0.35) continue;
+    const want = clamp(-(Number(window.maskingDb) - 12) * 0.22, -1.8, -0.6);
+    const easeDb = -Math.min(-want, otherRoom);
+    if (easeDb > -0.35) continue;
+    added.push({
+      stem: 'other',
+      start: window.start,
+      end: window.end,
+      gainDb: easeDb,
+      maskingDb: window.maskingDb,
+      label: `Ease other ${mfFormatRideRange(window.start, window.end)} · ${easeDb.toFixed(1)} dB`,
+    });
+  }
+  return { rides: rides.concat(added), added };
+}
+
+async function mfIterateVocalRides({
+  analyze,
+  applyRides,
+  initialAnalysis = null,
+  otherAvailable = true,
+  maxPasses = MF_VOCAL_RIDE_MAX_PASSES,
+} = {}) {
+  let analysis = initialAnalysis;
+  if (!analysis && typeof analyze === 'function') analysis = await analyze(null);
+  let rides = [];
+  const passes = [];
+  let stop = { reason: 'clear', detail: 'No buried vocal windows on the timeline.' };
+
+  for (let pass = 1; pass <= maxPasses; pass++) {
+    const red = mfFindBuriedVocalWindows(analysis);
+    if (!red.length) {
+      stop = {
+        reason: 'clear',
+        detail: pass === 1
+          ? 'No buried vocal windows on the timeline.'
+          : 'Buried phrases are clear after time-sliced rides.',
+      };
+      break;
+    }
+    const planned = mfPlanVocalRides(red, rides, { otherAvailable });
+    if (!planned.added.length) {
+      stop = {
+        reason: 'cap',
+        detail: `Hard cap: remaining masked windows already sit at the +${MF_VOCAL_RIDE_TOTAL_MAX_DB.toFixed(1)} dB ride limit, so MixForge will not smash.`,
+      };
+      break;
+    }
+    if (typeof applyRides !== 'function') {
+      throw new Error('applyRides is required to write vocal rides.');
+    }
+    const applied = await applyRides(planned.rides, planned.added, pass);
+    rides = planned.rides;
+    analysis = applied?.analysis || (typeof analyze === 'function' ? await analyze(applied?.buffer) : analysis);
+    const stillRed = mfFindBuriedVocalWindows(analysis);
+    passes.push({
+      pass,
+      redBefore: red.length,
+      redAfter: stillRed.length,
+      added: planned.added,
+    });
+    if (applied?.qualityStop) {
+      stop = {
+        reason: applied.qualityStop,
+        detail: applied.qualityDetail || `Quality stop (${applied.qualityStop}) after pass ${pass}.`,
+      };
+      break;
+    }
+    if (!stillRed.length) {
+      stop = { reason: 'clear', detail: 'Buried phrases are clear after time-sliced rides.' };
+      break;
+    }
+    if (pass === maxPasses) {
+      stop = {
+        reason: 'max-passes',
+        detail: `Stopped after ${maxPasses} ride passes; ${stillRed.length} window(s) still masked.`,
+      };
+    }
+  }
+
+  return {
+    rides,
+    passes,
+    analysis,
+    stop,
+    windowsRemaining: mfFindBuriedVocalWindows(analysis),
   };
 }
 
@@ -160,7 +376,7 @@ function mfLeadBuriedEvidence(audit = {}, metrics = null) {
     confidence,
     liftDb,
     competingEaseDb,
-    stemsNeeded: competingEaseDb < -0.35 ? ['vocals', 'other'] : ['vocals'],
+    stemsNeeded: warranted ? ['vocals', 'other'] : ['vocals'],
     skipWarning: MF_VOCAL_UP_SKIP_WARNING,
   };
 }
@@ -178,47 +394,52 @@ function mfStemBalanceDelta(raw, fixed, match, wet, mixGainDb) {
 
 function mfApplyVocalUpPlan(stemPlans, evidence) {
   if (!evidence?.warranted || !stemPlans?.vocals) return stemPlans;
-  const lift = clamp(Number(evidence.liftDb) || 0, MF_VOCAL_UP_MIN_DB, MF_VOCAL_UP_MAX_DB);
-  const note = {
-    type: 'mixgain',
-    gainDb: lift,
-    label: `Bring the lead up · +${lift.toFixed(1)} dB`,
-  };
+  const rides = Array.isArray(evidence.rides) ? evidence.rides : [];
+  const vocalRides = rides.filter((ride) => (ride.stem || 'vocals') === 'vocals');
+  const otherRides = rides.filter((ride) => ride.stem === 'other');
   const vocals = stemPlans.vocals;
-  vocals.mixGainDb = lift;
+  vocals.mixGainDb = 0;
+  vocals.rides = vocalRides;
   const ops = Array.isArray(vocals.operations)
-    ? vocals.operations.filter((op) => op.type !== 'mixgain' && op.label !== 'No corrective processing required')
+    ? vocals.operations.filter((op) => op.type !== 'mixgain' && op.label !== 'No corrective processing required' && !/Vocal ride /i.test(op.label || ''))
     : [];
-  vocals.operations = [note, ...ops];
+  const rideNotes = vocalRides.map((ride) => ({
+    type: 'mixgain',
+    gainDb: ride.gainDb,
+    start: ride.start,
+    end: ride.end,
+    label: ride.label || `Vocal ride ${mfFormatRideRange(ride.start, ride.end)} · +${Number(ride.gainDb).toFixed(1)} dB`,
+  }));
+  vocals.operations = [...rideNotes, ...ops];
   if (Array.isArray(vocals.candidates)) {
-    for (const candidate of vocals.candidates) candidate.mixGainDb = lift;
-  }
-  if (stemPlans.other && evidence.competingEaseDb < -0.35) {
-    const ease = clamp(Number(evidence.competingEaseDb) || 0, MF_VOCAL_UP_EASE_MIN_DB, MF_VOCAL_UP_EASE_MAX_DB);
-    stemPlans.other.mixGainDb = ease;
-    if (Array.isArray(stemPlans.other.candidates)) {
-      for (const candidate of stemPlans.other.candidates) candidate.mixGainDb = ease;
+    for (const candidate of vocals.candidates) {
+      candidate.mixGainDb = 0;
+      candidate.rides = vocalRides;
     }
-    const easeNote = {
-      type: 'mixgain',
-      gainDb: ease,
-      label: `Ease competing residual · ${ease.toFixed(1)} dB`,
-    };
-    const lowMid = {
-      type: 'eq',
-      filterType: 'peaking',
-      frequency: 320,
-      gain: ease,
-      q: 0.9,
-      label: 'Ease competing low-mids',
-    };
+  }
+  if (stemPlans.other) {
+    stemPlans.other.mixGainDb = 0;
+    stemPlans.other.rides = otherRides;
     const otherOps = Array.isArray(stemPlans.other.operations) ? stemPlans.other.operations : [];
     const cleaned = otherOps.filter((op) => (
       op.label !== 'No corrective processing required'
       && op.type !== 'mixgain'
-      && !/competing (low-mid|residual)/i.test(op.label || '')
+      && !/Ease other |competing (low-mid|residual)/i.test(op.label || '')
     ));
-    stemPlans.other.operations = [easeNote, lowMid, ...cleaned];
+    const easeNotes = otherRides.map((ride) => ({
+      type: 'mixgain',
+      gainDb: ride.gainDb,
+      start: ride.start,
+      end: ride.end,
+      label: ride.label || `Ease other ${mfFormatRideRange(ride.start, ride.end)} · ${Number(ride.gainDb).toFixed(1)} dB`,
+    }));
+    stemPlans.other.operations = [...easeNotes, ...cleaned];
+    if (Array.isArray(stemPlans.other.candidates)) {
+      for (const candidate of stemPlans.other.candidates) {
+        candidate.mixGainDb = 0;
+        candidate.rides = otherRides;
+      }
+    }
   }
   return stemPlans;
 }
@@ -333,29 +554,42 @@ function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
   if (plan?.compressor) bullets.push(`Dynamics: ${plan.compressor.label}.`);
   else bullets.push('Dynamics: no master compression (source already controlled or not justified).');
   const vocalUp = options.vocalUp;
-  if (vocalUp?.applied && Number.isFinite(Number(vocalUp.appliedLiftDb ?? vocalUp.liftDb))) {
-    const lift = Number(vocalUp.appliedLiftDb ?? vocalUp.liftDb);
-    bullets.push(`Vocal lift: ${lift >= 0 ? '+' : ''}${lift.toFixed(1)} dB on the isolated vocal stem (mix balance, not pitch/timing).`);
-    const ease = Number(vocalUp.appliedEaseDb ?? (vocalUp.competingEaseApplied ? vocalUp.competingEaseDb : NaN));
-    if (Number.isFinite(ease) && ease < -0.05) {
-      bullets.push(`Competing other: ${ease.toFixed(1)} dB mix-balance on residual other (low-mid masker).`);
-    } else if (Number(vocalUp.competingEaseDb) < -0.35 && vocalUp.competingEaseApplied === false) {
+  if (vocalUp?.applied && Array.isArray(vocalUp.rides) && vocalUp.rides.length) {
+    const vocalRides = vocalUp.rides.filter((ride) => (ride.stem || 'vocals') === 'vocals');
+    const otherRides = vocalUp.rides.filter((ride) => ride.stem === 'other');
+    const passCount = Number(vocalUp.passes?.length) || 1;
+    if (vocalRides.length) {
+      bullets.push(`Vocal rides (${passCount} pass${passCount === 1 ? '' : 'es'}, mix balance, not pitch/timing): ${vocalRides.map((ride) => `${mfFormatRideRange(ride.start, ride.end)} ${Number(ride.gainDb) >= 0 ? '+' : ''}${Number(ride.gainDb).toFixed(1)} dB`).join('; ')}.`);
+    }
+    if (otherRides.length) {
+      bullets.push(`Competing other eased in those windows: ${otherRides.map((ride) => `${mfFormatRideRange(ride.start, ride.end)} ${Number(ride.gainDb).toFixed(1)} dB`).join('; ')}.`);
+    } else if (vocalUp.competingEaseApplied === false) {
       bullets.push('Competing low-mids were not eased — residual other stem was not isolated.');
     }
+    if (Number.isFinite(Number(vocalUp.windowsBefore)) && Number.isFinite(Number(vocalUp.windowsAfter))) {
+      bullets.push(`Buried windows: ${Number(vocalUp.windowsBefore)} → ${Number(vocalUp.windowsAfter)} (level-matched spectral check — louder is not done).`);
+    }
+    if (Number.isFinite(Number(vocalUp.maskingBefore)) && Number.isFinite(Number(vocalUp.maskingAfter))) {
+      bullets.push(`Song-level lead masking: ${Number(vocalUp.maskingBefore).toFixed(1)} → ${Number(vocalUp.maskingAfter).toFixed(1)} dB (low-mids vs presence).`);
+    }
+    if (vocalUp.stopDetail || vocalUp.stopReason) {
+      bullets.push(`Stopped: ${vocalUp.stopDetail || vocalUp.stopReason}.`);
+    }
+  } else if (vocalUp?.applied && Number.isFinite(Number(vocalUp.appliedLiftDb ?? vocalUp.liftDb))) {
+    const lift = Number(vocalUp.appliedLiftDb ?? vocalUp.liftDb);
+    bullets.push(`Vocal lift: ${lift >= 0 ? '+' : ''}${lift.toFixed(1)} dB on the isolated vocal stem (mix balance, not pitch/timing).`);
     if (Number.isFinite(Number(vocalUp.maskingBefore)) && Number.isFinite(Number(vocalUp.maskingAfter))) {
       bullets.push(`Lead masking: ${Number(vocalUp.maskingBefore).toFixed(1)} → ${Number(vocalUp.maskingAfter).toFixed(1)} dB (low-mids vs presence).`);
-    }
-    if (Number.isFinite(Number(vocalUp.presenceBefore)) && Number.isFinite(Number(vocalUp.presenceAfter))) {
-      bullets.push(`Presence: ${Number(vocalUp.presenceBefore).toFixed(1)} → ${Number(vocalUp.presenceAfter).toFixed(1)} dB.`);
     }
   } else if (vocalUp?.warranted && (vocalUp.skipped || vocalUp.failed || path === 'quick')) {
     bullets.push(vocalUp.skipWarning || MF_VOCAL_UP_SKIP_WARNING);
   }
   const remaining = Array.isArray(options.remainingRisks) ? options.remainingRisks.slice() : [];
   if (vocalUp?.applied) {
+    const windowsLeft = Number(vocalUp.windowsAfter);
     const progress = mfVocalUpMaskingProgress(vocalUp.maskingBefore, vocalUp.maskingAfter);
-    if (progress.token) {
-      remaining.push('Lead masking barely moved — this lift was not enough to unbury the vocal.');
+    if (windowsLeft > 0 || (progress.token && !vocalUp.rides?.length)) {
+      remaining.push('Lead masking windows are still red — this was not enough to unbury the vocal.');
     }
   }
   return {
@@ -545,7 +779,7 @@ function mfRenderPathChooser(audit) {
   forensic.type = 'button';
   forensic.id = 'forensicPathBtn';
   forensic.innerHTML = recommendation.vocalUp?.warranted
-    ? `<strong>Forensic Fix</strong><span>Isolate the vocal and raise it in the mix (level/balance only). A stereo master cannot unbury a masked lead.</span><em>Suggested — vocal-up repair</em>`
+    ? `<strong>Forensic Fix</strong><span>Isolate the vocal and write time-sliced rides on buried phrases (level/balance only). A stereo master cannot unbury a masked lead.</span><em>Suggested — vocal rides</em>`
     : `<strong>Forensic Fix</strong><span>Timeline windows → honest stem investigation → targeted repair → verify. Opt-in; not required for a first A/B.</span><em>${recommendation.path === 'forensic' ? 'Suggested when isolation is needed' : 'Deeper path'}</em>`;
   grid.append(quick, forensic);
   root.append(grid);
@@ -749,7 +983,7 @@ function mfRenderStemConsent(audit) {
   root.append(actions);
   const buried = mfLeadBuriedEvidence(audit, state.mixMetrics);
   root.append(mfMusicianEl('small', '', buried.warranted
-    ? `${buried.skipWarning} After separation, Forensic defaults to a +${buried.liftDb.toFixed(1)} dB vocal-up mix balance — not pitch or timing (AuraMix).`
+    ? `${buried.skipWarning} After separation, Forensic writes time-sliced vocal rides on buried phrases (and eases residual other in those windows) — not a song-length one-shot, not pitch or timing (AuraMix).`
     : 'After separation you get a heuristic leakage/fit score — not lab SDR. Demucs separates four buckets; guitars/keys share residual other.'));
 }
 
@@ -820,13 +1054,60 @@ async function mfRunVocalUpRebuildAndMaster() {
   state.vocalUpRepair = { ...evidence, autoRebuildStarted: true };
   if ($('rebuildBtn')) {
     $('rebuildBtn').disabled = true;
-    $('rebuildBtn').textContent = 'Apply vocal-up repair and rebuild mix';
+    $('rebuildBtn').textContent = 'Write vocal rides and rebuild mix';
   }
-  setStatus('rebuildStatus', `Applying +${evidence.liftDb.toFixed(1)} dB vocal-up repair (level/balance only — not pitch or timing)…`, 'busy');
+  setStatus('rebuildStatus', 'Measuring the timeline for buried vocal phrases, then writing time-sliced rides…', 'busy');
   try {
-    if (typeof mfApplyVocalUpPlan === 'function') mfApplyVocalUpPlan(state.stemPlans, evidence);
-    state.corrected = await rebuildCorrectedMix();
-    state.correctedMetrics = measureBuffer(state.corrected);
+    const initialAnalysis = state.timelineSourceAnalysis
+      || (typeof mfTimelineAnalyze === 'function' ? await mfTimelineAnalyze(state.original) : { markers: [], frames: [] });
+    const windowsBefore = mfFindBuriedVocalWindows(initialAnalysis).length;
+    const otherAvailable = Boolean(state.stemBuffers?.other && state.stemPlans?.other);
+    const result = await mfIterateVocalRides({
+      initialAnalysis,
+      otherAvailable,
+      analyze: async (buffer) => {
+        const target = buffer || state.corrected || state.original;
+        return typeof mfTimelineAnalyze === 'function' ? mfTimelineAnalyze(target) : initialAnalysis;
+      },
+      applyRides: async (rides, added, pass) => {
+        setStatus('rebuildStatus', `Writing vocal rides · pass ${pass} · ${added.filter((ride) => (ride.stem || 'vocals') === 'vocals').length} phrase(s)…`, 'busy');
+        mfApplyVocalUpPlan(state.stemPlans, { ...evidence, warranted: true, rides });
+        state.corrected = await rebuildCorrectedMix();
+        state.correctedMetrics = measureBuffer(state.corrected);
+        const analysis = typeof mfTimelineAnalyze === 'function'
+          ? await mfTimelineAnalyze(state.corrected)
+          : { markers: [], frames: [] };
+        const peak = Number(state.correctedMetrics?.peakDb);
+        if (Number.isFinite(peak) && peak > MF_VOCAL_RIDE_PEAK_STOP_DB) {
+          return {
+            buffer: state.corrected,
+            analysis,
+            qualityStop: 'true-peak',
+            qualityDetail: `True-peak / sample-peak stop: reprint peaked at ${peak.toFixed(2)} dBFS. MixForge will not smash or clip to chase the remaining windows.`,
+          };
+        }
+        const harshBefore = Number(initialAnalysis?.counts?.harshness_band || 0);
+        const harshAfter = Number(analysis?.counts?.harshness_band || 0);
+        if (harshAfter > harshBefore + 2) {
+          return {
+            buffer: state.corrected,
+            analysis,
+            qualityStop: 'harshness',
+            qualityDetail: 'Harshness windows increased after the last ride pass, so MixForge stopped instead of pumping the lead.',
+          };
+        }
+        const stillRed = mfFindBuriedVocalWindows(analysis);
+        if (stillRed.length) {
+          setStatus('rebuildStatus', `Remeasure still red: ${stillRed.length} buried window(s). Writing another ride pass instead of mastering…`, 'busy');
+        }
+        return { buffer: state.corrected, analysis };
+      },
+    });
+    if (!state.corrected) {
+      mfApplyVocalUpPlan(state.stemPlans, { ...evidence, warranted: true, rides: result.rides });
+      state.corrected = await rebuildCorrectedMix();
+      state.correctedMetrics = measureBuffer(state.corrected);
+    }
     const afterSnap = mfPresenceMaskingSnapshot(state.correctedMetrics);
     const beforeSnap = mfPresenceMaskingSnapshot(state.mixMetrics);
     state.vocalUpRepair = {
@@ -834,15 +1115,19 @@ async function mfRunVocalUpRebuildAndMaster() {
       applied: true,
       skipped: false,
       failed: false,
-      appliedLiftDb: state.stemPlans?.vocals?.mixGainDb ?? evidence.liftDb,
-      appliedEaseDb: state.stemPlans?.other?.mixGainDb ?? null,
-      competingEaseApplied: Number(state.stemPlans?.other?.mixGainDb) < -0.35,
+      rides: result.rides,
+      passes: result.passes,
+      stopReason: result.stop?.reason,
+      stopDetail: result.stop?.detail,
+      windowsBefore,
+      windowsAfter: result.windowsRemaining.length,
+      competingEaseApplied: otherAvailable && result.rides.some((ride) => ride.stem === 'other'),
       maskingBefore: evidence.maskingDb ?? beforeSnap?.maskingDb,
       maskingAfter: afterSnap?.maskingDb,
       presenceBefore: evidence.presenceDb ?? beforeSnap?.presence,
       presenceAfter: afterSnap?.presence,
     };
-    setStatus('rebuildStatus', `Vocal-up reprint ready: +${state.vocalUpRepair.appliedLiftDb.toFixed(1)} dB lead lift.`, 'ok');
+    setStatus('rebuildStatus', result.stop?.detail || 'Vocal rides written.', result.stop?.reason === 'clear' ? 'ok' : 'warn');
     prepareMastering();
     if (typeof renderReleaseMaster === 'function') {
       $('renderMasterBtn') && ($('renderMasterBtn').disabled = true);
@@ -860,7 +1145,7 @@ async function mfRunVocalUpRebuildAndMaster() {
       mfSyncAbBar(state);
       mfRenderWhatChanged();
       setStatus('masterStatus', 'Forensic vocal-up master ready — A/B Original vs Master below.', 'ok');
-      setStatus('auditStatus', 'Vocal raised in the mix, then mastered. Press B to A/B.', 'ok');
+      setStatus('auditStatus', 'Time-sliced vocal rides written, then mastered. Press B to A/B.', 'ok');
     }
     $('masterPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (error) {
@@ -1003,7 +1288,7 @@ function mfInstallMusicianUi() {
     if (evidence.warranted && state.stemPlans) {
       mfApplyVocalUpPlan(state.stemPlans, evidence);
       state.vocalUpRepair = { ...(state.vocalUpRepair || {}), ...evidence, planned: true };
-      if ($('rebuildBtn')) $('rebuildBtn').textContent = 'Apply vocal-up repair and rebuild mix';
+      if ($('rebuildBtn')) $('rebuildBtn').textContent = 'Write vocal rides and rebuild mix';
     }
     return result;
   };
@@ -1024,13 +1309,9 @@ function mfInstallMusicianUi() {
       grid.prepend(note);
     }
     if (state.vocalUpRepair?.warranted && grid && !$('vocalUpNote')) {
-      const lift = state.vocalUpRepair.liftDb;
       const note = mfMusicianEl('p', 'extraction-integrity-note');
       note.id = 'vocalUpNote';
-      const ease = Number(state.vocalUpRepair.competingEaseDb) || 0;
-      note.textContent = ease < -0.35
-        ? `Default vocal-up: +${lift.toFixed(1)} dB mix-balance on the vocal stem, and ${ease.toFixed(1)} dB on residual other. This is level/balance, not pitch or timing.`
-        : `Default vocal-up: +${lift.toFixed(1)} dB mix-balance on the vocal stem so the lead comes forward. This is level/balance, not pitch or timing.`;
+      note.textContent = 'Forensic writes time-sliced vocal rides on buried phrases (verse that ducks under other gets a ride; a forward chorus stays put). Remeasure stays in the loop until those windows clear or a hard cap stops it. Level/balance only — not pitch or timing.';
       grid.prepend(note);
     }
     if (mfShouldAutoVocalUp(state)) {
@@ -1122,6 +1403,12 @@ if (typeof globalThis !== 'undefined') {
   globalThis.mfCompetingEaseDb = mfCompetingEaseDb;
   globalThis.mfPredictMaskingAfter = mfPredictMaskingAfter;
   globalThis.mfVocalUpMaskingProgress = mfVocalUpMaskingProgress;
+  globalThis.mfRideEnvelope = mfRideEnvelope;
+  globalThis.mfStemRideDbAt = mfStemRideDbAt;
+  globalThis.mfFindBuriedVocalWindows = mfFindBuriedVocalWindows;
+  globalThis.mfPlanVocalRides = mfPlanVocalRides;
+  globalThis.mfIterateVocalRides = mfIterateVocalRides;
+  globalThis.mfFormatRideRange = mfFormatRideRange;
   globalThis.mfStemBalanceDelta = mfStemBalanceDelta;
   globalThis.mfApplyVocalUpPlan = mfApplyVocalUpPlan;
   globalThis.mfPresenceMaskingSnapshot = mfPresenceMaskingSnapshot;
@@ -1129,6 +1416,9 @@ if (typeof globalThis !== 'undefined') {
   globalThis.MF_VOCAL_UP_SKIP_WARNING = MF_VOCAL_UP_SKIP_WARNING;
   globalThis.MF_VOCAL_UP_MAX_DB = MF_VOCAL_UP_MAX_DB;
   globalThis.MF_TOKEN_MASKING_DROP_DB = MF_TOKEN_MASKING_DROP_DB;
+  globalThis.MF_VOCAL_RIDE_CLEAR_DB = MF_VOCAL_RIDE_CLEAR_DB;
+  globalThis.MF_VOCAL_RIDE_TOTAL_MAX_DB = MF_VOCAL_RIDE_TOTAL_MAX_DB;
+  globalThis.MF_VOCAL_RIDE_PASS_MAX_DB = MF_VOCAL_RIDE_PASS_MAX_DB;
   globalThis.presentMeasuredAuditThenListen = presentMeasuredAuditThenListen;
   globalThis.MF_STEM_HOURLY_LIMIT = MF_STEM_HOURLY_LIMIT;
   globalThis.MF_STEM_DAILY_LIMIT = MF_STEM_DAILY_LIMIT;

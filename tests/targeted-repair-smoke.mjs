@@ -11,8 +11,9 @@ const baseAnalysis = {
     { type: 'loudness_dip', severity: 'medium', start: 20, end: 23.2, evidence: 'sustained dip' },
     { type: 'harshness_band', severity: 'medium', start: 30, end: 31, evidence: 'upper-mid flare' },
     { type: 'clipping', severity: 'high', start: 40, end: 41, evidence: 'flattened samples' },
+    { type: 'lead_masking', severity: 'medium', start: 12, end: 24, evidence: 'verse under low-mids' },
   ],
-  counts: { loudness_dip: 3, harshness_band: 1, clipping: 1 },
+  counts: { loudness_dip: 3, harshness_band: 1, clipping: 1, lead_masking: 1 },
 };
 
 const context = vm.createContext({
@@ -27,6 +28,7 @@ const context = vm.createContext({
     loudness_dip: { weight: 2 },
     harshness_band: { weight: 2 },
     clipping: { weight: 3 },
+    lead_masking: { weight: 2 },
   },
   mfTimelineAnalyze: async () => structuredClone(baseAnalysis),
   mfTimelineTypeLabel: (type) => type.replaceAll('_', ' '),
@@ -55,6 +57,9 @@ assert.equal(clipping.safety, 'blocked');
 assert.equal(clipping.operation, null);
 assert.equal(sustainedDip.safety, 'review');
 assert.equal(sustainedDip.defaultSelected, false);
+const vocalWindow = plan.find((item) => item.marker.type === 'lead_masking');
+assert.equal(vocalWindow.safety, 'blocked');
+assert.equal(vocalWindow.operation, null, 'stereo targeted repair must not raise the masker with the vocal');
 
 context.before = {
   issueLoad: 6,

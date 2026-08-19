@@ -154,9 +154,13 @@ async function rebuildCorrectedMix() {
       const dest = out.getChannelData(c);
       const raw = originalStem.getChannelData(Math.min(c, originalStem.numberOfChannels - 1));
       const fixed = processed.getChannelData(Math.min(c, processed.numberOfChannels - 1));
+      const sampleRate = originalStem.sampleRate || out.sampleRate;
       for (let i = 0; i < length; i++) {
+        const rideDb = typeof mfStemRideDbAt === 'function'
+          ? mfStemRideDbAt(plan, i / sampleRate)
+          : (plan.mixGainDb || 0);
         dest[i] += typeof mfStemBalanceDelta === 'function'
-          ? mfStemBalanceDelta(raw[i], fixed[i], levelMatch, wet, plan.mixGainDb)
+          ? mfStemBalanceDelta(raw[i], fixed[i], levelMatch, wet, rideDb)
           : raw[i] * (1 - wet) + fixed[i] * levelMatch * wet - raw[i];
       }
     }
