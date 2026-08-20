@@ -112,6 +112,7 @@ assert.match(context.aiFallbackStatusMessage(timeoutError), /timed out/i);
 assert.match(context.aiFallbackStatusMessage(new Error('nope')), /unavailable|measurements only/i);
 assert.match(context.aiFallbackStatusMessage(new Error('GEMINI_API_KEY is not configured.')), /Listening model not configured/);
 assert.doesNotMatch(context.aiFallbackStatusMessage(new Error('GEMINI_API_KEY is not configured.')), /agree/i);
+assert.match(context.aiFallbackStatusMessage(new Error('Listening skipped')), /skipped/i);
 
 function jsonResponse(status, body) {
   return {
@@ -222,5 +223,19 @@ const injectedPlan = await context.requestAI(
 );
 assert.equal(injectedPlan.readinessScore, 64);
 assert.equal(injectedCalls, 1);
+
+const skipController = new AbortController();
+let skipFetchCalls = 0;
+const abortableHang = (url, init) => {
+  skipFetchCalls += 1;
+  return hangingFetch(url, init);
+};
+const skipPromise = context.requestAI(
+  { phase: 'mix', metrics: { lufs: -14 } },
+  { fetch: abortableHang, timeoutMs: 4000, maxAttempts: 2, signal: skipController.signal },
+);
+skipController.abort(Object.assign(new Error('Listening skipped'), { name: 'AbortError' }));
+await assert.rejects(skipPromise, /skipped|timed out|aborted/i);
+assert.ok(skipFetchCalls <= 2, 'user skip must not keep retrying after abort');
 
 console.log('ai-audit-smoke: ok');

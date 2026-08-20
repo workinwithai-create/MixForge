@@ -68,6 +68,34 @@ context.clean = clean;
 const cleanAnalysis = await vm.runInContext('mfTimelineAnalyze(clean)', context);
 assert.ok(cleanAnalysis.issueLoad < damagedAnalysis.issueLoad, 'clean signal should score lower than damaged signal');
 
+const rideSong = new FakeBuffer(2, sampleRate * 8, sampleRate);
+for (let index = 0; index < rideSong.length; index++) {
+  const time = index / sampleRate;
+  const verse = time < 3.4;
+  const lowMid = Math.sin(2 * Math.PI * 350 * time) * (verse ? 0.55 : 0.10);
+  const presence = Math.sin(2 * Math.PI * 3200 * time) * (verse ? 0.035 : 0.42);
+  rideSong.data[0][index] = lowMid + presence;
+  rideSong.data[1][index] = lowMid + presence;
+}
+context.rideSong = rideSong;
+const rideAnalysis = await vm.runInContext('mfTimelineAnalyze(rideSong)', context);
+assert.doesNotMatch(
+  fs.readFileSync(new URL('../js/app-timeline-analysis.js', import.meta.url), 'utf8'),
+  /lead_masking/,
+  'Problem Timeline must not grow a buried-vocal type',
+);
+assert.ok(!rideAnalysis.markers.some((marker) => marker.type === 'lead_masking'), 'buried lead is not a targeted-repair / timeline ride');
+assert.ok(rideAnalysis.frames.some((frame) => frame.start < 3.4 && Number(frame.lowMidToPresenceDb) > 10), 'frames still expose presence masking for Forensic');
+
+context.clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+context.globalThis = context;
+vm.runInContext(fs.readFileSync(new URL('../js/app-musician-ux.js', import.meta.url), 'utf8'), context);
+context.rideAnalysis = rideAnalysis;
+const buried = vm.runInContext('mfFindBuriedVocalWindows(rideAnalysis)', context);
+assert.ok(buried.length >= 1, 'Forensic must find the ducked verse from frames, not a timeline type');
+assert.ok(buried.every((window) => window.start < 3.6), 'a forward chorus must not get a vocal-stem ride');
+assert.ok(buried.every((window) => Number.isFinite(window.start) && Number.isFinite(window.end) && window.end > window.start));
+
 context.sourceAnalysis = damagedAnalysis;
 context.masteredAnalysis = cleanAnalysis;
 const selfCheck = vm.runInContext('mfTimelineSelfCheck(sourceAnalysis, masteredAnalysis)', context);

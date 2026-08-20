@@ -44,7 +44,7 @@ assert.equal(merged.readinessScore, 41, 'measurements win on readiness');
 assert.ok(merged.findings.some((finding) => /buried vocal/i.test(finding.problem)), 'listening hypothesis should be kept');
 assert.ok(!merged.findings.some((finding) => /3472/i.test(`${finding.problem} ${finding.evidence} ${finding.action}`)), 'invented Hz must drop');
 assert.ok(!merged.findings.some((finding) => /no clipping/i.test(finding.problem)), 'listening cannot dismiss measured clip');
-assert.ok(!merged.findings.some((finding) => /intonation|out of tune/i.test(`${finding.problem} ${finding.evidence}`)), 'performance claims must drop');
+assert.ok(merged.findings.some((finding) => /intonation|out of tune/i.test(`${finding.problem} ${finding.evidence}`)), 'pitch hypotheses from Gemini are kept; stem measurements decide');
 assert.ok(!merged.stemsToInspect.includes('guitars'));
 assert.ok(!merged.stemsToInspect.includes('keys'));
 assert.ok(merged.stemsToInspect.includes('other') || merged.stemsToInspect.includes('vocals'));

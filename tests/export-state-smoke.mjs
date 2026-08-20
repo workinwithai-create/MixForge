@@ -24,6 +24,7 @@ const context = vm.createContext({
   Blob,
   DataView,
   ArrayBuffer,
+  Float32Array,
   clamp: (value, min, max) => Math.max(min, Math.min(max, value)),
   sleep: async () => {},
   setStatus: (_id, message, kind) => statuses.push({ message, kind }),
@@ -86,5 +87,32 @@ const clean = context.evaluateExportGate({
 });
 assert.equal(clean.allow, true);
 assert.equal(clean.verified, true);
+
+assert.equal(typeof context.mfReleaseDownloadName, 'function');
+assert.equal(typeof context.mfMasterContentToken, 'function');
+const quickName = context.mfReleaseDownloadName({
+  fileName: 'logic-bounce.wav',
+  path: 'quick',
+  revision: 2,
+  contentToken: 'aaa111',
+  bitDepth: 24,
+});
+const forensicName = context.mfReleaseDownloadName({
+  fileName: 'logic-bounce.wav',
+  path: 'forensic',
+  revision: 4,
+  contentToken: 'bbb222',
+  bitDepth: 24,
+});
+assert.match(quickName, /logic-bounce-mixforge-quick-r2-aaa111-24bit\.wav/);
+assert.match(forensicName, /logic-bounce-mixforge-forensic-r4-bbb222-24bit\.wav/);
+assert.notEqual(quickName, forensicName, 'Quick Master and Forensic must never share a download name');
+assert.doesNotMatch(quickName, /mixforge-release-24bit\.wav/, 'stable release filename can attach a previous download');
+
+const quiet = { getChannelData: () => new Float32Array([0, 0, 0, 0]) };
+const lifted = { getChannelData: () => new Float32Array([0.2, -0.15, 0.11, -0.08]) };
+assert.notEqual(context.mfMasterContentToken(quiet), context.mfMasterContentToken(lifted));
+const bound = context.mfBindExportableMaster({ masterRevision: 3 }, lifted);
+assert.match(bound, /^3:[0-9a-f]+$/);
 
 console.log('MixForge export-state smoke tests passed');

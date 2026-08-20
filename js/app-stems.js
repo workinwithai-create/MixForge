@@ -61,6 +61,10 @@ function describeOperation(op) {
   if (op.type === 'deess') return `${Math.round(Number(op.frequency) || 6800)} Hz · conservative parallel control`;
   if (op.type === 'compressor') return `${Number(op.ratio || 2).toFixed(1)}:1 · threshold ${Math.round(Number(op.threshold) || -24)} dB`;
   if (op.type === 'gain') return `${Number(op.gainDb || 0) >= 0 ? '+' : ''}${Number(op.gainDb || 0).toFixed(1)} dB`;
+  if (op.type === 'mixgain') return `${Number(op.gainDb || 0) >= 0 ? '+' : ''}${Number(op.gainDb || 0).toFixed(1)} dB mix balance`;
+  if (op.type === 'delay') return `${Math.round(Number(op.delayMs) || 118)} ms · light send`;
+  if (op.type === 'reverb') return `${Number(op.decaySec || 1.05).toFixed(2)} s · light room`;
+  if (op.type === 'pitch') return 'not applied — no musical engine in this build';
   return op.type;
 }
 
@@ -140,22 +144,29 @@ function bufferRms(buffer) {
 
 async function rebuildCorrectedMix() {
   const out = cloneBuffer(state.original);
-  const wet = 0.28;
   for (const [stem, originalStem] of Object.entries(state.stemBuffers)) {
     const plan = state.stemPlans[stem];
     if (!plan) continue;
-    const processed = await renderProcessedBuffer(originalStem, plan.operations);
+    const chained = stem === 'vocals' && state.vocalChain?.buffer;
+    const processed = chained || await renderProcessedBuffer(originalStem, plan.operations);
     const rawRms = bufferRms(originalStem);
     const fixedRms = bufferRms(processed);
-    const levelMatch = fixedRms > 1e-8 ? clamp(rawRms / fixedRms, dbToGain(-2), dbToGain(2)) : 1;
+    const matchLimit = chained ? dbToGain(1.5) : dbToGain(2);
+    const levelMatch = fixedRms > 1e-8 ? clamp(rawRms / fixedRms, 1 / matchLimit, matchLimit) : 1;
+    const wet = chained ? 1 : 0.28;
     const length = Math.min(out.length, originalStem.length, processed.length);
     for (let c = 0; c < out.numberOfChannels; c++) {
       const dest = out.getChannelData(c);
       const raw = originalStem.getChannelData(Math.min(c, originalStem.numberOfChannels - 1));
       const fixed = processed.getChannelData(Math.min(c, processed.numberOfChannels - 1));
+      const sampleRate = originalStem.sampleRate || out.sampleRate;
       for (let i = 0; i < length; i++) {
-        const repaired = raw[i] * (1 - wet) + fixed[i] * levelMatch * wet;
-        dest[i] += repaired - raw[i];
+        const rideDb = typeof mfStemRideDbAt === 'function'
+          ? mfStemRideDbAt(plan, i / sampleRate)
+          : (plan.mixGainDb || 0);
+        dest[i] += typeof mfStemBalanceDelta === 'function'
+          ? mfStemBalanceDelta(raw[i], fixed[i], levelMatch, wet, rideDb)
+          : raw[i] * (1 - wet) + fixed[i] * levelMatch * wet - raw[i];
       }
     }
     await sleep(0);

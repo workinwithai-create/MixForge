@@ -55,6 +55,11 @@ assert.equal(clipping.safety, 'blocked');
 assert.equal(clipping.operation, null);
 assert.equal(sustainedDip.safety, 'review');
 assert.equal(sustainedDip.defaultSelected, false);
+assert.ok(!plan.some((item) => item.marker.type === 'lead_masking'), 'targeted repair must not own buried-lead rides');
+const targetedSource = fs.readFileSync(new URL('../js/app-targeted-repair.js', import.meta.url), 'utf8');
+assert.doesNotMatch(targetedSource, /lead_masking/);
+assert.match(targetedSource, /Musical level rides require your approval/);
+assert.match(targetedSource, /function mfTargetApplyGainRegions/);
 
 context.before = {
   issueLoad: 6,

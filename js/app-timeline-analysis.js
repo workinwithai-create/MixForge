@@ -131,6 +131,7 @@ function mfTimelineSpectralFeatures(left, right, sampleRate, startSample, endSam
     lowMid: 0,
     mids: 0,
     body: 0,
+    presence: 0,
     harsh: 0,
     sibilance: 0,
   };
@@ -144,6 +145,7 @@ function mfTimelineSpectralFeatures(left, right, sampleRate, startSample, endSam
     if (frequency >= 250 && frequency < 500) energy.lowMid += power;
     if (frequency >= 500 && frequency < 2000) energy.mids += power;
     if (frequency >= 300 && frequency < 4000) energy.body += power;
+    if (frequency >= 2000 && frequency < 5000) energy.presence += power;
     if (frequency >= 3000 && frequency < 9000) energy.harsh += power;
     if (frequency >= 6000 && frequency < 10000) energy.sibilance += power;
   }
@@ -154,7 +156,9 @@ function mfTimelineSpectralFeatures(left, right, sampleRate, startSample, endSam
     subRatio: energy.sub / total,
     harshRatio: energy.harsh / total,
     sibilanceRatio: energy.sibilance / bodyAndSibilance,
+    presenceRatio: energy.presence / total,
     lowMidToMidDb: 10 * Math.log10(Math.max(energy.lowMid, 1e-20) / Math.max(energy.mids, 1e-20)),
+    lowMidToPresenceDb: 10 * Math.log10(Math.max(energy.lowMid, 1e-20) / Math.max(energy.presence, 1e-20)),
   };
 }
 
@@ -193,7 +197,7 @@ function mfTimelineFrame(buffer, startSeconds, windowSeconds) {
   const rms = Math.sqrt((leftEnergy + rightEnergy) / Math.max(1, sampleCount * 2));
   const spectral = rms > 1e-5
     ? mfTimelineSpectralFeatures(left, right, sampleRate, startSample, endSample)
-    : { subRatio: 0, harshRatio: 0, sibilanceRatio: 0, lowMidToMidDb: 0 };
+    : { subRatio: 0, harshRatio: 0, sibilanceRatio: 0, presenceRatio: 0, lowMidToMidDb: 0, lowMidToPresenceDb: 0 };
 
   return {
     start: startSeconds,
@@ -233,6 +237,7 @@ function mfTimelineMergeEvents(frames, definition, context, windowSeconds, hopSe
       intensity: result.intensity,
       evidence: result.evidence,
       message: MF_TIMELINE_TYPES[definition.type].message,
+      maskingDb: result.maskingDb,
     };
     if (!current) {
       current = event;
@@ -243,6 +248,7 @@ function mfTimelineMergeEvents(frames, definition, context, windowSeconds, hopSe
       if (event.intensity > current.intensity) {
         current.intensity = event.intensity;
         current.evidence = event.evidence;
+        if (Number.isFinite(event.maskingDb)) current.maskingDb = event.maskingDb;
       }
     } else {
       flush();

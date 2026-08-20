@@ -38,8 +38,10 @@ const prompt = mixListeningPrompt({
   listeningClip: clip,
 });
 assert.match(prompt, /GROUND TRUTH/i);
-assert.match(prompt, /Do NOT judge performance/i);
+assert.match(prompt, /hypothesis/i);
+assert.match(prompt, /isolated vocal stem/i);
 assert.match(prompt, /AuraMix/);
+assert.doesNotMatch(prompt, /Do NOT judge performance: pitch/i);
 assert.doesNotMatch(prompt, /guitars or keys as separate/);
 
 const previousKey = process.env.GEMINI_API_KEY;

@@ -200,9 +200,9 @@ function mfTimelineResetUi() {
 function mfTimelineInstall() {
   if (typeof document === 'undefined' || typeof state === 'undefined') return;
   const previousRenderAudit = renderAudit;
-  renderAudit = function renderAuditWithTimeline(audit, metrics) {
-    previousRenderAudit(audit, metrics);
-    void mfTimelineAnalyzeSource();
+  renderAudit = function renderAuditWithTimeline(audit, metrics, options = {}) {
+    previousRenderAudit(audit, metrics, options);
+    if (!options.attachOnly) void mfTimelineAnalyzeSource();
   };
 
   const previousRenderVerification = renderVerification;
