@@ -900,18 +900,27 @@ function mfPhraseWindowClear(maskingDb) {
   return Number.isFinite(Number(maskingDb)) && Number(maskingDb) <= MF_VOCAL_RIDE_CLEAR_DB;
 }
 
-function mfMusicianWhatChangedSentences(path, vocalUp, before, after) {
+function mfMusicianWhatChangedSentences(path, vocalUp, before, after, vocalChain) {
   if (path === 'quick' && !(vocalUp?.applied && vocalUp.rides?.length)) {
     const sentences = ['Quick Master is ready. Hear Original vs Master.'];
     if (vocalUp?.warranted && (vocalUp.skipped || vocalUp.failed)) {
       sentences.push('A stereo master cannot unbury a vocal that is sitting under the mix.');
     }
-    return sentences;
+    if (vocalChain?.skipped) {
+      sentences.push(vocalChain.skipWarning || "Can't apply a vocal chain without isolation.");
+    }
+    return sentences.slice(0, 4);
   }
   if (!vocalUp?.applied) {
-    return path === 'forensic'
+    const sentences = path === 'forensic'
       ? ['Forensic Fix is ready. Hear Original vs the reprint.']
       : ['Hear Original vs Master.'];
+    const chainLines = typeof mfVocalChainWhatChangedLines === 'function'
+      ? mfVocalChainWhatChangedLines(vocalChain)
+      : null;
+    if (chainLines?.musician?.length) sentences.push(...chainLines.musician);
+    else if (vocalChain?.skipped) sentences.push(vocalChain.skipWarning || "Can't apply a vocal chain without isolation.");
+    return sentences.slice(0, 4);
   }
   const vocalRides = (vocalUp.rides || []).filter((ride) => (ride.stem || 'vocals') === 'vocals');
   if (!vocalRides.length) {
@@ -954,6 +963,12 @@ function mfMusicianWhatChangedSentences(path, vocalUp, before, after) {
   const lufsJump = Number(after?.lufs) - Number(before?.lufs);
   if (Number.isFinite(lufsJump) && lufsJump >= 3 && vocalUp.failed) {
     sentences.push('A louder master would not finish this.');
+  }
+  const chainLines = typeof mfVocalChainWhatChangedLines === 'function'
+    ? mfVocalChainWhatChangedLines(vocalChain)
+    : null;
+  if (chainLines?.musician?.length && sentences.length < 4) {
+    sentences.push(chainLines.musician[0]);
   }
   return sentences.slice(0, 4);
 }
@@ -1000,7 +1015,7 @@ function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
           : '';
         return `${mfFormatRideRange(ride.start, ride.end)} ${Number(ride.gainDb) >= 0 ? '+' : ''}${Number(ride.gainDb).toFixed(1)} dB${windowBit}`;
       });
-      bullets.push(`Vocal rides (${passCount} pass${passCount === 1 ? '' : 'es'}, mix balance, not pitch/timing): ${rideBits.join('; ')}.`);
+      bullets.push(`Vocal rides (${passCount} pass${passCount === 1 ? '' : 'es'}, mix balance): ${rideBits.join('; ')}.`);
     }
     if (Number(vocalUp.globalSeatDb) > 0.05) {
       bullets.push(`Global vocal seat: +${Number(vocalUp.globalSeatDb).toFixed(1)} dB after the rides (last trim, not the bury fix).`);
@@ -1031,6 +1046,14 @@ function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
   } else if (vocalUp?.warranted && (vocalUp.skipped || vocalUp.failed || path === 'quick')) {
     bullets.push(vocalUp.skipWarning || MF_VOCAL_UP_SKIP_WARNING);
   }
+  const chainLines = typeof mfVocalChainWhatChangedLines === 'function'
+    ? mfVocalChainWhatChangedLines(options.vocalChain)
+    : null;
+  if (chainLines?.bullets?.length) {
+    for (const line of chainLines.bullets) bullets.push(line);
+  } else if (options.vocalChain?.skipped) {
+    bullets.push(options.vocalChain.skipWarning || (typeof MF_VOCAL_CHAIN_SKIP_WARNING === 'string' ? MF_VOCAL_CHAIN_SKIP_WARNING : "Can't apply a vocal chain without isolation."));
+  }
   const remaining = Array.isArray(options.remainingRisks) ? options.remainingRisks.slice() : [];
   if (vocalUp?.applied) {
     const windowsLeft = Number(vocalUp.windowsAfter);
@@ -1050,7 +1073,7 @@ function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
   }
   return {
     headline: path === 'forensic' ? 'What we did' : 'Quick Master',
-    musician: mfMusicianWhatChangedSentences(path, vocalUp, before, after),
+    musician: mfMusicianWhatChangedSentences(path, vocalUp, before, after, options.vocalChain),
     bullets,
     remaining,
     readinessBefore,
@@ -1088,7 +1111,7 @@ function mfBuildReadinessReportText(payload) {
     lines.push('- No outstanding marker risks listed.');
   }
   lines.push('');
-  lines.push(`Seat: MixForge = mix repair + release master. Vocal performance lives in AuraMix (${MF_AURAMIX_URL}).`);
+  lines.push(`Seat: MixForge = mix repair + release master + conservative isolated-vocal chain. Deep vocal production (comping, Melodyne-class) lives in AuraMix (${MF_AURAMIX_URL}).`);
   lines.push('Thesis: evidence-first, conservative repairs, show measured change (loudness, peak, remaining risks).');
   return `${lines.join('\n')}\n`;
 }
@@ -1273,7 +1296,7 @@ function mfQuietMusicianChrome() {
   const stemTitle = document.querySelector('#stemPanel .panel-title h2');
   const stemCopy = document.querySelector('#stemPanel .panel-title p');
   if (stemTitle) stemTitle.textContent = 'Stems';
-  if (stemCopy) stemCopy.textContent = 'If a vocal phrase is sitting under the mix, Forensic will raise that phrase.';
+  if (stemCopy) stemCopy.textContent = 'If a vocal phrase is sitting under the mix, Forensic will raise that phrase. After isolation, a conservative vocal chain is applied.';
   const verifyTitle = document.querySelector('#verifyPanel .panel-title h2');
   const verifyCopy = document.querySelector('#verifyPanel .panel-title p');
   if (verifyTitle) verifyTitle.textContent = 'Hear Original vs Master';
@@ -1305,21 +1328,21 @@ function mfRenderPathChooser(audit) {
   forensic.type = 'button';
   forensic.id = 'forensicPathBtn';
   forensic.innerHTML = recommendation.vocalUp?.warranted
-    ? `<strong>Forensic Fix</strong><span>Isolate the vocal and write time-sliced rides on buried phrases (level/balance only). A stereo master cannot unbury a masked lead.</span><em>Suggested — vocal rides</em>`
-    : `<strong>Forensic Fix</strong><span>Timeline windows → honest stem investigation → targeted repair → verify. Opt-in; not required for a first A/B.</span><em>${recommendation.path === 'forensic' ? 'Suggested when isolation is needed' : 'Deeper path'}</em>`;
+    ? `<strong>Forensic Fix</strong><span>Isolate the vocal, apply a conservative chain (EQ, compression, light space), and write time-sliced rides on buried phrases. A stereo master cannot unbury a masked lead.</span><em>Suggested — vocal rides + chain</em>`
+    : `<strong>Forensic Fix</strong><span>Timeline windows → honest stem investigation → conservative vocal chain → targeted repair → verify. Opt-in; not required for a first A/B.</span><em>${recommendation.path === 'forensic' ? 'Suggested when isolation is needed' : 'Deeper path'}</em>`;
   grid.append(quick, forensic);
   root.append(grid);
 
   const seat = mfMusicianEl('p', 'path-seat');
   seat.append(
-    document.createTextNode('MixForge fixes mix problems, then masters for release. Dedicated vocal production lives in '),
+    document.createTextNode('MixForge rides vocal level and, after isolation, applies a conservative vocal chain. Deep vocal production (comping, Melodyne-class work) lives in '),
   );
   const aura = document.createElement('a');
   aura.href = MF_AURAMIX_URL;
   aura.target = '_blank';
   aura.rel = 'noopener noreferrer';
   aura.textContent = 'AuraMix';
-  seat.append(aura, document.createTextNode('. Gemini may listen to the mix/master excerpt; it does not judge performance.'));
+  seat.append(aura, document.createTextNode('. Gemini may flag pitch as a hypothesis; stem measurements decide, and this build does not retune.'));
   root.append(seat);
 
   quick.onclick = () => { void mfStartQuickMaster(); };
@@ -1340,10 +1363,10 @@ function mfSetPipeline(path) {
   }
   if (note) {
     note.textContent = path === 'quick'
-      ? 'Quick Master: Observe → Locate → Master → Verify. Gemini listens to the mix/master excerpt, not vocal performance.'
+      ? 'Quick Master: Observe → Locate → Master → Verify. A vocal chain needs Forensic isolation.'
       : path === 'forensic'
-        ? 'Forensic Fix: Observe → Locate → Isolate → Confirm → Repair → Verify. Demucs separates four buckets; guitars/keys share residual other.'
-        : 'Quick Master skips Isolate / Confirm / Repair. Gemini listens to the mix/master, not vocal performance (AuraMix).';
+        ? 'Forensic Fix: Observe → Locate → Isolate → Confirm → Repair → Verify. Isolated vocal gets a conservative EQ/comp/space chain; guitars/keys share residual other.'
+        : 'Quick Master skips Isolate / Confirm / Repair. Forensic isolation is required for the vocal chain.';
   }
 }
 
@@ -1392,7 +1415,13 @@ async function mfStartQuickMaster() {
   if (buried.warranted && !state.vocalUpRepair?.applied) {
     state.vocalUpRepair = { ...(state.vocalUpRepair || {}), ...buried, skipped: true, applied: false };
     setStatus('auditStatus', buried.skipWarning, 'warn');
-  } else {
+  }
+  if (!state.stemBuffers?.vocals && !state.vocalChain?.applied) {
+    state.vocalChain = typeof mfVocalChainSkipReport === 'function'
+      ? mfVocalChainSkipReport()
+      : { skipped: true, applied: false, skipWarning: "Can't apply a vocal chain without isolation." };
+  }
+  if (!(buried.warranted && !state.vocalUpRepair?.applied)) {
     setStatus('auditStatus', 'Quick Master: rendering a stereo release master for A/B…', 'busy');
   }
   state.corrected = state.original;
@@ -1449,6 +1478,7 @@ function mfStartForensicPath() {
 
   const buried = mfLeadBuriedEvidence(state.audit, state.mixMetrics);
   const requested = [...(state.audit?.stemsToInspect || [])];
+  if (!requested.includes('vocals')) requested.push('vocals');
   if (buried.warranted) {
     for (const stem of buried.stemsNeeded) {
       if (!requested.includes(stem)) requested.push(stem);
@@ -1503,14 +1533,17 @@ function mfRenderStemConsent(audit) {
       state.vocalUpRepair = { ...(state.vocalUpRepair || {}), ...buried, skipped: true, applied: false };
       setStatus('auditStatus', buried.skipWarning, 'warn');
     }
+    state.vocalChain = typeof mfVocalChainSkipReport === 'function'
+      ? mfVocalChainSkipReport()
+      : { skipped: true, applied: false, skipWarning: "Can't apply a vocal chain without isolation." };
     void mfStartQuickMaster();
   };
   actions.append(skip);
   root.append(actions);
   const buried = mfLeadBuriedEvidence(audit, state.mixMetrics);
   root.append(mfMusicianEl('small', '', buried.warranted
-    ? `${buried.skipWarning} After separation, Forensic writes time-sliced vocal rides on buried phrases (and eases residual other in those windows) — not a song-length one-shot, not pitch or timing (AuraMix).`
-    : 'After separation you get a heuristic leakage/fit score — not lab SDR. Demucs separates four buckets; guitars/keys share residual other.'));
+    ? `${buried.skipWarning} After separation, Forensic writes time-sliced vocal rides on buried phrases and applies a conservative isolated-vocal chain (EQ, compression, light space) — not a song-length one-shot.`
+    : 'After separation you get a heuristic leakage/fit score — not lab SDR — plus a conservative vocal chain on the isolated lead. Demucs separates four buckets; guitars/keys share residual other.'));
 }
 
 function mfSelectAbPreview(value) {
@@ -1549,6 +1582,7 @@ function mfRenderWhatChanged() {
     findingsCount: state.audit?.findings?.length || 0,
     remainingRisks: remaining,
     vocalUp: state.vocalUpRepair,
+    vocalChain: state.vocalChain,
   });
   state.mixforgeWhatChanged = summary;
   root.classList.remove('hidden');
@@ -1581,6 +1615,41 @@ function mfShouldAutoVocalUp(stateLike = state) {
   );
 }
 
+async function mfReprintAfterVocalChain() {
+  if (!state.stemBuffers?.vocals || !state.vocalChain?.applied) return;
+  if (state.vocalUpRepair?.autoRebuildStarted) return;
+  if ($('rebuildBtn')) $('rebuildBtn').disabled = true;
+  setStatus('rebuildStatus', 'Applying the isolated vocal chain…', 'busy');
+  try {
+    state.corrected = await rebuildCorrectedMix();
+    state.correctedMetrics = measureBuffer(state.corrected);
+    prepareMastering();
+    if (typeof renderReleaseMaster === 'function') {
+      setStatus('masterStatus', 'Mastering the reprint after the vocal chain…', 'busy');
+      state.master = await renderReleaseMaster();
+      markMasterRendered(state.master);
+      state.finalMetrics = measureBuffer(state.master);
+      renderMetrics('finalMetrics', state.finalMetrics);
+      renderVerification(state.finalMetrics, state.masterPlan);
+      reveal('previewBox');
+      if ($('abToggleBar')) $('abToggleBar').classList.remove('hidden');
+      if (typeof syncPreviewSourceAvailability === 'function') syncPreviewSourceAvailability();
+      reveal('verifyPanel');
+      mfSelectAbPreview('matched');
+      mfSyncAbBar(state);
+      mfRenderWhatChanged();
+      setStatus('masterStatus', 'Hear Original vs Master.', 'ok');
+      setStatus('rebuildStatus', 'Isolated vocal chain applied. Pitch was not applied.', 'ok');
+    }
+  } catch (error) {
+    console.error(error);
+    setStatus('rebuildStatus', `Vocal chain reprint failed: ${error.message}`, 'error');
+  } finally {
+    if ($('rebuildBtn')) $('rebuildBtn').disabled = false;
+    if ($('renderMasterBtn')) $('renderMasterBtn').disabled = false;
+  }
+}
+
 async function mfRunVocalUpRebuildAndMaster() {
   const evidence = state.vocalUpRepair || mfLeadBuriedEvidence(state.audit, state.mixMetrics);
   if (!evidence?.warranted || !state.stemBuffers?.vocals) return;
@@ -1592,6 +1661,7 @@ async function mfRunVocalUpRebuildAndMaster() {
   }
   setStatus('rebuildStatus', 'Finding the buried vocal phrase…', 'busy');
   try {
+    if (typeof mfEnsureVocalChain === 'function') mfEnsureVocalChain(state);
     const initialAnalysis = state.timelineSourceAnalysis
       || (typeof mfTimelineAnalyze === 'function' ? await mfTimelineAnalyze(state.original) : { markers: [], frames: [] });
     const windowOptions = {
@@ -1707,7 +1777,7 @@ async function mfRunVocalUpRebuildAndMaster() {
       passes: result.passes,
       stopReason: result.stop?.reason,
       failed: unburyFailed,
-    }).join(' ');
+    }, state.vocalChain).join(' ');
     setStatus('rebuildStatus', musicianStatus || 'Vocal ride finished.', result.stop?.reason === 'clear' && !unburyFailed ? 'ok' : 'warn');
     prepareMastering();
     const canHearReprint = Boolean(state.corrected && state.correctedMetrics);
@@ -1864,6 +1934,9 @@ function mfInstallMusicianUi() {
       return await previousSeparateRequiredStems(normalized.stems, onProgress);
     } catch (error) {
       const buried = mfLeadBuriedEvidence(state.audit, state.mixMetrics);
+      state.vocalChain = typeof mfVocalChainSkipReport === 'function'
+        ? mfVocalChainSkipReport()
+        : { skipped: true, applied: false, skipWarning: "Can't apply a vocal chain without isolation." };
       if (buried.warranted) {
         state.vocalUpRepair = { ...(state.vocalUpRepair || {}), ...buried, failed: true, applied: false };
         const message = `${buried.skipWarning} (${error.message})`;
@@ -1883,6 +1956,9 @@ function mfInstallMusicianUi() {
       mfApplyVocalUpPlan(state.stemPlans, evidence);
       state.vocalUpRepair = { ...(state.vocalUpRepair || {}), ...evidence, planned: true };
       if ($('rebuildBtn')) $('rebuildBtn').textContent = 'Write vocal rides and rebuild mix';
+    }
+    if (typeof mfEnsureVocalChain === 'function' && state.stemBuffers?.vocals) {
+      mfEnsureVocalChain(state);
     }
     return result;
   };
@@ -1905,13 +1981,29 @@ function mfInstallMusicianUi() {
     if (state.vocalUpRepair?.warranted && grid && !$('vocalUpNote')) {
       const note = mfMusicianEl('p', 'extraction-integrity-note');
       note.id = 'vocalUpNote';
-      note.textContent = 'If a vocal phrase is sitting under the mix, Forensic will raise that phrase.';
+      note.textContent = 'If a vocal phrase is sitting under the mix, Forensic will raise that phrase. A conservative vocal chain (EQ, compression, light space) is applied on the isolated lead.';
+      grid.prepend(note);
+    } else if (state.vocalChain?.applied && grid && !$('vocalChainNote')) {
+      const note = mfMusicianEl('p', 'extraction-integrity-note');
+      note.id = 'vocalChainNote';
+      note.textContent = 'Conservative vocal chain applied on the isolated lead: EQ, compression, light space. Pitch was not applied.';
       grid.prepend(note);
     }
     if (mfShouldAutoVocalUp(state)) {
       state.vocalUpRepair = { ...state.vocalUpRepair, autoRebuildStarted: true };
       queueMicrotask(() => { void mfRunVocalUpRebuildAndMaster(); });
+    } else if (state.mixforgePath === 'forensic' && state.vocalChain?.applied && !state.vocalChain.reprinted) {
+      state.vocalChain = { ...state.vocalChain, reprinted: true };
+      queueMicrotask(() => { void mfReprintAfterVocalChain(); });
     }
+  };
+
+  const previousRebuildCorrectedMix = rebuildCorrectedMix;
+  rebuildCorrectedMix = async function rebuildCorrectedMixVocalChain(...args) {
+    if (state.mixforgePath === 'forensic' && state.stemBuffers?.vocals && typeof mfEnsureVocalChain === 'function') {
+      mfEnsureVocalChain(state);
+    }
+    return previousRebuildCorrectedMix(...args);
   };
 
   const previousRenderReleaseMaster = renderReleaseMaster;
@@ -1944,6 +2036,7 @@ function mfInstallMusicianUi() {
     state.mixforgeWhatChanged = null;
     state.mixforgeRecommendation = null;
     state.vocalUpRepair = null;
+    state.vocalChain = null;
     state.masterExportId = null;
     state.exportOverride = false;
     if ($('exportOverride')) $('exportOverride').checked = false;
@@ -1963,18 +2056,20 @@ function mfInstallMusicianUi() {
 
   // Soften engineer-only hero if the static HTML was cached with older copy.
   const heroCopy = document.querySelector('.hero p');
-  if (heroCopy && /Observe the stereo evidence/i.test(heroCopy.textContent || '')) {
-    heroCopy.textContent = 'Fix mix problems, then master for release. Start with Quick Master for a fast Original vs Master A/B — or open Forensic Fix when you need timeline evidence and honest stem investigation.';
+  if (heroCopy && (/Observe the stereo evidence|does not judge vocal performance/i.test(heroCopy.textContent || ''))) {
+    heroCopy.textContent = 'Fix mix problems, then master for release. Start with Quick Master for a fast Original vs Master A/B — or open Forensic Fix when you need timeline evidence and honest stem investigation. After isolation, MixForge applies a conservative vocal chain (EQ, compression, light space) and rides buried phrases. Gemini may flag pitch as a hypothesis; this build does not retune.';
   }
   const seat = document.querySelector('.hero .pipeline');
   if (seat && !$('heroModeRow')) {
     const modes = mfMusicianEl('div', 'hero-modes');
     modes.id = 'heroModeRow';
-    modes.innerHTML = `<span>Quick Master</span><b>or</b><span>Forensic Fix</span><i>Mix repair + release master · vocals live in <a href="${MF_AURAMIX_URL}" target="_blank" rel="noopener noreferrer">AuraMix</a></i>`;
+    modes.innerHTML = `<span>Quick Master</span><b>or</b><span>Forensic Fix</span><i>Mix repair + release master · AuraMix for deep vocal production</i>`;
     seat.after(modes);
-  } else if ($('heroModeRow') && !$('heroModeRow').querySelector('a')) {
+  } else if ($('heroModeRow')) {
     const italic = $('heroModeRow').querySelector('i');
-    if (italic) italic.innerHTML = `Mix repair + release master · vocals live in <a href="${MF_AURAMIX_URL}" target="_blank" rel="noopener noreferrer">AuraMix</a>`;
+    if (italic && /vocals live in/i.test(italic.textContent || '')) {
+      italic.innerHTML = `Mix repair + release master · <a href="${MF_AURAMIX_URL}" target="_blank" rel="noopener noreferrer">AuraMix</a> for deep vocal production`;
+    }
   }
   mfSetPipeline(state.mixforgePath || null);
 }

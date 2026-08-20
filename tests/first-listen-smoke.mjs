@@ -95,7 +95,8 @@ assert.doesNotMatch(indexHtml, /2\.5\.4/, 'visible version must leave 2.5.4');
 assert.doesNotMatch(indexHtml, /2\.5\.5/, 'visible version must leave 2.5.5');
 assert.doesNotMatch(indexHtml, /2\.5\.6/, 'visible version must leave 2.5.6');
 assert.doesNotMatch(indexHtml, /2\.5\.7/, 'visible version must leave 2.5.7');
-assert.match(indexHtml, /2\.5\.8/);
+assert.doesNotMatch(indexHtml, /2\.5\.8/, 'visible version must leave 2.5.8');
+assert.match(indexHtml, /2\.5\.9/);
 
 const initSrc = fs.readFileSync(new URL('../js/app-init.js', import.meta.url), 'utf8');
 assert.match(initSrc, /function revealOriginalPreview/);

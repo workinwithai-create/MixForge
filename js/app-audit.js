@@ -109,7 +109,7 @@ async function startListeningPass(measured) {
       : null;
     if (token !== listeningPass.token) return;
     if (!listeningClip) throw new Error('Listening clip unavailable');
-    setStatus('auditStatus', 'Gemini is listening to the mix excerpt — not a vocal performance take…', 'busy');
+    setStatus('auditStatus', 'Gemini is listening to the mix excerpt — pitch flags are hypotheses until the isolated stem is measured…', 'busy');
     const ai = await requestAI({ phase: 'mix', metrics, notes, targetLufs, listeningClip }, {
       signal: listeningPass.controller?.signal,
       onRetry() {

@@ -191,7 +191,14 @@ renderStemPlans=function(){
 rebuildCorrectedMix=async function(){
   const out=cloneBuffer(state.original);
   for(const [stem,rawStem] of Object.entries(state.stemBuffers)){
-    const plan=state.stemPlans[stem]; if(!plan)continue; const processed=await renderProcessedBuffer(rawStem,plan.operations); const rawRms=bufferRms(rawStem), fixedRms=bufferRms(processed), match=fixedRms>1e-8?clamp(rawRms/fixedRms,dbToGain(-2),dbToGain(2)):1; const wet=clamp(plan.wet||.2,.08,.45); const length=Math.min(out.length,rawStem.length,processed.length);
+    const plan=state.stemPlans[stem]; if(!plan)continue;
+    const chained=stem==='vocals'&&state.vocalChain?.buffer;
+    const processed=chained||await renderProcessedBuffer(rawStem,plan.operations);
+    const rawRms=bufferRms(rawStem), fixedRms=bufferRms(processed);
+    const matchLimit=chained?dbToGain(1.5):dbToGain(2);
+    const match=fixedRms>1e-8?clamp(rawRms/fixedRms,1/matchLimit,matchLimit):1;
+    const wet=chained?1:clamp(plan.wet||.2,.08,.45);
+    const length=Math.min(out.length,rawStem.length,processed.length);
     const sr=rawStem.sampleRate||out.sampleRate; for(let c=0;c<out.numberOfChannels;c++){const dest=out.getChannelData(c),raw=rawStem.getChannelData(Math.min(c,rawStem.numberOfChannels-1)),fixed=processed.getChannelData(Math.min(c,processed.numberOfChannels-1));for(let i=0;i<length;i++){const rideDb=typeof mfStemRideDbAt==='function'?mfStemRideDbAt(plan,i/sr):(plan.mixGainDb||0);dest[i]+=typeof mfStemBalanceDelta==='function'?mfStemBalanceDelta(raw[i],fixed[i],match,wet,rideDb):(fixed[i]*match-raw[i])*wet;}}
     await sleep(0);
   }

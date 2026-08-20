@@ -116,7 +116,7 @@ assert.match(report, /AuraMix/);
 assert.match(report, /mono incompatibility/);
 
 const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-assert.equal(pkg.version, '2.5.8', 'package.json version must cache-bust to 2.5.8');
+assert.equal(pkg.version, '2.5.9', 'package.json version must cache-bust to 2.5.9');
 
 const indexHtml = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 assert.match(indexHtml, /app-musician-ux\.js/, 'musician UX layer must load');
@@ -125,8 +125,11 @@ assert.match(indexHtml, /Quick Master/, 'hero/path copy must mention Quick Maste
 assert.match(indexHtml, /Forensic Fix/, 'hero/path copy must mention Forensic Fix');
 assert.match(indexHtml, /AuraMix/, 'seat clarification should mention AuraMix');
 assert.match(indexHtml, /auramix\.workinwithai\.com/, 'AuraMix must be a real link');
-assert.match(indexHtml, /2\.5\.8/, 'version must be 2.5.8 so the preview cannot serve stale 2.5.7 JS');
+assert.match(indexHtml, /2\.5\.9/, 'version must be 2.5.9 so the preview cannot serve stale 2.5.8 JS');
+assert.doesNotMatch(indexHtml, /2\.5\.8/, 'visible version must leave 2.5.8');
 assert.doesNotMatch(indexHtml, /2\.5\.7/, 'visible version must leave 2.5.7');
+assert.doesNotMatch(indexHtml, /does not judge vocal performance/);
+assert.doesNotMatch(indexHtml, /vocals live in/);
 assert.doesNotMatch(indexHtml, /2\.5\.6/, 'visible version must leave 2.5.6');
 assert.doesNotMatch(indexHtml, /2\.5\.5/, 'visible version must leave 2.5.5');
 assert.doesNotMatch(indexHtml, /2\.5\.4/, 'visible version must leave 2.5.4');

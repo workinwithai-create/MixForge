@@ -2,13 +2,14 @@
 
 // MixForge 2.5 listening merge.
 // Measurements stay ground truth for clip %, LUFS, sample peak, correlation, DC.
-// Gemini may add mix/master hypotheses after hearing a compact excerpt.
-// It must not judge vocal performance (AuraMix) or invent frequencies.
+// Gemini may add mix/master hypotheses after hearing a compact excerpt,
+// including possible pitch drift. Isolated-stem measurements decide.
+// It must not judge singer skill, timing, lyrics, or invent frequencies.
 
 const MF_CANONICAL_STEMS = ['vocals', 'bass', 'drums', 'other'];
 const MF_STEM_ALIAS_MAP = { guitars: 'other', keys: 'other' };
 const MF_ALLOWED_HZ = new Set([20, 60, 250, 500, 2000, 5000, 16000]);
-const MF_PERFORMANCE_CLAIM = /pitch|intonation|timing|out of tune|late take|vocal take|performance quality|singer skill|wrong notes|lyrics are/i;
+const MF_PERFORMANCE_CLAIM = /timing|late take|vocal take|performance quality|singer skill|wrong notes|lyrics are/i;
 
 function normalizeAllowedStem(stem) {
   if (stem == null || stem === '') return null;

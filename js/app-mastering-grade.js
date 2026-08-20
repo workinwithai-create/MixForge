@@ -1,6 +1,6 @@
 'use strict';
 
-// MixForge 2.1 mastering-grade DSP layer (2.5.8: quieter Forensic musician view).
+// MixForge 2.1 mastering-grade DSP layer (2.5.9: isolated vocal chain).
 // This file deliberately loads after the forensic rule engine and before the
 // signal-integrity wrapper so every later stage uses the upgraded renderer.
 // Quick Master must repair measured #1 issues (sub-bass accumulation, dark top)
