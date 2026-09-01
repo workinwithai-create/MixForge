@@ -58,7 +58,7 @@ function validateAudit(value, fallback) {
 $('auditBtn').addEventListener('click', async () => {
   if (!state.original) return;
   $('auditBtn').disabled = true;
-  setStatus('auditStatus', 'Measuring loudness, spectrum, dynamics, stereo field, clipping and translation risks…', 'busy');
+  setStatus('auditStatus', 'First pass: checking the mix for the problems that matter before release…', 'busy');
   await sleep(30);
   try {
     const metrics = measureBuffer(state.original);
@@ -74,15 +74,15 @@ $('auditBtn').addEventListener('click', async () => {
       if (listeningStatus.listeningConfigured === false) {
         throw Object.assign(new Error('GEMINI_API_KEY is not configured.'), { status: 400 });
       }
-      setStatus('auditStatus', 'Building a compact listening excerpt from loudest/problem windows…', 'busy');
+      setStatus('auditStatus', 'Pulling together the key sections for Producer’s Ear…', 'busy');
       const listeningClip = typeof buildListeningClip === 'function'
         ? await buildListeningClip(state.original, { markers: state.timelineAnalysis?.markers })
         : null;
       if (!listeningClip) throw new Error('Listening clip unavailable');
-      setStatus('auditStatus', 'Gemini is listening to the mix excerpt — not a vocal performance take…', 'busy');
+      setStatus('auditStatus', 'Producer’s Ear is listening for what lands, what gets lost, and what to protect…', 'busy');
       const ai = await requestAI({ phase: 'mix', metrics, notes, targetLufs, listeningClip }, {
         onRetry() {
-          setStatus('auditStatus', 'Listening pass is retrying after a timeout…', 'busy');
+          setStatus('auditStatus', 'Producer’s Ear needs another listen — retrying now…', 'busy');
         },
       });
       audit = validateAudit(ai, fallback);

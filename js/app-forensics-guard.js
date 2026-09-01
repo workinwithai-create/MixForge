@@ -106,6 +106,34 @@ function sanitizeListeningFinding(raw, measuredFallback) {
   return finding;
 }
 
+function safeProducerText(value, max = 500) {
+  const text = String(value || '').replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  if (!text || MF_PERFORMANCE_CLAIM.test(text)) return '';
+  if (inventsFrequency({ problem: text })) return '';
+  return text;
+}
+
+function sanitizeProducerReview(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const opening = safeProducerText(raw.opening, 600);
+  const honestTake = safeProducerText(raw.honestTake, 800);
+  const whatsWorking = (Array.isArray(raw.whatsWorking) ? raw.whatsWorking : [])
+    .map((item) => safeProducerText(item, 400))
+    .filter(Boolean)
+    .slice(0, 3);
+  const fixFirst = (Array.isArray(raw.fixFirst) ? raw.fixFirst : [])
+    .map((item) => ({
+      title: safeProducerText(item?.title, 120),
+      why: safeProducerText(item?.why, 450),
+      move: safeProducerText(item?.move, 500),
+    }))
+    .filter((item) => item.title && item.move)
+    .slice(0, 3);
+  const protect = safeProducerText(raw.protect, 500);
+  if (!opening && !honestTake && !whatsWorking.length && !fixFirst.length && !protect) return null;
+  return { opening, whatsWorking, honestTake, fixFirst, protect, source: 'listening' };
+}
+
 function mergeForensicAudit(aiValue, measuredFallback) {
   const measured = measuredFallback && typeof measuredFallback === 'object' ? measuredFallback : {
     readinessScore: 50,
@@ -145,6 +173,7 @@ function mergeForensicAudit(aiValue, measuredFallback) {
   const stemsToInspect = [...new Set([...measuredStems, ...aiStems, ...findingStems])];
 
   const listeningSummary = String(aiValue.summary || '').trim();
+  const producerReview = sanitizeProducerReview(aiValue.producerReview) || measured.producerReview || null;
   return {
     ...measured,
     summary: listeningSummary
@@ -158,17 +187,18 @@ function mergeForensicAudit(aiValue, measuredFallback) {
     aiFindingsAdded: added.length,
     listeningFindingsAdded: added.length,
     aiNoteOnly: added.length === 0 && Boolean(listeningSummary),
+    producerReview,
   };
 }
 
 function auditCompleteStatusMessage(audit) {
   if (!audit?.listeningUsed && !audit?.aiUsed) {
-    return 'Audit complete. Using measurements only.';
+    return 'Producer review ready. The listening pass was unavailable, so this one uses measurements only.';
   }
   if ((audit.listeningFindingsAdded || audit.aiFindingsAdded || 0) > 0) {
-    return 'Audit complete. Measurements kept as facts; Gemini listening pass added mix hypotheses.';
+    return 'Producer review ready. The musical read is backed by the measured mix.';
   }
-  return 'Audit complete. Measurements kept as facts; listening pass added an engineer note.';
+  return 'Producer review ready. Open the engineer analysis only if you want the supporting detail.';
 }
 
 validateAudit = function validateForensicAudit(aiValue, measuredFallback) {
@@ -178,5 +208,6 @@ validateAudit = function validateForensicAudit(aiValue, measuredFallback) {
 if (typeof globalThis !== 'undefined') {
   globalThis.normalizeAllowedStem = normalizeAllowedStem;
   globalThis.mergeForensicAudit = mergeForensicAudit;
+  globalThis.sanitizeProducerReview = sanitizeProducerReview;
   globalThis.auditCompleteStatusMessage = auditCompleteStatusMessage;
 }

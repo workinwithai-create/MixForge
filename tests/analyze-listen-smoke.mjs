@@ -40,6 +40,10 @@ const prompt = mixListeningPrompt({
 assert.match(prompt, /GROUND TRUTH/i);
 assert.match(prompt, /Do NOT judge performance/i);
 assert.match(prompt, /AuraMix/);
+assert.match(prompt, /Producer's Ear/i);
+assert.match(prompt, /what is genuinely working/i);
+assert.match(prompt, /never claim that you did/i);
+assert.match(prompt, /producerReview/);
 assert.doesNotMatch(prompt, /guitars or keys as separate/);
 
 const previousKey = process.env.GEMINI_API_KEY;
@@ -93,7 +97,19 @@ globalThis.fetch = async (url, init) => {
     ok: true,
     status: 200,
     json: async () => ({
-      candidates: [{ content: { parts: [{ text: JSON.stringify({ readinessScore: 70, summary: 'muddy chorus', stemsToInspect: ['other'], findings: [] }) }] } }],
+      candidates: [{ content: { parts: [{ text: JSON.stringify({
+        readinessScore: 70,
+        producerReview: {
+          opening: 'The chorus has weight.',
+          whatsWorking: ['The vocal tone feels believable.'],
+          honestTake: 'The mix is close, but the middle crowds the vocal.',
+          fixFirst: [{ title: 'Open the middle', why: 'The words recede.', move: 'Clear space around the vocal.' }],
+          protect: 'Keep the vocal texture.',
+        },
+        summary: 'muddy chorus',
+        stemsToInspect: ['other'],
+        findings: [],
+      }) }] } }],
     }),
   };
 };
@@ -102,6 +118,7 @@ await handler({ method: 'POST', body: { phase: 'mix', metrics: compactMetrics({ 
 assert.equal(listened.statusCode, 200);
 assert.equal(listened.body.provider, 'gemini-audio');
 assert.equal(listened.body.plan.summary, 'muddy chorus');
+assert.equal(listened.body.plan.producerReview.fixFirst[0].title, 'Open the middle');
 assert.equal(geminiCalls, 1);
 
 delete process.env.ANTHROPIC_API_KEY;

@@ -191,7 +191,7 @@ async function loadFile(file) {
     $('dropzone').classList.add('loaded');
     $('fileMeta').textContent = `${file.name} · ${formatDuration(decoded.duration)} · ${decoded.sampleRate / 1000} kHz · ${decoded.numberOfChannels === 1 ? 'mono' : 'stereo'}`;
     $('auditBtn').disabled = false;
-    setStatus('auditStatus', 'Ready to audit.', 'ok');
+    setStatus('auditStatus', 'Ready for Producer’s Ear.', 'ok');
   } catch (error) {
     if (token !== state.loadToken) return;
     console.error(error);

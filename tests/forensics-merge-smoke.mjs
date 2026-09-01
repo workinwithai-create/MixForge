@@ -29,6 +29,13 @@ const measured = {
 const listening = {
   readinessScore: 90,
   summary: 'Chorus vocal feels buried and the midrange is muddy.',
+  producerReview: {
+    opening: 'The chorus has real weight, but the lead steps backward.',
+    whatsWorking: ['The vocal tone feels believable.'],
+    honestTake: 'The song is stronger than the current balance.',
+    fixFirst: [{ title: 'Keep the vocal in front', why: 'The words recede.', move: 'Clear room around the vocal.' }],
+    protect: 'Keep the natural vocal texture.',
+  },
   findings: [
     { severity: 'low', stage: 'master', problem: 'No clipping', evidence: 'The mix is clean with no overload.', action: 'Master louder.', stem: null },
     { severity: 'medium', stage: 'mix', problem: 'Buried vocal in chorus', evidence: 'The lead recedes when the band enters.', action: 'Inspect vocals after isolation.', stem: 'vocals' },
@@ -48,6 +55,8 @@ assert.ok(!merged.findings.some((finding) => /intonation|out of tune/i.test(`${f
 assert.ok(!merged.stemsToInspect.includes('guitars'));
 assert.ok(!merged.stemsToInspect.includes('keys'));
 assert.ok(merged.stemsToInspect.includes('other') || merged.stemsToInspect.includes('vocals'));
+assert.equal(merged.producerReview.source, 'listening');
+assert.match(merged.producerReview.honestTake, /stronger/);
 assert.equal(context.normalizeAllowedStem('guitars'), 'other');
 assert.equal(context.normalizeAllowedStem('keys'), 'other');
 
@@ -56,7 +65,7 @@ assert.doesNotMatch(unused, /agree/i);
 assert.match(unused, /measurements only/i);
 const used = context.auditCompleteStatusMessage(merged);
 assert.doesNotMatch(used, /agree/i);
-assert.match(used, /listening pass/i);
+assert.match(used, /producer review/i);
 
 const noteOnly = context.auditCompleteStatusMessage({ listeningUsed: true, aiUsed: true, aiFindingsAdded: 0, listeningFindingsAdded: 0 });
 assert.doesNotMatch(noteOnly, /agree/i);
