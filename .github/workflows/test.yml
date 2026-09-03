@@ -20,4 +20,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - run: python -m py_compile runpod-separator/handler.py
       - run: npm test
