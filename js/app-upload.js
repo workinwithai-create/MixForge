@@ -6,6 +6,8 @@
 
 const SEPARATION_OBJECT_BUDGET = 45 * 1024 * 1024;
 const FORENSIC_SEPARATION_REQUEST = Object.freeze({ engine: 'auto', mode: 'quality' });
+const SEPARATION_POLL_INTERVAL_MS = 2500;
+const SEPARATION_MAX_POLLS = 240;
 
 function uploadWithTus(file, path, onProgress) {
   if (!window.tus?.Upload) throw new Error('Large-file upload engine did not load. Refresh the page and try again.');
@@ -154,8 +156,8 @@ separateRequiredStems = async function separateRequiredStemsFresh(stems, onProgr
       stems,
       ...FORENSIC_SEPARATION_REQUEST,
     });
-    for (let attempt = 0; attempt < 90; attempt++) {
-      await sleep(2500);
+    for (let attempt = 0; attempt < SEPARATION_MAX_POLLS; attempt++) {
+      await sleep(SEPARATION_POLL_INTERVAL_MS);
       const status = await callStemFunction({
         action: 'status',
         jobId: started.jobId,
@@ -176,9 +178,9 @@ separateRequiredStems = async function separateRequiredStemsFresh(stems, onProgr
         state.storagePath = null;
         throw new Error(status.error || 'The separation provider reported a failed job.');
       }
-      onProgress(`Separating stems… ${status.status || 'processing'} (${Math.min(99, Math.round((attempt + 1) / 90 * 100))}%)`);
+      onProgress(`Separating stems… ${status.status || 'processing'} (${Math.min(99, Math.round((attempt + 1) / SEPARATION_MAX_POLLS * 100))}%)`);
     }
-    throw new Error('Stem separation timed out. Try again with a shorter source file.');
+    throw new Error('Stem separation is still running after the client wait window. Start a fresh investigation if the job does not recover.');
   } catch (error) {
     state.storagePath = null;
     state.separationInfo = null;
