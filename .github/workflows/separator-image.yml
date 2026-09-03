@@ -1,0 +1,21 @@
+name: Separator image build
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'runpod-separator/**'
+      - '.github/workflows/separator-image.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-separator-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build RunPod separator image
+        run: docker build -f runpod-separator/Dockerfile -t mixforge-separator:ci .
