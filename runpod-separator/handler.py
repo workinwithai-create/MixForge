@@ -11,6 +11,8 @@ import runpod
 CANONICAL_STEMS = {"vocals", "bass", "drums", "other"}
 STEM_ALIASES = {"guitars": "other", "keys": "other"}
 SUPPORTED_ENGINES = {"demucs", "melband", "auto"}
+SEPARATION_SAMPLE_RATE = 44100
+SEPARATION_CHANNELS = 2
 
 
 def normalize_stems(stems):
@@ -59,6 +61,29 @@ def run_command(command, timeout_seconds):
     if completed.returncode != 0:
         message = completed.stderr[-4000:] or completed.stdout[-4000:] or "separator failed"
         raise RuntimeError(message)
+
+
+def prepare_source(downloaded: Path, destination: Path):
+    command = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(downloaded),
+        "-vn",
+        "-ac",
+        str(SEPARATION_CHANNELS),
+        "-ar",
+        str(SEPARATION_SAMPLE_RATE),
+        "-c:a",
+        "pcm_s16le",
+        str(destination),
+    ]
+    run_command(command, 300)
+    if not destination.exists() or destination.stat().st_size <= 44:
+        raise RuntimeError("Could not prepare a valid PCM WAV for separation")
 
 
 def choose_engine(payload, requested):
@@ -167,8 +192,10 @@ def handler(job):
     started_at = time.monotonic()
 
     try:
+        downloaded = workspace / "source-input"
         source = workspace / "source.wav"
-        download(input_url, source)
+        download(input_url, downloaded)
+        prepare_source(downloaded, source)
 
         files = {}
         models = {}
@@ -217,6 +244,11 @@ def handler(job):
                 "requestedStems": requested,
                 "elapsedSeconds": round(time.monotonic() - started_at, 2),
                 "routingNote": routing_note,
+                "inputNormalization": {
+                    "format": "pcm_s16le",
+                    "sampleRate": SEPARATION_SAMPLE_RATE,
+                    "channels": SEPARATION_CHANNELS,
+                },
             },
         }
     except subprocess.TimeoutExpired:
