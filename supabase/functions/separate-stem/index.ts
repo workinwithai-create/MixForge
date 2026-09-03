@@ -1,5 +1,5 @@
 const DEMUCS_STEMS = new Set(["vocals", "bass", "drums", "other"]);
-const STEM_ALIASES: Record<string, string> = { guitars: "other", keys: "other", instrumental: "other" };
+const STEM_ALIASES: Record<string, string> = { guitars: "other", keys: "other" };
 const SUPPORTED_ENGINES = new Set(["demucs", "melband", "auto"]);
 const SUPPORTED_MODES = new Set(["fast", "quality", "forensic", "hq"]);
 const ALLOWED_ORIGINS = [
