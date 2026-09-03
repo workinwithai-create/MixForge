@@ -6,7 +6,13 @@ assert.match(handler, /CANONICAL_STEMS = \{"vocals", "bass", "drums", "other"\}/
 assert.match(handler, /STEM_ALIASES = \{"guitars": "other", "keys": "other"\}/);
 assert.doesNotMatch(handler, /"instrumental": "other"/);
 assert.match(handler, /SUPPORTED_ENGINES = \{"demucs", "melband", "auto"\}/);
+assert.match(handler, /SEPARATION_SAMPLE_RATE = 44100/);
+assert.match(handler, /SEPARATION_CHANNELS = 2/);
 assert.match(handler, /def normalize_stems/);
+assert.match(handler, /def prepare_source/);
+assert.match(handler, /"ffmpeg"/);
+assert.match(handler, /"pcm_s16le"/);
+assert.match(handler, /prepare_source\(downloaded, source\)/);
 assert.match(handler, /def choose_engine/);
 assert.match(handler, /ENABLE_MELBAND/);
 assert.match(handler, /env_enabled\("ENABLE_MELBAND", False\)/);
@@ -21,6 +27,7 @@ assert.match(handler, /"separator": \{/);
 assert.match(handler, /"models": models/);
 assert.match(handler, /"stemSources": stem_sources/);
 assert.match(handler, /"routingNote": routing_note/);
+assert.match(handler, /"inputNormalization": \{/);
 
 const edge = fs.readFileSync(new URL('../supabase/functions/separate-stem/index.ts', import.meta.url), 'utf8');
 assert.match(edge, /vocals.*bass.*drums.*other/);
@@ -34,7 +41,15 @@ assert.doesNotMatch(edge, /ALLOWED_STEMS = new Set\(\["vocals", "bass", "drums",
 
 const upload = fs.readFileSync(new URL('../js/app-upload.js', import.meta.url), 'utf8');
 assert.match(upload, /FORENSIC_SEPARATION_REQUEST = Object\.freeze\(\{ engine: 'auto', mode: 'quality' \}\)/);
+assert.match(upload, /SEPARATION_POLL_INTERVAL_MS = 2500/);
+assert.match(upload, /SEPARATION_MAX_POLLS = 240/);
+assert.match(upload, /attempt < SEPARATION_MAX_POLLS/);
 assert.match(upload, /state\.separationInfo = status\.separator/);
+
+const dockerfile = fs.readFileSync(new URL('../runpod-separator/Dockerfile', import.meta.url), 'utf8');
+assert.match(dockerfile, /ENV ENABLE_MELBAND=false/);
+assert.match(dockerfile, /SEPARATION_ENGINE=demucs/);
+assert.match(dockerfile, /melband-roformer-infer --help/);
 
 const init = fs.readFileSync(new URL('../js/app-init.js', import.meta.url), 'utf8');
 assert.match(init, /const STEMS = \['vocals', 'bass', 'drums', 'other'\]/);
