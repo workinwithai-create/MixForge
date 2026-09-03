@@ -23,6 +23,13 @@ def normalize_stems(stems):
     return out
 
 
+def env_enabled(name: str, default=False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def download(url: str, destination: Path) -> None:
     with requests.get(url, stream=True, timeout=180) as response:
         response.raise_for_status()
@@ -68,6 +75,10 @@ def choose_engine(payload, requested):
 
     if engine == "auto":
         engine = "melband" if quality and set(requested).issubset(MELBAND_STEMS) else "demucs"
+
+    if engine == "melband" and not env_enabled("ENABLE_MELBAND", False):
+        fallback_reason = "MelBand quality route is installed but not enabled on this worker; used Demucs."
+        engine = "demucs"
 
     if engine == "melband" and not set(requested).issubset(MELBAND_STEMS):
         fallback_reason = "MelBand quality route currently supports vocals + instrumental only; used Demucs for the requested 4-stem-compatible set."
