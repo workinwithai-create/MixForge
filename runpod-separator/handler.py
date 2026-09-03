@@ -9,8 +9,7 @@ import requests
 import runpod
 
 CANONICAL_STEMS = {"vocals", "bass", "drums", "other"}
-STEM_ALIASES = {"guitars": "other", "keys": "other", "instrumental": "other"}
-MELBAND_STEMS = {"vocals", "other"}
+STEM_ALIASES = {"guitars": "other", "keys": "other"}
 SUPPORTED_ENGINES = {"demucs", "melband", "auto"}
 
 
@@ -70,21 +69,28 @@ def choose_engine(payload, requested):
         requested_engine = "demucs"
 
     quality = str(payload.get("mode") or "").lower() in {"quality", "forensic", "hq"}
-    engine = requested_engine
+    melband_enabled = env_enabled("ENABLE_MELBAND", False)
+    requested_set = set(requested)
     fallback_reason = None
 
-    if engine == "auto":
-        engine = "melband" if quality and set(requested).issubset(MELBAND_STEMS) else "demucs"
+    if requested_engine == "demucs":
+        return "demucs", fallback_reason
 
-    if engine == "melband" and not env_enabled("ENABLE_MELBAND", False):
-        fallback_reason = "MelBand quality route is installed but not enabled on this worker; used Demucs."
-        engine = "demucs"
+    if not melband_enabled:
+        return "demucs", "MelBand quality routing is installed but disabled on this worker; used Demucs."
 
-    if engine == "melband" and not set(requested).issubset(MELBAND_STEMS):
-        fallback_reason = "MelBand quality route currently supports vocals + instrumental only; used Demucs for the requested 4-stem-compatible set."
-        engine = "demucs"
+    if requested_engine == "melband":
+        if requested_set == {"vocals"}:
+            return "melband", fallback_reason
+        return "demucs", "MelBand can safely replace only the canonical vocal stem. MixForge 'other' is a Demucs residual bucket, not a full instrumental; used Demucs to preserve source semantics."
 
-    return engine, fallback_reason
+    # auto
+    if quality and "vocals" in requested_set:
+        if requested_set == {"vocals"}:
+            return "melband", fallback_reason
+        return "hybrid", "MelBand supplies the quality vocal stem; Demucs remains authoritative for bass, drums, and residual other."
+
+    return "demucs", fallback_reason
 
 
 def run_demucs(source: Path, output_dir: Path, requested):
@@ -118,7 +124,7 @@ def first_match(root: Path, suffix: str):
     return matches[0] if matches else None
 
 
-def run_melband(source: Path, output_dir: Path, requested):
+def run_melband_vocals(source: Path, output_dir: Path):
     model = os.getenv("MELBAND_MODEL", "melband-roformer-kim-vocals")
     input_dir = source.parent / "melband-input"
     input_dir.mkdir(parents=True, exist_ok=True)
@@ -140,15 +146,9 @@ def run_melband(source: Path, output_dir: Path, requested):
     run_command(command, 1800)
 
     vocals = first_match(output_dir, "_vocals.wav")
-    instrumental = first_match(output_dir, "_instrumental.wav")
-    candidates = {"vocals": vocals, "other": instrumental}
-    outputs = {}
-    for stem in requested:
-        file_path = candidates.get(stem)
-        if not file_path or not file_path.exists():
-            raise RuntimeError(f"Missing {stem} MelBand output")
-        outputs[stem] = file_path
-    return outputs, model
+    if not vocals or not vocals.exists():
+        raise RuntimeError("Missing vocals MelBand output")
+    return vocals, model
 
 
 def handler(job):
@@ -162,22 +162,45 @@ def handler(job):
     if not requested:
         return {"error": "No supported stems requested"}
 
-    engine, fallback_reason = choose_engine(payload, requested)
+    engine, routing_note = choose_engine(payload, requested)
     workspace = Path(tempfile.mkdtemp(prefix="mixforge-"))
     started_at = time.monotonic()
 
     try:
         source = workspace / "source.wav"
-        output_dir = workspace / "out"
         download(input_url, source)
 
+        files = {}
+        models = {}
+        stem_sources = {}
+
         if engine == "melband":
-            files, model = run_melband(source, output_dir, requested)
+            vocals, melband_model = run_melband_vocals(source, workspace / "melband-out")
+            files["vocals"] = vocals
+            models["melband"] = melband_model
+            stem_sources["vocals"] = "melband"
+        elif engine == "hybrid":
+            demucs_files, demucs_model = run_demucs(source, workspace / "demucs-out", requested)
+            files.update(demucs_files)
+            models["demucs"] = demucs_model
+            for stem in requested:
+                stem_sources[stem] = "demucs"
+            vocals, melband_model = run_melband_vocals(source, workspace / "melband-out")
+            files["vocals"] = vocals
+            models["melband"] = melband_model
+            stem_sources["vocals"] = "melband"
         else:
-            files, model = run_demucs(source, output_dir, requested)
+            demucs_files, demucs_model = run_demucs(source, workspace / "demucs-out", requested)
+            files.update(demucs_files)
+            models["demucs"] = demucs_model
+            for stem in requested:
+                stem_sources[stem] = "demucs"
 
         uploaded = {}
-        for stem, file_path in files.items():
+        for stem in requested:
+            file_path = files.get(stem)
+            if not file_path or not file_path.exists():
+                raise RuntimeError(f"Missing canonical {stem} output")
             signed_upload = upload_urls.get(stem)
             if not signed_upload:
                 return {"error": f"Missing upload URL for {stem}"}
@@ -189,14 +212,15 @@ def handler(job):
             "outputs": uploaded,
             "separator": {
                 "engine": engine,
-                "model": model,
+                "models": models,
+                "stemSources": stem_sources,
                 "requestedStems": requested,
                 "elapsedSeconds": round(time.monotonic() - started_at, 2),
-                "fallbackReason": fallback_reason,
+                "routingNote": routing_note,
             },
         }
     except subprocess.TimeoutExpired:
-        return {"error": f"{engine} separation timed out"}
+        return {"error": f"{engine} separation timed out", "separator": {"engine": engine}}
     except Exception as error:
         return {"error": str(error), "separator": {"engine": engine}}
     finally:
