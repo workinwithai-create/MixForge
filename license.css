@@ -1,0 +1,18 @@
+.license-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:0 0 18px;padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,rgba(209,136,69,.10),var(--panel2));}
+.license-bar[data-state="checking"]{opacity:.82}
+.license-bar[data-state="licensed"]{border-color:rgba(121,194,125,.45);background:linear-gradient(180deg,rgba(121,194,125,.12),var(--panel2))}
+.license-bar[data-state="unpaid"],.license-bar[data-state="login"]{border-color:rgba(209,136,69,.45)}
+.license-copy{min-width:min(100%,420px);flex:1 1 280px}
+.license-copy strong{display:block;font-size:.98rem}
+.license-copy p{margin:6px 0 0;color:var(--muted);font-size:.86rem;line-height:1.45}
+.license-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+a.license-btn{display:inline-flex;align-items:center;justify-content:center;border-radius:10px;padding:10px 15px;font:700 .85rem Inter,system-ui,sans-serif;text-decoration:none}
+a.license-btn.primary{background:var(--copper);color:#111}
+a.license-btn.secondary{background:transparent;color:var(--text);border:1px solid var(--line)}
+.export-license-hint{margin:10px 0 0;color:var(--yellow);font-size:.84rem}
+.mobile-onboard{margin:0 0 18px;padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:var(--panel2)}
+.mobile-onboard strong{display:block;margin-bottom:8px}
+.mobile-onboard ol{margin:0 0 12px;padding-left:18px;color:var(--muted);font-size:.88rem;line-height:1.5}
+.mobile-onboard[hidden]{display:none!important}
+.mobile-file-hint{margin:8px 0 0;color:var(--muted);font-size:.82rem;line-height:1.45}
+@media(max-width:660px){.license-bar,.mobile-onboard{padding:12px}.license-actions{width:100%}.license-actions a,.mobile-onboard button{flex:1 1 auto}}
