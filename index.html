@@ -4,29 +4,53 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#0d0f12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
   <title>MixForge — Fix the mix, then master for release</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="/styles.css?v=2.5.0">
-  <link rel="stylesheet" href="/forensics.css?v=2.5.0">
-  <link rel="stylesheet" href="/transport.css?v=2.5.0">
-  <link rel="stylesheet" href="/signal-integrity.css?v=2.5.0">
-  <link rel="stylesheet" href="/vocal-cleanup.css?v=2.5.0">
-  <link rel="stylesheet" href="/timeline.css?v=2.5.0">
-  <link rel="stylesheet" href="/targeted-repair.css?v=2.5.0">
-  <link rel="stylesheet" href="/musician-ux.css?v=2.5.0">
+  <link rel="stylesheet" href="/styles.css?v=2.6.0">
+  <link rel="stylesheet" href="/forensics.css?v=2.6.0">
+  <link rel="stylesheet" href="/transport.css?v=2.6.0">
+  <link rel="stylesheet" href="/signal-integrity.css?v=2.6.0">
+  <link rel="stylesheet" href="/vocal-cleanup.css?v=2.6.0">
+  <link rel="stylesheet" href="/timeline.css?v=2.6.0">
+  <link rel="stylesheet" href="/targeted-repair.css?v=2.6.0">
+  <link rel="stylesheet" href="/musician-ux.css?v=2.6.0">
+  <link rel="stylesheet" href="/license.css?v=2.6.0">
 </head>
 <body>
   <main class="shell">
     <header class="hero">
       <div class="eyebrow">Workin' With AI · The Forge Stack</div>
-      <h1>MixForge <span>2.5.0</span></h1>
+      <h1>MixForge <span>2.6.0</span></h1>
       <p>Fix mix problems, then master for release. Start with Quick Master for a fast Original vs Master A/B — or open Forensic Fix when you need timeline evidence and honest stem investigation. Gemini may listen to a compact mix excerpt; it does not judge vocal performance.</p>
       <div class="pipeline" aria-label="MixForge pipeline"><span>Observe</span><b>→</b><span>Locate</span><b>→</b><span>Isolate</span><b>→</b><span>Confirm</span><b>→</b><span>Repair</span><b>→</b><span>Verify</span></div>
       <p class="pipeline-note" id="pipelineNote">Quick Master skips Isolate / Confirm / Repair: Observe → Locate → Master → Verify. Gemini listens to the mix/master, not vocal performance (AuraMix).</p>
       <div class="hero-modes" id="heroModeRow"><span>Quick Master</span><b>or</b><span>Forensic Fix</span><i>Mix repair + release master · vocals live in <a href="https://auramix.workinwithai.com" target="_blank" rel="noopener noreferrer">AuraMix</a></i></div>
     </header>
+    <aside class="license-bar" id="licenseBar" data-state="checking" aria-live="polite">
+      <div class="license-copy">
+        <strong id="licenseStatus">Checking MixForge license…</strong>
+        <p id="licenseDetail">Stereo audit stays free. Quick Master, Forensic Fix, and WAV export need MixForge ($9/mo) or the Forge Pass ($24/mo).</p>
+      </div>
+      <div class="license-actions">
+        <a class="secondary license-btn" id="licenseSignInBtn" href="https://workinwithai.com/login?next=https://mixforge.workinwithai.com/">Sign in</a>
+        <a class="primary license-btn" id="licenseBuyBtn" href="https://workinwithai.com/#pricing">Get MixForge license</a>
+      </div>
+    </aside>
+    <aside class="mobile-onboard" id="mobileOnboard" hidden>
+      <strong>Phone first-run</strong>
+      <ol>
+        <li>On iPhone, open the song in Files and choose Download Now if it still lives in iCloud.</li>
+        <li>Prefer a local WAV. Huge cloud placeholders fail before decode starts.</li>
+        <li>Scan is free. Sign in on this same phone before you render or download the release WAV.</li>
+        <li>Optional: Share → Add to Home Screen so MixForge reopens without re-finding the tab.</li>
+      </ol>
+      <button type="button" class="secondary" id="mobileOnboardDismiss">Got it</button>
+    </aside>
     <section class="panel" id="loadPanel">
       <div class="panel-title"><span>1</span><div><h2>Load your mix</h2><p>WAV is best. The first scan proves what it can from stereo only. Source attribution stays a hypothesis until you opt into stems.</p></div></div>
       <button class="dropzone" id="dropzone" type="button"><strong>Choose a mix or drop it here</strong><small id="fileMeta">No file loaded</small></button>
@@ -62,33 +86,36 @@
       <div class="metrics" id="finalMetrics"></div><div class="verification" id="verificationList"></div>
       <section class="problem-timeline master-timeline" id="masterTimeline" aria-live="polite"></section>
       <div class="export-safety hidden" id="exportSafety"><p id="exportSafetyMsg"></p><label class="export-override"><input type="checkbox" id="exportOverride"> Export anyway — I accept a clipped or over-ceiling master</label></div>
-      <div class="actions"><button class="primary" id="exportBtn">Download release WAV</button></div><div class="status" id="exportStatus" aria-live="polite"></div>
+      <div class="actions"><button class="primary" id="exportBtn">Download release WAV</button></div>
+      <p class="export-license-hint" id="exportLicenseHint">Release WAV download needs a MixForge or Forge Pass license.</p>
+      <div class="status" id="exportStatus" aria-live="polite"></div>
     </section>
-    <footer>MixForge 2.5.0 · Quick Master or Forensic Fix · show measured change · loudness, peak, and remaining risks · © 2026 Workin' With AI</footer>
+    <footer>MixForge 2.6.0 · Quick Master or Forensic Fix · license required to master or export · stereo audit stays free · © 2026 Workin' With AI</footer>
   </main>
-  <script src="/js/app-init.js?v=2.5.0" defer></script>
-  <script src="/js/app-metrics.js?v=2.5.0" defer></script>
-  <script src="/js/app-listening-clip.js?v=2.5.0" defer></script>
-  <script src="/js/app-audit-request.js?v=2.5.0" defer></script>
-  <script src="/js/app-audit.js?v=2.5.0" defer></script>
+  <script src="/js/app-init.js?v=2.6.0" defer></script>
+  <script src="/js/app-metrics.js?v=2.6.0" defer></script>
+  <script src="/js/app-listening-clip.js?v=2.6.0" defer></script>
+  <script src="/js/app-audit-request.js?v=2.6.0" defer></script>
+  <script src="/js/app-audit.js?v=2.6.0" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js" defer></script>
-  <script src="/js/app-upload.js?v=2.5.0" defer></script>
-  <script src="/js/app-stems.js?v=2.5.0" defer></script>
-  <script src="/js/app-master.js?v=2.5.0" defer></script>
-  <script src="/js/app-transport.js?v=2.5.0" defer></script>
-  <script src="/js/app-forensics.js?v=2.5.0" defer></script>
-  <script src="/js/app-separation-provenance.js?v=2.5.0" defer></script>
-  <script src="/js/app-forensics-guard.js?v=2.5.0" defer></script>
-  <script src="/js/app-mastering-grade.js?v=2.5.0" defer></script>
-  <script src="/js/app-export.js?v=2.5.0" defer></script>
-  <script src="/js/app-signal-integrity.js?v=2.5.0" defer></script>
-  <script src="/js/app-critical-listening.js?v=2.5.0" defer></script>
-  <script src="/js/app-vocal-cleanup.js?v=2.5.0" defer></script>
-  <script src="/js/app-vocal-cleanup-guard.js?v=2.5.0" defer></script>
-  <script src="/js/app-timeline-analysis.js?v=2.5.0" defer></script>
-  <script src="/js/app-timeline-ui.js?v=2.5.0" defer></script>
-  <script src="/js/app-targeted-repair.js?v=2.5.0" defer></script>
-  <script src="/js/app-targeted-repair-guard.js?v=2.5.0" defer></script>
-  <script src="/js/app-musician-ux.js?v=2.5.0" defer></script>
+  <script src="/js/app-upload.js?v=2.6.0" defer></script>
+  <script src="/js/app-stems.js?v=2.6.0" defer></script>
+  <script src="/js/app-master.js?v=2.6.0" defer></script>
+  <script src="/js/app-transport.js?v=2.6.0" defer></script>
+  <script src="/js/app-forensics.js?v=2.6.0" defer></script>
+  <script src="/js/app-separation-provenance.js?v=2.6.0" defer></script>
+  <script src="/js/app-forensics-guard.js?v=2.6.0" defer></script>
+  <script src="/js/app-mastering-grade.js?v=2.6.0" defer></script>
+  <script src="/js/app-export.js?v=2.6.0" defer></script>
+  <script src="/js/app-signal-integrity.js?v=2.6.0" defer></script>
+  <script src="/js/app-critical-listening.js?v=2.6.0" defer></script>
+  <script src="/js/app-vocal-cleanup.js?v=2.6.0" defer></script>
+  <script src="/js/app-vocal-cleanup-guard.js?v=2.6.0" defer></script>
+  <script src="/js/app-timeline-analysis.js?v=2.6.0" defer></script>
+  <script src="/js/app-timeline-ui.js?v=2.6.0" defer></script>
+  <script src="/js/app-targeted-repair.js?v=2.6.0" defer></script>
+  <script src="/js/app-targeted-repair-guard.js?v=2.6.0" defer></script>
+  <script src="/js/app-musician-ux.js?v=2.6.0" defer></script>
+  <script src="/js/app-hub-entitlement.js?v=2.6.0" defer></script>
 </body>
 </html>

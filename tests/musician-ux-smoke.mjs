@@ -94,16 +94,20 @@ assert.match(indexHtml, /Quick Master/, 'hero/path copy must mention Quick Maste
 assert.match(indexHtml, /Forensic Fix/, 'hero/path copy must mention Forensic Fix');
 assert.match(indexHtml, /AuraMix/, 'seat clarification should mention AuraMix');
 assert.match(indexHtml, /auramix\.workinwithai\.com/, 'AuraMix must be a real link');
-assert.match(indexHtml, /2\.5\.0/, 'version must be 2.5.0');
+assert.match(indexHtml, /2\.6\.0/, 'version must be 2.6.0');
 assert.doesNotMatch(indexHtml, /prove the master improved/);
 assert.doesNotMatch(indexHtml, /AI and measured evidence agree/);
 assert.match(indexHtml, /app-listening-clip\.js/, 'listening clip builder must load');
+assert.match(indexHtml, /app-hub-entitlement\.js/, 'Hub entitlement client must load');
+assert.match(indexHtml, /id="licenseBar"/, 'license bar must exist');
 
 const readme = fs.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 assert.match(readme, /RUNPOD_ENDPOINT_ID/, 'README should document RunPod secrets');
 assert.match(readme, /GEMINI_API_KEY/, 'README should document Gemini listening');
 assert.match(readme, /process\.env\.GEMINI_API_KEY/, 'README should say the API reads process.env only');
 assert.match(readme, /Production and Preview/, 'README should say to set the key on preview and production');
+assert.match(readme, /MIXFORGE_LICENSE_SECRET/, 'README should document license secret');
 assert.doesNotMatch(readme, /MUSICAI_KEY/, 'README should not advertise Music.ai secrets');
+assert.doesNotMatch(readme, /currently ships ungated/);
 
 console.log('musician-ux smoke passed');
