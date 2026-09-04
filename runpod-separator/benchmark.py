@@ -10,6 +10,15 @@ from pathlib import Path
 AUDIO_SUFFIXES = {".wav", ".mp3", ".m4a", ".aac", ".flac", ".aif", ".aiff", ".ogg"}
 SAMPLE_RATE = 44100
 CHANNELS = 2
+MELBAND_CHECKPOINT_FILE = "MelBandRoformer.ckpt"
+MELBAND_CHECKPOINT_SHA256_DEFAULT = "87201f4d31afb5bc79993230fc49446918425574db48c01c405e44f365c7559e"
+
+
+def env_enabled(name, default=False):
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def run(command, timeout):
@@ -25,6 +34,22 @@ def run(command, timeout):
 def slugify(value):
     cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "-", value).strip("-._")
     return cleaned or "track"
+
+
+def benchmark_provenance(demucs_model, melband_model):
+    return {
+        "separatorImageRevision": os.getenv("MIXFORGE_SEPARATOR_REVISION", "unknown"),
+        "demucsModel": demucs_model,
+        "melbandModel": melband_model,
+        "melbandCheckpoint": MELBAND_CHECKPOINT_FILE,
+        "melbandCheckpointSha256": os.getenv("MELBAND_CHECKPOINT_SHA256", MELBAND_CHECKPOINT_SHA256_DEFAULT),
+        "melbandCheckpointBakedIntoImage": env_enabled("MELBAND_PRELOADED", False),
+        "inputNormalization": {
+            "sampleRate": SAMPLE_RATE,
+            "channels": CHANNELS,
+            "codec": "pcm_s16le",
+        },
+    }
 
 
 def normalize(source, destination):
@@ -95,7 +120,7 @@ def collect_inputs(paths):
     return deduped
 
 
-def benchmark_track(source, output_root, demucs_model, melband_model):
+def benchmark_track(source, output_root, demucs_model, melband_model, provenance):
     track_dir = output_root / slugify(source.stem)
     track_dir.mkdir(parents=True, exist_ok=True)
     normalized = track_dir / "source-44100-stereo.wav"
@@ -108,6 +133,7 @@ def benchmark_track(source, output_root, demucs_model, melband_model):
 
     manifest = {
         "source": str(source),
+        "provenance": provenance,
         "normalization": {
             "path": str(normalized),
             "sampleRate": SAMPLE_RATE,
@@ -140,7 +166,7 @@ def benchmark_track(source, output_root, demucs_model, melband_model):
             "transientIntegrity": None,
             "toneNaturalness": None,
             "preferredVocalStem": None,
-            "notes": "Score by listening. Do not promote a model from SDR or runtime alone.",
+            "notes": "Score by listening. Do not promote a model from SDR, reconstruction error, or runtime alone.",
         },
     }
     (track_dir / "benchmark.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -162,18 +188,24 @@ def main():
 
     output_root = Path(args.output).expanduser().resolve()
     output_root.mkdir(parents=True, exist_ok=True)
+    provenance = benchmark_provenance(args.demucs_model, args.melband_model)
     summary = []
     for index, source in enumerate(inputs, start=1):
         print(f"[{index}/{len(inputs)}] {source.name}", flush=True)
         try:
-            result = benchmark_track(source, output_root, args.demucs_model, args.melband_model)
-            summary.append({"source": str(source), "ok": True, "manifest": str(output_root / slugify(source.stem) / "benchmark.json"), "runtimeSeconds": result["runtimeSeconds"]})
+            result = benchmark_track(source, output_root, args.demucs_model, args.melband_model, provenance)
+            summary.append({
+                "source": str(source),
+                "ok": True,
+                "manifest": str(output_root / slugify(source.stem) / "benchmark.json"),
+                "runtimeSeconds": result["runtimeSeconds"],
+            })
         except Exception as error:
             summary.append({"source": str(source), "ok": False, "error": str(error)})
             print(f"  failed: {error}", flush=True)
 
     summary_path = output_root / "summary.json"
-    summary_path.write_text(json.dumps({"tracks": summary}, indent=2), encoding="utf-8")
+    summary_path.write_text(json.dumps({"provenance": provenance, "tracks": summary}, indent=2), encoding="utf-8")
     passed = sum(1 for item in summary if item["ok"])
     print(f"Completed {passed}/{len(summary)} tracks. Summary: {summary_path}")
     if passed != len(summary):
