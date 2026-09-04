@@ -69,11 +69,9 @@ def choose_engine(payload, requested):
     requested_engine = str(payload.get("engine") or os.getenv("SEPARATION_ENGINE", "demucs")).lower()
     if requested_engine not in SUPPORTED_ENGINES:
         requested_engine = "demucs"
-
     quality = str(payload.get("mode") or "").lower() in {"quality", "forensic", "hq"}
     melband_enabled = env_enabled("ENABLE_MELBAND", False)
     requested_set = set(requested)
-
     if requested_engine == "demucs":
         return "demucs", None
     if not melband_enabled:
@@ -197,6 +195,7 @@ def handler(job):
             "outputs": uploaded,
             "separator": {
                 "engine": engine,
+                "imageRevision": os.getenv("MIXFORGE_SEPARATOR_REVISION", "unknown"),
                 "models": models,
                 "modelProvenance": model_provenance,
                 "stemSources": stem_sources,
