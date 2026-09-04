@@ -41,6 +41,7 @@ def benchmark_provenance(demucs_model, melband_model):
         "separatorImageRevision": os.getenv("MIXFORGE_SEPARATOR_REVISION", "unknown"),
         "demucsModel": demucs_model,
         "melbandModel": melband_model,
+        "melbandQualityStatus": str(os.getenv("MELBAND_QUALITY_STATUS", "candidate")).strip().lower(),
         "melbandCheckpoint": MELBAND_CHECKPOINT_FILE,
         "melbandCheckpointSha256": os.getenv("MELBAND_CHECKPOINT_SHA256", MELBAND_CHECKPOINT_SHA256_DEFAULT),
         "melbandCheckpointBakedIntoImage": env_enabled("MELBAND_PRELOADED", False),
