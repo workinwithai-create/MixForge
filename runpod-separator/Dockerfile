@@ -3,6 +3,7 @@ FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
 WORKDIR /app
 
 ARG PRELOAD_MELBAND=false
+ARG BUILD_REVISION=unknown
 
 ENV ENABLE_MELBAND=false \
     SEPARATION_ENGINE=demucs \
@@ -10,7 +11,8 @@ ENV ENABLE_MELBAND=false \
     MELBAND_MODEL=melband-roformer-kim-vocals \
     MELBAND_ROFORMER_MODELS_PATH=/opt/mixforge/models \
     MELBAND_CHECKPOINT_SHA256=87201f4d31afb5bc79993230fc49446918425574db48c01c405e44f365c7559e \
-    MELBAND_PRELOADED=${PRELOAD_MELBAND}
+    MELBAND_PRELOADED=${PRELOAD_MELBAND} \
+    MIXFORGE_SEPARATOR_REVISION=${BUILD_REVISION}
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
