@@ -7,7 +7,11 @@ export const HUB_ORIGIN = 'https://workinwithai.com';
 export const APP_ORIGIN = 'https://mixforge.workinwithai.com';
 export const DEFAULT_HUB_SUPABASE_URL = 'https://kldstbhnpwpvvubphnas.supabase.co';
 export const LICENSE_TTL_SEC = 60 * 60 * 12;
-export const FOUNDER_EMAILS = Object.freeze(['workinwithai@gmail.com']);
+export const FOUNDER_EMAILS = Object.freeze([
+  'workinwithai@gmail.com',
+  'markparsonsjrmusic@gmail.com',
+  'mpjrecords90@gmail.com',
+]);
 
 const PRODUCT_ALIASES = {
   mix: 'mix',
