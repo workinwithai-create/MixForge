@@ -120,6 +120,28 @@ def melband_provenance(model):
     }
 
 
+def worker_capabilities():
+    melband_model = os.getenv("MELBAND_MODEL", "melband-roformer-kim-vocals")
+    return {
+        "ok": True,
+        "action": "capabilities",
+        "separator": {
+            "imageRevision": os.getenv("MIXFORGE_SEPARATOR_REVISION", "unknown"),
+            "defaultEngine": os.getenv("SEPARATION_ENGINE", "demucs"),
+            "supportedEngines": sorted(SUPPORTED_ENGINES),
+            "canonicalStems": ["vocals", "bass", "drums", "other"],
+            "demucsModel": os.getenv("DEMUCS_MODEL", "htdemucs"),
+            "melbandEnabled": env_enabled("ENABLE_MELBAND", False),
+            "melband": melband_provenance(melband_model),
+            "inputNormalization": {
+                "format": "pcm_s16le",
+                "sampleRate": SEPARATION_SAMPLE_RATE,
+                "channels": SEPARATION_CHANNELS,
+            },
+        },
+    }
+
+
 def run_melband_vocals(source: Path, output_dir: Path):
     model = os.getenv("MELBAND_MODEL", "melband-roformer-kim-vocals")
     input_dir = source.parent / "melband-input"
@@ -139,6 +161,9 @@ def run_melband_vocals(source: Path, output_dir: Path):
 
 def handler(job):
     payload = job.get("input") or {}
+    if str(payload.get("action") or "").lower() == "capabilities":
+        return worker_capabilities()
+
     input_url = payload.get("inputUrl")
     requested = normalize_stems(payload.get("stems", []))
     upload_urls = payload.get("uploadUrls") or {}
