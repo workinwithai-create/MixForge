@@ -16,6 +16,24 @@ LANDR, eMastered, BandLab Mastering, CloudBounce, and RoEx win on making a file 
 
 Thesis: evidence-first, conservative repairs, show measured change (loudness, peak, remaining risks). MixForge is mix repair + release master; dedicated vocal production lives in AuraMix.
 
+## License and checkout
+
+Stereo audit stays free. Quick Master, Forensic Fix, and WAV export require an active MixForge (`mix`) or Forge Pass (`bundle`) entitlement.
+
+- Live Hub checkout: `POST https://workinwithai.com/api/checkout` with `{ lookupKey, returnTo }`.
+  - MixForge monthly lookup key: `mix-monthly` ($9)
+  - Forge Pass lookup key: `forge-pass-monthly` ($24)
+  - `returnTo` must be first-party (`https://mixforge.workinwithai.com/`)
+- Live Hub identity: `GET https://workinwithai.com/api/entitlements/me` returns `{ signedIn, hasMix, hasBundle, reason, loginUrl, checkoutLookupKeys }`.
+- Local license issuer: `GET /api/entitlement` signs a 12-hour MixForge license when `MIXFORGE_LICENSE_SECRET` is set.
+- The client never treats `ungated-preview` as entitled.
+
+### Extra Vercel env for billing
+- `MIXFORGE_LICENSE_SECRET` — HMAC secret for local license tokens (Production and Preview)
+- `HUB_SUPABASE_ANON_KEY` — Hub identity project anon key (`kldstbhnpwpvvubphnas`)
+- `HUB_SUPABASE_URL` (optional; defaults to the Hub identity project)
+- `MIXFORGE_ADMIN_EMAILS` (optional comma list in addition to founder addresses)
+
 ## Required environment variables
 
 ### Vercel
@@ -39,6 +57,6 @@ Music.ai is retired for this path and must not be configured as a fallback.
 
 The app uploads unreleased mixes to the private `audio` bucket. The Edge Function creates a short-lived signed URL for the RunPod separator and deletes the source upload after the separation job completes.
 
-## Hub billing follow-up
+## Not shipped until
 
-MixForge is priced on the Hub ($9/mo or Forge Pass $24). This app currently ships ungated with `MixForgeHub.requireEntitlement()` stubs for a later Hub OAuth + Stripe wiring pass.
+Do not call MixForge shipped until complete source is on GitHub, production at https://mixforge.workinwithai.com works, Hub checkout creates a Stripe session and writes an entitlement, WAV export is license-gated and tested, and mobile onboarding is verified on an iPhone.
