@@ -11,6 +11,7 @@ import runpod
 CANONICAL_STEMS = {"vocals", "bass", "drums", "other"}
 STEM_ALIASES = {"guitars": "other", "keys": "other"}
 SUPPORTED_ENGINES = {"demucs", "melband", "auto"}
+MELBAND_QUALITY_STATUSES = {"hold", "candidate", "approved"}
 SEPARATION_SAMPLE_RATE = 44100
 SEPARATION_CHANNELS = 2
 MELBAND_CHECKPOINT_FILE = "MelBandRoformer.ckpt"
@@ -31,6 +32,11 @@ def env_enabled(name: str, default=False) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def melband_quality_status():
+    status = str(os.getenv("MELBAND_QUALITY_STATUS", "candidate")).strip().lower()
+    return status if status in MELBAND_QUALITY_STATUSES else "candidate"
 
 
 def download(url: str, destination: Path) -> None:
@@ -71,11 +77,14 @@ def choose_engine(payload, requested):
         requested_engine = "demucs"
     quality = str(payload.get("mode") or "").lower() in {"quality", "forensic", "hq"}
     melband_enabled = env_enabled("ENABLE_MELBAND", False)
+    quality_status = melband_quality_status()
     requested_set = set(requested)
     if requested_engine == "demucs":
         return "demucs", None
     if not melband_enabled:
         return "demucs", "MelBand quality routing is installed but disabled on this worker; used Demucs."
+    if quality_status == "hold":
+        return "demucs", "MelBand is on quality hold; used Demucs even though the MelBand feature flag is enabled."
     if requested_engine == "melband":
         if requested_set == {"vocals"}:
             return "melband", None
@@ -113,6 +122,7 @@ def melband_provenance(model):
     checkpoint_path = models_root / model / MELBAND_CHECKPOINT_FILE
     return {
         "model": model,
+        "qualityStatus": melband_quality_status(),
         "checkpoint": MELBAND_CHECKPOINT_FILE,
         "checkpointSha256": os.getenv("MELBAND_CHECKPOINT_SHA256", MELBAND_CHECKPOINT_SHA256_DEFAULT),
         "checkpointBakedIntoImage": env_enabled("MELBAND_PRELOADED", False),
@@ -132,6 +142,7 @@ def worker_capabilities():
             "canonicalStems": ["vocals", "bass", "drums", "other"],
             "demucsModel": os.getenv("DEMUCS_MODEL", "htdemucs"),
             "melbandEnabled": env_enabled("ENABLE_MELBAND", False),
+            "melbandQualityStatus": melband_quality_status(),
             "melband": melband_provenance(melband_model),
             "inputNormalization": {
                 "format": "pcm_s16le",
