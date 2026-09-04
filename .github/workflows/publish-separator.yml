@@ -3,6 +3,11 @@ name: Publish separator image
 on:
   workflow_dispatch:
     inputs:
+      preload_melband:
+        description: 'Bake the verified MelBand checkpoint into the image'
+        required: true
+        default: true
+        type: boolean
       publish_candidate:
         description: 'Also move the candidate tag to this exact commit'
         required: true
@@ -37,6 +42,8 @@ jobs:
           push: true
           provenance: true
           sbom: true
+          build-args: |
+            PRELOAD_MELBAND=${{ inputs.preload_melband }}
           tags: ghcr.io/workinwithai-create/mixforge-separator:sha-${{ github.sha }}
 
       - name: Publish candidate tag
@@ -50,7 +57,9 @@ jobs:
         run: |
           echo "### MixForge separator image" >> "$GITHUB_STEP_SUMMARY"
           echo "Immutable tag: \`ghcr.io/workinwithai-create/mixforge-separator:sha-${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "MelBand remains disabled by default inside the image (ENABLE_MELBAND=false)." >> "$GITHUB_STEP_SUMMARY"
+          echo "MelBand runtime routing remains disabled by default inside the image (ENABLE_MELBAND=false)." >> "$GITHUB_STEP_SUMMARY"
+          echo "MelBand checkpoint preloaded: \`${{ inputs.preload_melband }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Expected checkpoint SHA-256: \`87201f4d31afb5bc79993230fc49446918425574db48c01c405e44f365c7559e\`" >> "$GITHUB_STEP_SUMMARY"
           if [ "${{ inputs.publish_candidate }}" = "true" ]; then
             echo "Candidate tag moved to this image." >> "$GITHUB_STEP_SUMMARY"
           fi
