@@ -1,5 +1,7 @@
 const DEMUCS_STEMS = new Set(["vocals", "bass", "drums", "other"]);
 const STEM_ALIASES: Record<string, string> = { guitars: "other", keys: "other" };
+const SUPPORTED_ENGINES = new Set(["demucs", "melband", "auto"]);
+const SUPPORTED_MODES = new Set(["fast", "quality", "forensic", "hq"]);
 const ALLOWED_ORIGINS = [
   /^https:\/\/mix\.workinwithai\.com$/,
   /^https:\/\/mixforge\.workinwithai\.com$/,
@@ -40,6 +42,16 @@ function safeStems(value: unknown) {
     stems.push(actual);
   }
   return stems.slice(0, 4);
+}
+
+function safeEngine(value: unknown) {
+  const engine = String(value || "demucs").toLowerCase();
+  return SUPPORTED_ENGINES.has(engine) ? engine : "demucs";
+}
+
+function safeMode(value: unknown) {
+  const mode = String(value || "fast").toLowerCase();
+  return SUPPORTED_MODES.has(mode) ? mode : "fast";
 }
 
 function encodedPath(path) {
@@ -176,7 +188,7 @@ async function removePaths(paths) {
   }).catch(() => undefined);
 }
 
-async function startRunPodJob(req, storagePath, stems) {
+async function startRunPodJob(req, storagePath, stems, engine, mode) {
   if (!/^uploads\/[a-zA-Z0-9._/-]+$/.test(storagePath) || storagePath.includes("..")) {
     throw new Error("Invalid storage path");
   }
@@ -194,14 +206,14 @@ async function startRunPodJob(req, storagePath, stems) {
   const runRes = await fetch(`https://api.runpod.ai/v2/${encodeURIComponent(endpointId)}/run`, {
     method: "POST",
     headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ input: { inputUrl, stems, uploadUrls } }),
+    body: JSON.stringify({ input: { inputUrl, stems, uploadUrls, engine, mode } }),
   });
   const run = await runRes.json().catch(() => ({}));
   if (!runRes.ok || !run.id) {
     await removePaths(Object.values(outputPaths));
     throw new Error(`RunPod start failed (${runRes.status}): ${run?.error || run?.message || JSON.stringify(run)}`);
   }
-  return { jobId: String(run.id), outputPaths };
+  return { jobId: String(run.id), outputPaths, engine, mode };
 }
 
 async function runPodStatus(req, jobId, stems, outputPaths) {
@@ -213,7 +225,7 @@ async function runPodStatus(req, jobId, stems, outputPaths) {
   const job = await statusRes.json().catch(() => ({}));
   if (!statusRes.ok) throw new Error(`RunPod status failed (${statusRes.status}): ${job?.error || job?.message || JSON.stringify(job)}`);
   const rawStatus = String(job.status || "IN_QUEUE").toUpperCase();
-  if (["IN_QUEUE", "IN_PROGRESS"].includes(rawStatus)) return { status: rawStatus, outputs: null, error: null };
+  if (["IN_QUEUE", "IN_PROGRESS"].includes(rawStatus)) return { status: rawStatus, outputs: null, error: null, separator: null };
   if (rawStatus === "FAILED" || rawStatus === "CANCELLED" || job?.output?.error) {
     await removePaths(Object.values(outputPaths));
     const rawError = String(job?.output?.error || job?.error || `RunPod job ${rawStatus.toLowerCase()}`);
@@ -223,9 +235,9 @@ async function runPodStatus(req, jobId, stems, outputPaths) {
     } else if (/storage\/v1\/object\/upload\/sign/i.test(rawError) && /400 Client Error/i.test(rawError)) {
       helpfulError = "The separated WAV exceeded the current Supabase Storage file-size setting. Raise the MixForge project's Global file size limit to 200 MB, then start a fresh source investigation.";
     }
-    return { status: "FAILED", outputs: null, error: helpfulError };
+    return { status: "FAILED", outputs: null, error: helpfulError, separator: job?.output?.separator || null };
   }
-  if (rawStatus !== "COMPLETED") return { status: rawStatus, outputs: null, error: null };
+  if (rawStatus !== "COMPLETED") return { status: rawStatus, outputs: null, error: null, separator: null };
   const outputs = {};
   for (const stem of stems) {
     const path = outputPaths[stem];
@@ -233,7 +245,7 @@ async function runPodStatus(req, jobId, stems, outputPaths) {
     outputs[stem] = await signedDownloadUrl(path, 3600, { retries: 7, label: `returned ${stem} stem` });
   }
   await recordSuccessfulUsage(jobId, await clientHash(req), stems.length);
-  return { status: "SUCCEEDED", outputs, error: null };
+  return { status: "SUCCEEDED", outputs, error: null, separator: job?.output?.separator || null };
 }
 
 Deno.serve(async (req) => {
@@ -249,8 +261,18 @@ Deno.serve(async (req) => {
     if (!stems.length) throw new Error("At least one valid stem is required");
     storagePath = String(body?.storagePath || "");
     if (action === "start") {
-      const started = await startRunPodJob(req, storagePath, stems);
-      return response(req, 200, { ok: true, status: "QUEUED", jobId: started.jobId, stems, outputPaths: started.outputPaths });
+      const engine = safeEngine(body?.engine);
+      const mode = safeMode(body?.mode);
+      const started = await startRunPodJob(req, storagePath, stems, engine, mode);
+      return response(req, 200, {
+        ok: true,
+        status: "QUEUED",
+        jobId: started.jobId,
+        stems,
+        outputPaths: started.outputPaths,
+        requestedEngine: started.engine,
+        mode: started.mode,
+      });
     }
     const jobId = String(body?.jobId || "");
     const outputPaths = body?.outputPaths && typeof body.outputPaths === "object" ? body.outputPaths : {};

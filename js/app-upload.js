@@ -5,6 +5,9 @@
 // Storage receives only a temporary, size-safe PCM proxy for separation.
 
 const SEPARATION_OBJECT_BUDGET = 45 * 1024 * 1024;
+const FORENSIC_SEPARATION_REQUEST = Object.freeze({ engine: 'auto', mode: 'quality' });
+const SEPARATION_POLL_INTERVAL_MS = 2500;
+const SEPARATION_MAX_POLLS = 240;
 
 function uploadWithTus(file, path, onProgress) {
   if (!window.tus?.Upload) throw new Error('Large-file upload engine did not load. Refresh the page and try again.');
@@ -140,15 +143,21 @@ uploadOriginal = async function uploadOriginalProxy(onProgress) {
 separateRequiredStems = async function separateRequiredStemsFresh(stems, onProgress) {
   state.storagePath = null;
   state.stemBuffers = {};
+  state.separationInfo = null;
   state._stemDecodesRemaining = 0;
   onProgress('Preparing private source for separation…');
   const storagePath = await uploadOriginal(onProgress);
 
   try {
-    onProgress(`Starting separation for ${stems.join(', ')}…`);
-    const started = await callStemFunction({ action: 'start', storagePath, stems });
-    for (let attempt = 0; attempt < 90; attempt++) {
-      await sleep(2500);
+    onProgress(`Starting quality separation for ${stems.join(', ')}…`);
+    const started = await callStemFunction({
+      action: 'start',
+      storagePath,
+      stems,
+      ...FORENSIC_SEPARATION_REQUEST,
+    });
+    for (let attempt = 0; attempt < SEPARATION_MAX_POLLS; attempt++) {
+      await sleep(SEPARATION_POLL_INTERVAL_MS);
       const status = await callStemFunction({
         action: 'status',
         jobId: started.jobId,
@@ -159,17 +168,22 @@ separateRequiredStems = async function separateRequiredStemsFresh(stems, onProgr
       if (status.status === 'SUCCEEDED') {
         state.storagePath = null;
         state._stemDecodesRemaining = stems.length;
+        state.separationInfo = status.separator || {
+          engine: started.requestedEngine || FORENSIC_SEPARATION_REQUEST.engine,
+          mode: started.mode || FORENSIC_SEPARATION_REQUEST.mode,
+        };
         return status.outputs;
       }
       if (status.status === 'FAILED') {
         state.storagePath = null;
         throw new Error(status.error || 'The separation provider reported a failed job.');
       }
-      onProgress(`Separating stems… ${status.status || 'processing'} (${Math.min(99, Math.round((attempt + 1) / 90 * 100))}%)`);
+      onProgress(`Separating stems… ${status.status || 'processing'} (${Math.min(99, Math.round((attempt + 1) / SEPARATION_MAX_POLLS * 100))}%)`);
     }
-    throw new Error('Stem separation timed out. Try again with a shorter source file.');
+    throw new Error('Stem separation is still running after the client wait window. Start a fresh investigation if the job does not recover.');
   } catch (error) {
     state.storagePath = null;
+    state.separationInfo = null;
     state._stemDecodesRemaining = 0;
     throw error;
   }
