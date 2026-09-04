@@ -17,5 +17,17 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
       - name: Build RunPod separator image
-        run: docker build -f runpod-separator/Dockerfile -t mixforge-separator:ci .
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: runpod-separator/Dockerfile
+          push: false
+          build-args: |
+            PRELOAD_MELBAND=false
+            BUILD_REVISION=ci-${{ github.sha }}
+          cache-from: type=gha,scope=mixforge-separator
+          cache-to: type=gha,mode=max,scope=mixforge-separator
