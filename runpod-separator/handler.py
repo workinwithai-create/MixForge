@@ -44,97 +44,57 @@ def download(url: str, destination: Path) -> None:
 
 def upload(url: str, source: Path) -> None:
     with source.open("rb") as handle:
-        response = requests.put(
-            url,
-            data=handle,
-            headers={"Content-Type": "audio/wav"},
-            timeout=300,
-        )
+        response = requests.put(url, data=handle, headers={"Content-Type": "audio/wav"}, timeout=300)
     response.raise_for_status()
 
 
 def run_command(command, timeout_seconds):
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        timeout=timeout_seconds,
-    )
+    completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout_seconds)
     if completed.returncode != 0:
         message = completed.stderr[-4000:] or completed.stdout[-4000:] or "separator failed"
         raise RuntimeError(message)
 
 
 def prepare_source(downloaded: Path, destination: Path):
-    command = [
-        "ffmpeg",
-        "-y",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-i",
-        str(downloaded),
-        "-vn",
-        "-ac",
-        str(SEPARATION_CHANNELS),
-        "-ar",
-        str(SEPARATION_SAMPLE_RATE),
-        "-c:a",
-        "pcm_s16le",
-        str(destination),
-    ]
-    run_command(command, 300)
+    run_command([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(downloaded),
+        "-vn", "-ac", str(SEPARATION_CHANNELS), "-ar", str(SEPARATION_SAMPLE_RATE),
+        "-c:a", "pcm_s16le", str(destination),
+    ], 300)
     if not destination.exists() or destination.stat().st_size <= 44:
         raise RuntimeError("Could not prepare a valid PCM WAV for separation")
 
 
 def choose_engine(payload, requested):
-    requested_engine = str(
-        payload.get("engine") or os.getenv("SEPARATION_ENGINE", "demucs")
-    ).lower()
+    requested_engine = str(payload.get("engine") or os.getenv("SEPARATION_ENGINE", "demucs")).lower()
     if requested_engine not in SUPPORTED_ENGINES:
         requested_engine = "demucs"
 
     quality = str(payload.get("mode") or "").lower() in {"quality", "forensic", "hq"}
     melband_enabled = env_enabled("ENABLE_MELBAND", False)
     requested_set = set(requested)
-    fallback_reason = None
 
     if requested_engine == "demucs":
-        return "demucs", fallback_reason
-
+        return "demucs", None
     if not melband_enabled:
         return "demucs", "MelBand quality routing is installed but disabled on this worker; used Demucs."
-
     if requested_engine == "melband":
         if requested_set == {"vocals"}:
-            return "melband", fallback_reason
+            return "melband", None
         return "demucs", "MelBand can safely replace only the canonical vocal stem. MixForge 'other' is a Demucs residual bucket, not a full instrumental; used Demucs to preserve source semantics."
-
     if quality and "vocals" in requested_set:
         if requested_set == {"vocals"}:
-            return "melband", fallback_reason
+            return "melband", None
         return "hybrid", "MelBand supplies the quality vocal stem; Demucs remains authoritative for bass, drums, and residual other."
-
-    return "demucs", fallback_reason
+    return "demucs", None
 
 
 def run_demucs(source: Path, output_dir: Path, requested):
     model = os.getenv("DEMUCS_MODEL", "htdemucs")
-    command = [
-        "python",
-        "-m",
-        "demucs",
-        "--name",
-        model,
-        "--out",
-        str(output_dir),
-        "--device",
-        "cuda",
-        str(source),
-    ]
-    run_command(command, 900)
-
+    run_command([
+        "python", "-m", "demucs", "--name", model, "--out", str(output_dir),
+        "--device", "cuda", str(source),
+    ], 900)
     model_dir = output_dir / model / source.stem
     outputs = {}
     for stem in requested:
@@ -157,7 +117,8 @@ def melband_provenance(model):
         "model": model,
         "checkpoint": MELBAND_CHECKPOINT_FILE,
         "checkpointSha256": os.getenv("MELBAND_CHECKPOINT_SHA256", MELBAND_CHECKPOINT_SHA256_DEFAULT),
-        "checkpointPreloaded": checkpoint_path.exists(),
+        "checkpointBakedIntoImage": env_enabled("MELBAND_PRELOADED", False),
+        "checkpointAvailable": checkpoint_path.exists(),
     }
 
 
@@ -168,20 +129,10 @@ def run_melband_vocals(source: Path, output_dir: Path):
     staged_source = input_dir / source.name
     shutil.copy2(source, staged_source)
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    command = [
-        "melband-roformer-infer",
-        "--input_folder",
-        str(input_dir),
-        "--store_dir",
-        str(output_dir),
-        "--device",
-        "cuda",
-        "--model",
-        model,
-    ]
-    run_command(command, 1800)
-
+    run_command([
+        "melband-roformer-infer", "--input_folder", str(input_dir), "--store_dir", str(output_dir),
+        "--device", "cuda", "--model", model,
+    ], 1800)
     vocals = first_match(output_dir, "_vocals.wav")
     if not vocals or not vocals.exists():
         raise RuntimeError("Missing vocals MelBand output")
@@ -193,7 +144,6 @@ def handler(job):
     input_url = payload.get("inputUrl")
     requested = normalize_stems(payload.get("stems", []))
     upload_urls = payload.get("uploadUrls") or {}
-
     if not input_url:
         return {"error": "Missing inputUrl"}
     if not requested:
@@ -202,18 +152,13 @@ def handler(job):
     engine, routing_note = choose_engine(payload, requested)
     workspace = Path(tempfile.mkdtemp(prefix="mixforge-"))
     started_at = time.monotonic()
-
     try:
         downloaded = workspace / "source-input"
         source = workspace / "source.wav"
         download(input_url, downloaded)
         prepare_source(downloaded, source)
 
-        files = {}
-        models = {}
-        model_provenance = {}
-        stem_sources = {}
-
+        files, models, model_provenance, stem_sources = {}, {}, {}, {}
         if engine == "melband":
             vocals, melband_model = run_melband_vocals(source, workspace / "melband-out")
             files["vocals"] = vocals
@@ -224,8 +169,7 @@ def handler(job):
             demucs_files, demucs_model = run_demucs(source, workspace / "demucs-out", requested)
             files.update(demucs_files)
             models["demucs"] = demucs_model
-            for stem in requested:
-                stem_sources[stem] = "demucs"
+            stem_sources.update({stem: "demucs" for stem in requested})
             vocals, melband_model = run_melband_vocals(source, workspace / "melband-out")
             files["vocals"] = vocals
             models["melband"] = melband_model
@@ -235,8 +179,7 @@ def handler(job):
             demucs_files, demucs_model = run_demucs(source, workspace / "demucs-out", requested)
             files.update(demucs_files)
             models["demucs"] = demucs_model
-            for stem in requested:
-                stem_sources[stem] = "demucs"
+            stem_sources.update({stem: "demucs" for stem in requested})
 
         uploaded = {}
         for stem in requested:
