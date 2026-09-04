@@ -13,6 +13,8 @@ STEM_ALIASES = {"guitars": "other", "keys": "other"}
 SUPPORTED_ENGINES = {"demucs", "melband", "auto"}
 SEPARATION_SAMPLE_RATE = 44100
 SEPARATION_CHANNELS = 2
+MELBAND_CHECKPOINT_FILE = "MelBandRoformer.ckpt"
+MELBAND_CHECKPOINT_SHA256_DEFAULT = "87201f4d31afb5bc79993230fc49446918425574db48c01c405e44f365c7559e"
 
 
 def normalize_stems(stems):
@@ -109,7 +111,6 @@ def choose_engine(payload, requested):
             return "melband", fallback_reason
         return "demucs", "MelBand can safely replace only the canonical vocal stem. MixForge 'other' is a Demucs residual bucket, not a full instrumental; used Demucs to preserve source semantics."
 
-    # auto
     if quality and "vocals" in requested_set:
         if requested_set == {"vocals"}:
             return "melband", fallback_reason
@@ -147,6 +148,17 @@ def run_demucs(source: Path, output_dir: Path, requested):
 def first_match(root: Path, suffix: str):
     matches = sorted(root.rglob(f"*{suffix}"))
     return matches[0] if matches else None
+
+
+def melband_provenance(model):
+    models_root = Path(os.getenv("MELBAND_ROFORMER_MODELS_PATH", "~/.cache/melband-roformer-infer")).expanduser()
+    checkpoint_path = models_root / model / MELBAND_CHECKPOINT_FILE
+    return {
+        "model": model,
+        "checkpoint": MELBAND_CHECKPOINT_FILE,
+        "checkpointSha256": os.getenv("MELBAND_CHECKPOINT_SHA256", MELBAND_CHECKPOINT_SHA256_DEFAULT),
+        "checkpointPreloaded": checkpoint_path.exists(),
+    }
 
 
 def run_melband_vocals(source: Path, output_dir: Path):
@@ -199,12 +211,14 @@ def handler(job):
 
         files = {}
         models = {}
+        model_provenance = {}
         stem_sources = {}
 
         if engine == "melband":
             vocals, melband_model = run_melband_vocals(source, workspace / "melband-out")
             files["vocals"] = vocals
             models["melband"] = melband_model
+            model_provenance["melband"] = melband_provenance(melband_model)
             stem_sources["vocals"] = "melband"
         elif engine == "hybrid":
             demucs_files, demucs_model = run_demucs(source, workspace / "demucs-out", requested)
@@ -215,6 +229,7 @@ def handler(job):
             vocals, melband_model = run_melband_vocals(source, workspace / "melband-out")
             files["vocals"] = vocals
             models["melband"] = melband_model
+            model_provenance["melband"] = melband_provenance(melband_model)
             stem_sources["vocals"] = "melband"
         else:
             demucs_files, demucs_model = run_demucs(source, workspace / "demucs-out", requested)
@@ -240,6 +255,7 @@ def handler(job):
             "separator": {
                 "engine": engine,
                 "models": models,
+                "modelProvenance": model_provenance,
                 "stemSources": stem_sources,
                 "requestedStems": requested,
                 "elapsedSeconds": round(time.monotonic() - started_at, 2),
