@@ -11,8 +11,10 @@ import runpod
 CANONICAL_STEMS = {"vocals", "bass", "drums", "other"}
 STEM_ALIASES = {"guitars": "other", "keys": "other"}
 SUPPORTED_ENGINES = {"demucs", "melband", "auto"}
+MELBAND_QUALITY_STATUSES = {"hold", "candidate", "approved"}
 SEPARATION_SAMPLE_RATE = 44100
 SEPARATION_CHANNELS = 2
+MELBAND_APPROVED_MODEL = "melband-roformer-kim-vocals"
 MELBAND_CHECKPOINT_FILE = "MelBandRoformer.ckpt"
 MELBAND_CHECKPOINT_SHA256_DEFAULT = "87201f4d31afb5bc79993230fc49446918425574db48c01c405e44f365c7559e"
 
@@ -31,6 +33,24 @@ def env_enabled(name: str, default=False) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def requested_melband_quality_status():
+    status = str(os.getenv("MELBAND_QUALITY_STATUS", "candidate")).strip().lower()
+    return status if status in MELBAND_QUALITY_STATUSES else "candidate"
+
+
+def melband_identity_is_locked():
+    model = os.getenv("MELBAND_MODEL", MELBAND_APPROVED_MODEL)
+    checkpoint_sha = os.getenv("MELBAND_CHECKPOINT_SHA256", MELBAND_CHECKPOINT_SHA256_DEFAULT).lower()
+    return model == MELBAND_APPROVED_MODEL and checkpoint_sha == MELBAND_CHECKPOINT_SHA256_DEFAULT
+
+
+def melband_quality_status():
+    requested = requested_melband_quality_status()
+    if requested == "approved" and not melband_identity_is_locked():
+        return "candidate"
+    return requested
 
 
 def download(url: str, destination: Path) -> None:
@@ -71,11 +91,14 @@ def choose_engine(payload, requested):
         requested_engine = "demucs"
     quality = str(payload.get("mode") or "").lower() in {"quality", "forensic", "hq"}
     melband_enabled = env_enabled("ENABLE_MELBAND", False)
+    quality_status = melband_quality_status()
     requested_set = set(requested)
     if requested_engine == "demucs":
         return "demucs", None
     if not melband_enabled:
         return "demucs", "MelBand quality routing is installed but disabled on this worker; used Demucs."
+    if quality_status == "hold":
+        return "demucs", "MelBand is on quality hold; used Demucs even though the MelBand feature flag is enabled."
     if requested_engine == "melband":
         if requested_set == {"vocals"}:
             return "melband", None
@@ -113,6 +136,9 @@ def melband_provenance(model):
     checkpoint_path = models_root / model / MELBAND_CHECKPOINT_FILE
     return {
         "model": model,
+        "qualityStatusRequested": requested_melband_quality_status(),
+        "qualityStatus": melband_quality_status(),
+        "identityLockedForApproval": melband_identity_is_locked(),
         "checkpoint": MELBAND_CHECKPOINT_FILE,
         "checkpointSha256": os.getenv("MELBAND_CHECKPOINT_SHA256", MELBAND_CHECKPOINT_SHA256_DEFAULT),
         "checkpointBakedIntoImage": env_enabled("MELBAND_PRELOADED", False),
@@ -121,7 +147,7 @@ def melband_provenance(model):
 
 
 def worker_capabilities():
-    melband_model = os.getenv("MELBAND_MODEL", "melband-roformer-kim-vocals")
+    melband_model = os.getenv("MELBAND_MODEL", MELBAND_APPROVED_MODEL)
     return {
         "ok": True,
         "action": "capabilities",
@@ -132,6 +158,8 @@ def worker_capabilities():
             "canonicalStems": ["vocals", "bass", "drums", "other"],
             "demucsModel": os.getenv("DEMUCS_MODEL", "htdemucs"),
             "melbandEnabled": env_enabled("ENABLE_MELBAND", False),
+            "melbandQualityStatusRequested": requested_melband_quality_status(),
+            "melbandQualityStatus": melband_quality_status(),
             "melband": melband_provenance(melband_model),
             "inputNormalization": {
                 "format": "pcm_s16le",
@@ -143,7 +171,7 @@ def worker_capabilities():
 
 
 def run_melband_vocals(source: Path, output_dir: Path):
-    model = os.getenv("MELBAND_MODEL", "melband-roformer-kim-vocals")
+    model = os.getenv("MELBAND_MODEL", MELBAND_APPROVED_MODEL)
     input_dir = source.parent / "melband-input"
     input_dir.mkdir(parents=True, exist_ok=True)
     staged_source = input_dir / source.name
