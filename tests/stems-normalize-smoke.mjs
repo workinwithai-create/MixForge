@@ -37,6 +37,13 @@ assert.match(handler, /"stemSources": stem_sources/);
 assert.match(handler, /"routingNote": routing_note/);
 assert.match(handler, /"inputNormalization": \{/);
 
+const benchmark = fs.readFileSync(new URL('../runpod-separator/benchmark.py', import.meta.url), 'utf8');
+assert.match(benchmark, /def benchmark_provenance/);
+assert.match(benchmark, /"separatorImageRevision": os\.getenv\("MIXFORGE_SEPARATOR_REVISION", "unknown"\)/);
+assert.match(benchmark, /"melbandCheckpointSha256": os\.getenv\("MELBAND_CHECKPOINT_SHA256", MELBAND_CHECKPOINT_SHA256_DEFAULT\)/);
+assert.match(benchmark, /"melbandCheckpointBakedIntoImage": env_enabled\("MELBAND_PRELOADED", False\)/);
+assert.match(benchmark, /json\.dumps\(\{"provenance": provenance, "tracks": summary\}/);
+
 const edge = fs.readFileSync(new URL('../supabase/functions/separate-stem/index.ts', import.meta.url), 'utf8');
 assert.match(edge, /vocals.*bass.*drums.*other/);
 assert.match(edge, /guitars: "other"/);
