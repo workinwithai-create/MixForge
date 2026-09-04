@@ -9,7 +9,8 @@ ENV ENABLE_MELBAND=false \
     DEMUCS_MODEL=htdemucs \
     MELBAND_MODEL=melband-roformer-kim-vocals \
     MELBAND_ROFORMER_MODELS_PATH=/opt/mixforge/models \
-    MELBAND_CHECKPOINT_SHA256=87201f4d31afb5bc79993230fc49446918425574db48c01c405e44f365c7559e
+    MELBAND_CHECKPOINT_SHA256=87201f4d31afb5bc79993230fc49446918425574db48c01c405e44f365c7559e \
+    MELBAND_PRELOADED=${PRELOAD_MELBAND}
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
