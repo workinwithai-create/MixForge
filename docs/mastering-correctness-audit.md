@@ -13,6 +13,8 @@ Scope: repository main at 91b9009e4d80794cf2dedb85f7f4298ac6e4ee35. This is a co
 | Accurate peak checks | Cubic estimator omitted the penultimate sample and boundary intervals | Include all sample positions and boundary intervals; still an estimate, not a certified true-peak meter |
 | Export requires evidence | Missing/NaN measurements could pass export and receive a verified label | Require finite peak, clipping, correlation, peak estimate and ceiling; missing evidence cannot be overridden |
 | Honor the current loudness target | Target selection invalidated a master without rebuilding its plan | Rebuild the plan on change, clear old derived buffers, reject settings/source changes during render |
+| Source attribution | A two-tone test signal was labeled 84% likely lead vocal by a band-energy formula | Remove instrument-presence percentages; distinguish user notes from confirmed identity |
+| Timeline claims | Zero issue load before and after was called strong improvement | Require a positive starting issue load before claiming improvement |
 | Honest improvement language | Frequency-gap reduction was asserted to prove clearer vocals | Label it band-balance change and require listening to assess clarity |
 
 ## What is implemented, and its limits
@@ -41,5 +43,6 @@ Before claiming superiority, compare identical licensed source tracks across cur
 - Existing npm test suite passed before changes, demonstrating its coverage gap.
 - Full npm test suite passed after changes, including new sequential and target regression suites.
 - Synthetic tests cover all peak positions in short buffers, stereo-channel peak detection, missing/invalid export measurements, effective-anchor feedback, immutable/no-op audio, stale sequential plans, render failure propagation and target changes during rendering.
-- Cloud browser rejected the local test URL with ERR_BLOCKED_BY_CLIENT. No browser end-to-end success is claimed.
+- Cloud browser rejected the local test URL with ERR_BLOCKED_BY_CLIENT. A temporary authenticated Vercel preview subsequently loaded successfully. On commit 45d7454, an eight-second synthetic tone file decoded, scanned, received a Gemini response, rendered at -12 LUFS, invalidated export after a target change, and rerendered at -14 LUFS. Browser observations then motivated the source-attribution and zero-issue timeline corrections.
+- The download event timed out in browser tooling; a downloaded WAV was not inspected. Final source-context/timeline copy changes are regression-tested but have not been rerun in the deployed browser.
 - No authenticated separation job, real-song listening comparison, independent certified meter comparison or production deployment was verified in this audit.
