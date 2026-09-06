@@ -54,13 +54,20 @@
     };
   }
 
-  function candidatePlan(requestedPlan, targetLufs, { bypassCompressor = false, transparent = false } = {}) {
+  function candidatePlan(requestedPlan, targetLufs, {
+    bypassCompressor = false,
+    transparent = false,
+    sourceLufs = null,
+  } = {}) {
     const deltaTarget = targetLufs - requestedPlan.targetLufs;
+    const gainDb = Number.isFinite(sourceLufs)
+      ? targetLufs - sourceLufs
+      : requestedPlan.gainDb + deltaTarget;
     return {
       ...requestedPlan,
       eq: transparent ? [] : (requestedPlan.eq || []),
       compressor: bypassCompressor || transparent ? null : requestedPlan.compressor,
-      gainDb: clamp(requestedPlan.gainDb + deltaTarget, -24, 8),
+      gainDb: clamp(gainDb, -24, 8),
       targetLufs,
       mfDynamicsCompressorBypassed: Boolean((bypassCompressor || transparent) && requestedPlan.compressor),
       mfDynamicsTransparent: transparent,
@@ -131,7 +138,10 @@
       guardApplied = true;
       const backoffDb = adaptiveBackoff(evaluation);
       const backedOffTarget = Math.max(-24, requestedTargetLufs - backoffDb);
-      const backedOffPlan = candidatePlan(requestedPlan, backedOffTarget, { bypassCompressor: true });
+      const backedOffPlan = candidatePlan(requestedPlan, backedOffTarget, {
+        bypassCompressor: true,
+        sourceLufs: sourceMetrics.lufs,
+      });
       attempt = await renderCandidate(backedOffPlan, requestedPlan);
       evaluation = evaluateDynamics(sourceMetrics, attempt.metrics, budget);
     }
@@ -144,6 +154,7 @@
       const transparentPlan = candidatePlan(requestedPlan, transparent.targetLufs, {
         bypassCompressor: true,
         transparent: true,
+        sourceLufs: sourceMetrics.lufs,
       });
       attempt = await renderCandidate(transparentPlan, requestedPlan);
       evaluation = evaluateDynamics(sourceMetrics, attempt.metrics, budget);
