@@ -23,6 +23,7 @@
     state.correctedMetrics = null;
     state.correctedRepairRevision = null;
     state.masterPlan = null;
+    state.masterEffectivePlan = null;
     state.master = null;
     state.finalMetrics = null;
     state.masterConstraint = null;
