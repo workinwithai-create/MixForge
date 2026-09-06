@@ -98,3 +98,22 @@ for (const sample of limited.getChannelData(0)) limitedPeak = Math.max(limitedPe
 assert.ok(limitedPeak <= 10 ** (-1.2 / 20) + 1e-5, `limiter exceeded ceiling: ${limitedPeak}`);
 
 console.log('MixForge mastering-grade smoke tests passed');
+
+
+for (const length of [1, 2, 3, 4, 20]) {
+  for (let index = 0; index < length; index++) {
+    const buffer = new FakeBuffer(2, length, 48000);
+    buffer.data[1][index] = 1.1;
+    context.edgeBuffer = buffer;
+    const measured = vm.runInContext('mfProEstimateTruePeakDb(edgeBuffer)', context);
+    assert.ok(measured >= 20 * Math.log10(1.1) - 1e-5, `missed peak at ${index}/${length}`);
+  }
+}
+
+context.state.corrected = sine(1);
+context.state.masterPlan = { targetLufs: -14, ceilingDb: -1.2, truePeakCeilingDb: -1 };
+context.renderPreLimitedMaster = async buffer => {
+  context.state.masterPlan = { targetLufs: -10, ceilingDb: -1.2, truePeakCeilingDb: -1 };
+  return buffer;
+};
+await assert.rejects(context.renderReleaseMaster(), /changed during rendering/);

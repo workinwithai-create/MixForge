@@ -62,19 +62,16 @@ function mfSectionAnalysis(buffer) {
 }
 
 function mfSourceProfile(metrics, notes = '') {
-  const lowMid = band(metrics, 'Low-mids'), mids = band(metrics, 'Mids'), presence = band(metrics, 'Presence'), air = band(metrics, 'Air');
+  // Stereo band energy is not an instrument detector. Notes are user context,
+  // not a calibrated probability that a source exists.
   const text = notes.toLowerCase();
-  const vocal = mfConfidence(58 + clamp((lowMid - presence) * 1.3, -15, 26) + (/(vocal|voice|sing|lyric)/.test(text) ? 18 : 0));
-  const guitars = mfConfidence(48 + clamp((band(metrics, 'Low-mids', true) - band(metrics, 'Mids', true)) * 2, -12, 28) + (/(guitar|acoustic|electric)/.test(text) ? 18 : 0));
-  const bass = mfConfidence(52 + clamp((band(metrics, 'Sub') - band(metrics, 'Bass') + 4) * 3, -12, 25));
-  const drums = mfConfidence(45 + clamp(metrics.crestDb - 9, -8, 25));
-  const keys = mfConfidence(28 + clamp((mids - presence + 8), -8, 22) + (/(piano|keys|synth)/.test(text) ? 25 : 0));
-  const ambience = mfConfidence(40 + clamp(metrics.widthDb + 12, -15, 25));
   return [
-    ['Lead vocal', vocal, vocal > 70 ? 'likely present' : 'possible'], ['Guitar-family content', guitars, guitars > 70 ? 'likely present (lands in Demucs other)' : 'possible'],
-    ['Bass', bass, bass > 68 ? 'likely present' : 'possible'], ['Drums / percussion', drums, drums > 65 ? 'likely present' : 'uncertain'],
-    ['Keys / pads', keys, keys > 65 ? 'likely present (lands in Demucs other)' : 'uncertain'], ['Stereo ambience', ambience, ambience > 65 ? 'present (lands in Demucs other)' : 'limited / uncertain'],
-  ].map(([source, confidence, status]) => ({ source, confidence, status }));
+    ['Lead vocal', /(vocal|voice|sing|lyric)/],
+    ['Guitar-family content', /(guitar|acoustic|electric)/],
+    ['Bass', /bass/], ['Drums / percussion', /(drum|percussion)/],
+    ['Keys / pads', /(piano|keys|synth|pad)/], ['Stereo ambience', /(ambience|reverb)/],
+  ].map(([source, pattern]) => ({ source, confidence: null,
+    status: pattern.test(text) ? 'mentioned in your notes; not confirmed' : 'not identified from stereo measurements' }));
 }
 
 function mfForensicAudit(metrics, notes, targetLufs) {
@@ -124,12 +121,12 @@ function mfRenderForensicAudit(audit, metrics) {
   $('readinessScore').textContent=Math.round(audit.readinessScore); $('auditSummary').textContent=audit.summary; renderMetrics('mixMetrics',metrics);
   forensicState.timeline=mfSectionAnalysis(state.original); forensicState.sourceProfile=mfSourceProfile(metrics,$('notes').value);
   const root=$('auditFindings'); root.replaceChildren();
-  const profile=mfEl('section','forensic-block'); profile.innerHTML='<h3>Source profile <small>presence estimates, not isolated stems</small></h3>';
-  const pg=mfEl('div','source-grid'); forensicState.sourceProfile.forEach(x=>{ const c=mfEl('div','source-card'); c.innerHTML=`<b>${x.source}</b><span>${x.status}</span><i>${x.confidence}% confidence</i>`; pg.append(c); }); profile.append(pg); root.append(profile);
+  const profile=mfEl('section','forensic-block'); profile.innerHTML='<h3>Source context <small>instrument identity is not established by these measurements</small></h3>';
+  const pg=mfEl('div','source-grid'); forensicState.sourceProfile.forEach(x=>{ const c=mfEl('div','source-card'); c.innerHTML=`<b>${x.source}</b><span>${x.status}</span><i>Separation or listening needed</i>`; pg.append(c); }); profile.append(pg); root.append(profile);
   const timeline=mfEl('section','forensic-block'); timeline.innerHTML='<h3>Section-aware risk timeline</h3>';
   const lane=mfEl('div','risk-timeline'); forensicState.timeline.forEach(s=>{ const seg=mfEl('div',`risk-segment ${s.risks.length?'flagged':''}`); seg.style.flex=`${Math.max(.5,s.end-s.start)}`; seg.title=s.risks.length?s.risks.map(r=>r.label).join(', '):'No major condition'; seg.innerHTML=`<b>${mfFmtTime(s.start)}</b><span>${s.risks.length?s.risks.length:'✓'}</span>`; lane.append(seg); }); timeline.append(lane); root.append(timeline);
   const heading=mfEl('h3','forensic-heading','Measured conditions'); root.append(heading);
-  audit.findings.forEach(f=>{ const card=mfEl('article',`finding ${f.severity}`); const top=mfEl('div','finding-top'); top.append(mfEl('h3','',f.problem),mfEl('span','badge',`${f.stage} · ${f.confidence}% confidence`)); card.append(top,mfEl('p','',f.evidence),mfEl('p','consequence',`Audible consequence: ${f.consequence||'Translation risk.'}`)); if(f.candidates?.length){ const list=mfEl('div','hypothesis-list'); list.append(mfEl('b','','Source hypotheses — not confirmed')); f.candidates.sort((a,b)=>b.likelihood-a.likelihood).forEach(c=>list.append(mfEl('span','',`${c.stem}: ${c.likelihood}% likely`))); card.append(list); } card.append(mfEl('p','action',`Next test: ${f.nextTest||f.action}`)); root.append(card); });
+  audit.findings.forEach(f=>{ const card=mfEl('article',`finding ${f.severity}`); const top=mfEl('div','finding-top'); top.append(mfEl('h3','',f.problem),mfEl('span','badge',`${f.stage || 'mix'} · ${Number.isFinite(f.confidence) ? 'measurement-based hypothesis' : 'listening hypothesis'}`)); card.append(top,mfEl('p','',f.evidence),mfEl('p','consequence',`Audible consequence: ${f.consequence||'Translation risk.'}`)); if(f.candidates?.length){ const list=mfEl('div','hypothesis-list'); list.append(mfEl('b','','Source hypotheses — not confirmed')); f.candidates.sort((a,b)=>b.likelihood-a.likelihood).forEach(c=>list.append(mfEl('span','',`${c.stem}: candidate to investigate`))); card.append(list); } card.append(mfEl('p','action',`Next test: ${f.nextTest||f.action}`)); root.append(card); });
   if(forensicState.references.length){ const r=forensicState.references[0], diff=metrics.lufs-r.metrics.lufs; const ref=mfEl('section','forensic-block'); ref.innerHTML=`<h3>Level-matched reference context</h3><p>${r.name}: tonal and dynamic comparison is interpreted as a range, not a match-EQ target. Raw loudness difference ${diff>=0?'+':''}${diff.toFixed(1)} LU before level matching.</p>`; root.append(ref); }
   if(audit.stemsToInspect.length){ reveal('separateActions'); $('stemListLabel').textContent=`Investigation: ${audit.stemsToInspect.join(', ')} · attribution pending`; } else { hide('separateActions'); state.corrected=state.original; prepareMastering(); }
   mfSaveSession('audit');
@@ -204,3 +201,4 @@ renderVerification=function(metrics,plan){
 
 mfLoadProfile();
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mfEnsureForensicUI);else mfEnsureForensicUI();
+

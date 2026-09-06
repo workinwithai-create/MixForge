@@ -66,8 +66,9 @@
     return node;
   }
 
-  function intensityScale() {
-    const mode = (typeof forensicState === 'object' && forensicState?.profile?.intensity) || 'balanced';
+  function intensityScale(plan) {
+    const selected = plan?.candidates?.[plan.selectedCandidate]?.name?.toLowerCase();
+    const mode = selected || (typeof forensicState === 'object' && forensicState?.profile?.intensity) || 'balanced';
     return mode === 'preserve' ? 0.65 : mode === 'assertive' ? 1.25 : 1;
   }
 
@@ -84,7 +85,7 @@
     const score = plan?.quality?.score ?? 80;
     const base = score >= 82 ? 0.30 : score >= 65 ? 0.20 : 0.10;
     const floor = Number(plan?.wet) || 0;
-    return clamp(Math.max(base * intensityScale(), floor), 0.06, 0.45);
+    return clamp(Math.max(base * intensityScale(plan), floor), 0.06, 0.45);
   }
 
   // ---------------------------------------------------------------- mix plan
@@ -118,7 +119,7 @@
   function planAnchor(stem, sm, ctx) {
     const operations = [];
     const heard = [];
-    const k = confidenceScale(ctx.plan) * intensityScale();
+    const k = confidenceScale(ctx.plan) * intensityScale(ctx.plan);
 
     if (mudGap(sm) > 6) {
       operations.push({
@@ -137,7 +138,7 @@
     }
     if (sm.crestDb > 18) {
       operations.push({
-        type: 'compressor', threshold: -22, ratio: clamp(2.2 * intensityScale(), 1.4, 3),
+        type: 'compressor', threshold: -22, ratio: clamp(2.2 * intensityScale(ctx.plan), 1.4, 3),
         attack: 0.025, release: 0.16, knee: 5,
         label: 'Steady the anchor so it holds its place',
       });
@@ -166,7 +167,7 @@
     const anchorStem = ctx.anchorStem;
     const operations = [];
     const heard = [];
-    const k = confidenceScale(ctx.plan) * intensityScale();
+    const k = confidenceScale(ctx.plan) * intensityScale(ctx.plan);
     let trimDb = 0;
 
     // Re-read after every stage: how hard the mix is still fighting for lead clarity.
@@ -207,7 +208,7 @@
       }
       if (sm.crestDb > 16) {
         operations.push({
-          type: 'compressor', threshold: -24, ratio: clamp(2.5 * intensityScale(), 1.4, 3.2),
+          type: 'compressor', threshold: -24, ratio: clamp(2.5 * intensityScale(ctx.plan), 1.4, 3.2),
           attack: 0.035, release: 0.18, knee: 5,
           label: 'Even out note-to-note level',
         });
@@ -261,25 +262,37 @@
   // ------------------------------------------------------------ stage render
 
   async function applyStage(working, stemBuffer, decision) {
+    if (working.sampleRate !== stemBuffer.sampleRate || working.length !== stemBuffer.length) {
+      throw new Error('Stem timing does not match the original mix. Separate it again before rebuilding.');
+    }
     const out = cloneBuffer(working);
+    const effectiveStem = cloneBuffer(stemBuffer);
     const processed = decision.operations.length
       ? await renderProcessedBuffer(stemBuffer, decision.operations)
       : stemBuffer;
+    if (processed.sampleRate !== stemBuffer.sampleRate || processed.length !== stemBuffer.length || processed.numberOfChannels !== stemBuffer.numberOfChannels) {
+      throw new Error('Processed stem timing or channels changed.');
+    }
     const rawRms = bufferRms(stemBuffer);
     const fixedRms = bufferRms(processed);
     const match = fixedRms > 1e-8 ? clamp(rawRms / fixedRms, dbToGain(-2), dbToGain(2)) : 1;
     const wet = clamp(decision.wet, 0.05, 0.45);
     const trim = dbToGain(clamp(decision.trimDb || 0, -MAX_TRIM_DB, MAX_TRIM_DB)) - 1;
     const length = Math.min(out.length, stemBuffer.length, processed.length);
+    for (let c = 0; c < effectiveStem.numberOfChannels; c++) {
+      const raw = stemBuffer.getChannelData(c), fixed = processed.getChannelData(c);
+      const effective = effectiveStem.getChannelData(c);
+      for (let i = 0; i < length; i++) effective[i] = raw[i] + (fixed[i] * match - raw[i]) * wet + raw[i] * trim;
+    }
     for (let c = 0; c < out.numberOfChannels; c++) {
       const dest = out.getChannelData(c);
       const raw = stemBuffer.getChannelData(Math.min(c, stemBuffer.numberOfChannels - 1));
-      const fixed = processed.getChannelData(Math.min(c, processed.numberOfChannels - 1));
+      const fixed = effectiveStem.getChannelData(Math.min(c, effectiveStem.numberOfChannels - 1));
       for (let i = 0; i < length; i++) {
-        dest[i] += (fixed[i] * match - raw[i]) * wet + raw[i] * trim;
+        dest[i] += fixed[i] - raw[i];
       }
     }
-    return out;
+    return { mix: out, stem: effectiveStem };
   }
 
   function canSnapshot(stageCount) {
@@ -293,11 +306,12 @@
   }
 
   async function renderSequentialMix() {
-    seq.plan = seq.plan || buildMixPlan();
+    seq.plan = buildMixPlan();
+    seq.lastError = null;
     if (!seq.plan) throw new Error('No isolated stems are available to mix.');
 
     const anchorStem = seq.plan.anchor;
-    const anchorMetrics = state.stemPlans[anchorStem]?.metrics || null;
+    let anchorMetrics = null;
     const baseline = state.mixMetrics || measureBuffer(state.original);
     const keep = canSnapshot(seq.plan.stages.length);
 
@@ -318,16 +332,20 @@
       const decision = stage.stem === anchorStem ? planAnchor(stage.stem, sm, ctx) : planSupport(stage.stem, sm, ctx);
 
       const before = workingMetrics;
+      let placedStem = stemBuffer;
       if (decision.operations.length || Math.abs(decision.trimDb) > 0.05) {
-        working = await applyStage(working, stemBuffer, decision);
+        const result = await applyStage(working, stemBuffer, decision);
+        working = result.mix;
+        placedStem = result.stem;
       }
       // Do not assume the decision stayed correct. Measure the song again.
       workingMetrics = measureBuffer(working);
-      mixed[stage.stem] = sm;
+      mixed[stage.stem] = measureBuffer(placedStem);
+      if (stage.stem === anchorStem) anchorMetrics = mixed[stage.stem];
 
       // Reflect the sequential decision back onto the existing stem card.
       plan.sequential = decision;
-      if (decision.operations.length) plan.operations = decision.operations;
+      plan.operations = decision.operations;
       plan.wet = decision.wet;
 
       seq.stages.push({
@@ -407,17 +425,17 @@
       const top = el('div', 'finding-top');
       top.append(
         el('h3', '', `Stage ${stage.index} · ${stage.stem}`),
-        el('span', 'badge', `Δ clarity ${signed(-stage.delta.presenceGap)} dB · Δ loudness ${signed(stage.delta.lufs, 2)} LU`),
+        el('span', 'badge', `Δ band balance ${signed(-stage.delta.presenceGap)} dB · Δ loudness ${signed(stage.delta.lufs, 2)} LU`),
       );
       card.append(top);
-      card.append(el('p', '', `What I heard: ${stage.decision.heard}`));
+      card.append(el('p', '', `What the measurements suggest: ${stage.decision.heard}`));
       card.append(el('p', '', `What I changed: ${stage.decision.changed}.`));
       card.append(el('p', 'consequence', `Why: ${stage.decision.why}`));
       card.append(el('p', 'action', `Listen for: ${stage.decision.listenFor}`));
       block.append(card);
     }
     block.append(el('small', 'guardrail',
-      'Every stage is a bounded delta on the untouched original. Clarity delta is the measured low-mid to presence gap closing; a positive number means the lead reads more clearly.'));
+      'Every stage is a bounded delta on the untouched original. Band-balance delta measures the low-mid to presence gap closing. It does not establish improved vocal clarity; compare the audio to judge that.'));
   }
 
   // -------------------------------------------------------------- wiring
@@ -436,19 +454,17 @@
     renderMixPlan();
   };
 
-  const baseRebuild = rebuildCorrectedMix;
   rebuildCorrectedMix = async function rebuildCorrectedMixSequential() {
     try {
       return await renderSequentialMix();
     } catch (error) {
-      // Never lose the ability to finish a session. Fall back to the previous
-      // parallel rebuild and record why.
-      console.error('Sequential mix failed; falling back to parallel rebuild.', error);
       seq.lastError = error;
+      seq.stages = [];
+      seq.snapshots = {};
       if (typeof setStatus === 'function') {
-        setStatus('rebuildStatus', `Sequential mix could not complete (${error.message}). Falling back to the previous rebuild.`, 'warn');
+        setStatus('rebuildStatus', `Sequential mix could not complete: ${error.message}`, 'error');
       }
-      return baseRebuild();
+      throw error;
     }
   };
 })();

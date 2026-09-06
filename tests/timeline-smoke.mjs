@@ -84,3 +84,6 @@ assert.ok(analysisScriptIndex > 0 && uiScriptIndex > analysisScriptIndex, 'analy
 assert.ok(uiScriptIndex > indexHtml.indexOf('/js/app-vocal-cleanup-guard.js'), 'timeline hooks must install after existing guards');
 
 console.log('MixForge timeline smoke tests passed');
+
+
+assert.equal(context.mfTimelineSelfCheck({counts:{},issueLoad:0}, {counts:{},issueLoad:0}).assessment, 'unchanged');

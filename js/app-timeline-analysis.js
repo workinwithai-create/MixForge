@@ -372,7 +372,7 @@ function mfTimelineSelfCheck(sourceAnalysis, masteredAnalysis) {
   const beforeLoad = Number(sourceAnalysis?.issueLoad || 0);
   const afterLoad = Number(masteredAnalysis?.issueLoad || 0);
   let assessment = 'unchanged';
-  if (afterLoad <= Math.max(0, beforeLoad - 4)) assessment = 'strong_improvement';
+  if (beforeLoad > 0.01 && afterLoad <= Math.max(0, beforeLoad - 4)) assessment = 'strong_improvement';
   else if (afterLoad < beforeLoad - 0.01) assessment = 'partial_improvement';
   else if (afterLoad > beforeLoad + 0.01) assessment = 'regression';
 
@@ -387,3 +387,4 @@ function mfTimelineSelfCheck(sourceAnalysis, masteredAnalysis) {
     worsened,
   };
 }
+
