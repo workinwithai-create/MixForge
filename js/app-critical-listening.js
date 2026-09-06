@@ -1,8 +1,10 @@
 'use strict';
 
-// MixForge 2.1 critical-listening layer.
-// Provides level-matched comparisons and an aligned null monitor so "better"
-// cannot simply mean "louder" and latency does not masquerade as processing.
+// MixForge critical-listening layer.
+// Provides attenuation-only, loudness-matched comparisons and an aligned null
+// monitor so "better" cannot simply mean "louder" and latency does not
+// masquerade as processing. Both sides are matched down to the quieter program;
+// neither side is boosted into clipping for the comparison.
 
 function mfListenMonoSample(buffer, channelIndex) {
   if (buffer.numberOfChannels === 1) return buffer.getChannelData(0)[channelIndex] || 0;
@@ -46,17 +48,54 @@ function mfListenFindAlignment(original, processed) {
   return { lagSamples: bestLag, correlation: bestCorrelation };
 }
 
+function mfListenMatchLevels(original, master) {
+  const originalMetrics = measureBuffer(original);
+  const masterMetrics = measureBuffer(master);
+  const originalLufs = Number(originalMetrics.lufs);
+  const masterLufs = Number(masterMetrics.lufs);
+  const commonLufs = Number.isFinite(originalLufs) && Number.isFinite(masterLufs)
+    ? Math.min(originalLufs, masterLufs)
+    : null;
+  return {
+    originalMetrics,
+    masterMetrics,
+    commonLufs,
+    originalGainDb: commonLufs == null ? 0 : clamp(commonLufs - originalLufs, -72, 0),
+    masterGainDb: commonLufs == null ? 0 : clamp(commonLufs - masterLufs, -72, 0),
+  };
+}
+
+function mfListenGainCopy(buffer, gainDb) {
+  if (!buffer || Math.abs(gainDb) < 0.001) return buffer;
+  const out = cloneBuffer(buffer);
+  const gain = dbToGain(gainDb);
+  for (let channel = 0; channel < out.numberOfChannels; channel++) {
+    const data = out.getChannelData(channel);
+    for (let index = 0; index < data.length; index++) data[index] *= gain;
+  }
+  return out;
+}
+
+function mfListenBuildMatchedPair(original, master) {
+  if (!original || !master) return null;
+  const match = mfListenMatchLevels(original, master);
+  return {
+    ...match,
+    original: mfListenGainCopy(original, match.originalGainDb),
+    master: mfListenGainCopy(master, match.masterGainDb),
+  };
+}
+
 mfBuildDifferenceMonitor = async function mfBuildAlignedDifferenceMonitor(original, master) {
   if (!original || !master) return { buffer: null, metrics: null };
   const ctx = await ensureAudioContext(false);
   const alignment = mfListenFindAlignment(original, master);
+  const match = mfListenMatchLevels(original, master);
+  const originalGain = dbToGain(match.originalGainDb);
+  const masterGain = dbToGain(match.masterGainDb);
   const channels = Math.max(1, Math.min(original.numberOfChannels, master.numberOfChannels));
   const length = Math.min(original.length, master.length);
   const output = ctx.createBuffer(channels, length, master.sampleRate);
-  const originalMetrics = measureBuffer(original);
-  const masterMetrics = measureBuffer(master);
-  const levelMatchDb = clamp(masterMetrics.lufs - originalMetrics.lufs, -18, 18);
-  const originalGain = dbToGain(levelMatchDb);
   let referenceEnergy = 0;
   let differenceEnergy = 0;
   let rawPeak = 0;
@@ -74,9 +113,10 @@ mfBuildDifferenceMonitor = async function mfBuildAlignedDifferenceMonitor(origin
         const matchedOriginal = originalIndex >= 0 && originalIndex < before.length
           ? before[originalIndex] * originalGain
           : 0;
-        const change = after[masterIndex] - matchedOriginal;
+        const matchedMaster = after[masterIndex] * masterGain;
+        const change = matchedMaster - matchedOriginal;
         delta[masterIndex] = change;
-        referenceEnergy += after[masterIndex] * after[masterIndex];
+        referenceEnergy += matchedMaster * matchedMaster;
         differenceEnergy += change * change;
         rawPeak = Math.max(rawPeak, Math.abs(change));
         count++;
@@ -103,14 +143,52 @@ mfBuildDifferenceMonitor = async function mfBuildAlignedDifferenceMonitor(origin
       monitorGainDb: gainToDb(monitorGain),
       alignmentMs: alignment.lagSamples / original.sampleRate * 1000,
       alignmentCorrelation: alignment.correlation,
-      levelMatchDb,
+      commonLufs: match.commonLufs,
+      originalMatchDb: match.originalGainDb,
+      masterMatchDb: match.masterGainDb,
+      // Legacy field retained for any older UI consumer. Positive means the
+      // original required more attenuation than the master.
+      levelMatchDb: match.originalGainDb - match.masterGainDb,
     },
   };
+};
+
+const mfListenPreviousRenderReleaseMaster = renderReleaseMaster;
+renderReleaseMaster = async function renderCriticalListeningMaster(...args) {
+  const master = await mfListenPreviousRenderReleaseMaster(...args);
+  const pair = mfListenBuildMatchedPair(state.original, master);
+  if (pair) {
+    state.originalLevelMatched = pair.original;
+    state.masterLevelMatched = pair.master;
+    state.masterLevelMatch = {
+      commonLufs: pair.commonLufs,
+      originalGainDb: pair.originalGainDb,
+      masterGainDb: pair.masterGainDb,
+    };
+  }
+  return master;
+};
+
+const mfListenPreviousInvalidateRenderedMaster = invalidateRenderedMaster;
+invalidateRenderedMaster = function invalidateCriticalListeningMaster(...args) {
+  state.originalLevelMatched = null;
+  state.masterLevelMatched = null;
+  state.masterLevelMatch = null;
+  return mfListenPreviousInvalidateRenderedMaster(...args);
+};
+
+const mfListenPreviousPrepareMastering = prepareMastering;
+prepareMastering = function prepareCriticalListeningMaster(...args) {
+  state.originalLevelMatched = null;
+  state.masterLevelMatched = null;
+  state.masterLevelMatch = null;
+  return mfListenPreviousPrepareMastering(...args);
 };
 
 const mfListenPreviousCurrentPreviewBuffer = currentPreviewBuffer;
 currentPreviewBuffer = function currentCriticalPreviewBuffer() {
   const selected = document.querySelector('input[name="preview"]:checked')?.value;
+  if (selected === 'matchedOriginal') return state.originalLevelMatched || state.original;
   if (selected === 'matched') return state.masterLevelMatched || state.master;
   return mfListenPreviousCurrentPreviewBuffer();
 };
@@ -127,7 +205,8 @@ renderVerification = function renderCriticalListeningVerification(metrics, plan)
   const aligned = Math.abs(change.alignmentMs) <= 25 && change.alignmentCorrelation > 0.75;
   const row = document.createElement('div');
   row.className = `check ${aligned ? '' : 'warn'}`;
-  row.innerHTML = `<b>${aligned ? '✓' : '!'}</b><div><strong>Level-matched null alignment: </strong>${change.levelMatchDb >= 0 ? '+' : ''}${change.levelMatchDb.toFixed(1)} dB source match · ${change.alignmentMs.toFixed(2)} ms alignment · ${change.alignmentCorrelation.toFixed(3)} correlation.</div>`;
+  const common = Number.isFinite(change.commonLufs) ? `${change.commonLufs.toFixed(1)} LUFS common level` : 'common level unavailable';
+  row.innerHTML = `<b>${aligned ? '✓' : '!'}</b><div><strong>Level-matched null alignment: </strong>Original ${change.originalMatchDb.toFixed(1)} dB · Master ${change.masterMatchDb.toFixed(1)} dB → ${common} · ${change.alignmentMs.toFixed(2)} ms alignment · ${change.alignmentCorrelation.toFixed(3)} correlation. Neither side is boosted for the comparison.</div>`;
   root.append(row);
 };
 
@@ -190,7 +269,13 @@ encodeWav = async function encodeWavMasteringGrade(buffer, bitDepth, onProgress)
 
 function mfInstallCriticalListeningUI() {
   const previewSelect = document.querySelector('.preview-select');
-  if (previewSelect && !$('mfMatchedPreview')) {
+  if (!previewSelect) return;
+  if (!$('mfMatchedOriginalPreview')) {
+    const label = document.createElement('label');
+    label.innerHTML = '<input id="mfMatchedOriginalPreview" type="radio" name="preview" value="matchedOriginal"> Original · loudness matched';
+    previewSelect.append(label);
+  }
+  if (!$('mfMatchedPreview')) {
     const label = document.createElement('label');
     label.innerHTML = '<input id="mfMatchedPreview" type="radio" name="preview" value="matched"> Master · loudness matched';
     previewSelect.append(label);
