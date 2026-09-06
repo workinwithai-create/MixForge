@@ -27,7 +27,9 @@
     state.master = null;
     state.finalMetrics = null;
     state.masterConstraint = null;
+    state.originalLevelMatched = null;
     state.masterLevelMatched = null;
+    state.masterLevelMatch = null;
     state.masterDelta = null;
     state.masterChange = null;
     state.masterRepairRevision = null;
