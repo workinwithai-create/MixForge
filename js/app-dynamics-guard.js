@@ -8,6 +8,8 @@
 (function installDynamicsGuard() {
   const ready = typeof renderReleaseMaster === 'function'
     && typeof renderVerification === 'function'
+    && typeof renderMasterChain === 'function'
+    && typeof prepareMastering === 'function'
     && typeof measureBuffer === 'function'
     && typeof mfEstimateTruePeak === 'function'
     && typeof clamp === 'function';
@@ -18,6 +20,8 @@
 
   const previousRenderReleaseMaster = renderReleaseMaster;
   const previousRenderVerification = renderVerification;
+  const previousRenderMasterChain = renderMasterChain;
+  const previousPrepareMastering = prepareMastering;
 
   function budgetFor(metrics, duration = 0) {
     const crest = Number(metrics?.crestDb);
@@ -54,7 +58,7 @@
     const deltaTarget = targetLufs - requestedPlan.targetLufs;
     return {
       ...requestedPlan,
-      eq: transparent ? [] : requestedPlan.eq,
+      eq: transparent ? [] : (requestedPlan.eq || []),
       compressor: bypassCompressor || transparent ? null : requestedPlan.compressor,
       gainDb: clamp(requestedPlan.gainDb + deltaTarget, -24, 8),
       targetLufs,
@@ -104,6 +108,12 @@
       if (state.masterPlan === plan) state.masterPlan = requestedPlan;
     }
   }
+
+  prepareMastering = function prepareDynamicsGuardedMastering(...args) {
+    state.masterEffectivePlan = null;
+    state.masterConstraint = null;
+    return previousPrepareMastering(...args);
+  };
 
   renderReleaseMaster = async function renderDynamicsPreservedMaster() {
     const source = state.corrected;
@@ -165,6 +175,10 @@
       lraGuardMeasured: budget.enforceLra,
     };
 
+    // Repaint the displayed chain after the measured guard chooses the actual
+    // effective path. The requested plan remains state.masterPlan for settings
+    // integrity; this display explicitly annotates any measured intervention.
+    renderMasterChain(requestedPlan);
     return attempt.buffer;
   };
 
@@ -199,12 +213,13 @@
     }
   };
 
-  const previousRenderMasterChain = renderMasterChain;
   renderMasterChain = function renderDynamicsAwareMasterChain(plan) {
-    previousRenderMasterChain(plan);
     const constraint = state.masterConstraint;
+    const effective = constraint?.dynamicsGuardApplied && state.masterEffectivePlan
+      ? state.masterEffectivePlan
+      : plan;
+    previousRenderMasterChain(effective);
     if (!constraint?.dynamicsGuardApplied || !state.masterEffectivePlan) return;
-    const effective = state.masterEffectivePlan;
     const root = $('masterChain');
     if (!root) return;
     const row = document.createElement('div');
@@ -215,7 +230,7 @@
     const parts = [`effective target ${effective.targetLufs.toFixed(1)} LUFS`];
     if (constraint.compressorBypassed) parts.push('master glue bypassed');
     if (constraint.transparentFallback) parts.push('transparent EQ/comp bypass');
-    value.textContent = `${parts.join(' · ')} · requested loudness was not forced`;
+    value.textContent = `${parts.join(' · ')} · requested ${constraint.requestedTargetLufs.toFixed(1)} LUFS was not forced`;
     row.append(label, value);
     root.append(row);
   };
