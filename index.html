@@ -53,12 +53,12 @@
       <div class="stem-grid" id="stemGrid"></div><div class="actions"><button class="primary" id="rebuildBtn">Apply selected repairs and rebuild mix</button></div><div class="status" id="rebuildStatus" aria-live="polite"></div>
     </section>
     <section class="panel hidden" id="masterPanel">
-      <div class="panel-title"><span>4</span><div><h2>Release master</h2><p>Conservative stereo master. Optional reference-bounded tonal balance only if a reference file is loaded. Controlled dynamics, loudness, limiting, cubic-interp peak safety, and regression-aware final processing. First value is hearing Original vs Master.</p></div></div>
+      <div class="panel-title"><span>4</span><div><h2>Release master</h2><p>Conservative stereo master. Optional reference-bounded tonal balance only if a reference file is loaded. Controlled dynamics, loudness, limiting, 4× inter-sample peak verification with a conservative fallback, and regression-aware final processing. First value is hearing Original vs Master.</p></div></div>
       <div class="metrics" id="correctedMetrics"></div><div class="master-chain" id="masterChain"></div><div class="actions"><button class="secondary" id="renderMasterBtn">Render release master</button></div><div class="status" id="masterStatus" aria-live="polite"></div>
       <div class="preview hidden" id="previewBox"><div class="preview-select"><label><input type="radio" name="preview" value="original"> Original</label><label><input type="radio" name="preview" value="corrected"> Corrected mix</label><label><input type="radio" name="preview" value="master" checked> Release master</label></div><button class="primary" id="playBtn">▶ Play selected preview</button><div class="meter"><i id="meterFill"></i></div></div>
     </section>
     <section class="panel hidden" id="verifyPanel">
-      <div class="panel-title"><span>5</span><div><h2>Release verification, timeline self-check, and targeted repair</h2><p>Gated LUFS / LRA-like range, cubic-interp peak estimate, mono, dynamics, remaining problem windows, bounded repair candidates, and export checks. Not a certified EBU meter.</p></div></div>
+      <div class="panel-title"><span>5</span><div><h2>Release verification, timeline self-check, and targeted repair</h2><p>Gated LUFS / LRA-like range, 4× polyphase inter-sample peak check when the browser supports it, conservative peak fallback, mono, dynamics, remaining problem windows, bounded repair candidates, and export checks. Browser measurements are not represented as a certified EBU meter.</p></div></div>
       <div class="metrics" id="finalMetrics"></div><div class="verification" id="verificationList"></div>
       <section class="problem-timeline master-timeline" id="masterTimeline" aria-live="polite"></section>
       <div class="export-safety hidden" id="exportSafety"><p id="exportSafetyMsg"></p><label class="export-override"><input type="checkbox" id="exportOverride"> Export anyway — I accept a clipped or over-ceiling master</label></div>
@@ -82,6 +82,7 @@
   <script src="/js/app-forensics-guard.js?v=2.5.0" defer></script>
   <script src="/js/app-mastering-grade.js?v=2.5.0" defer></script>
   <script src="/js/app-dynamics-guard.js?v=2.5.0" defer></script>
+  <script src="/js/app-standards-meter.js?v=2.5.0" defer></script>
   <script src="/js/app-export.js?v=2.5.0" defer></script>
   <script src="/js/app-signal-integrity.js?v=2.5.0" defer></script>
   <script src="/js/app-critical-listening.js?v=2.5.0" defer></script>
