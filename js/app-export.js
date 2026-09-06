@@ -10,6 +10,13 @@ function evaluateExportGate(snapshot) {
     return { allow: false, reason: 'dirty', verified: false, clipFail: false, tpFail: false, monoWarn: false, message: 'This master is out of date. Render the release master again before exporting.' };
   }
   const metrics = current.finalMetrics || {};
+  const required = [metrics.clipPercent, metrics.peakDb, metrics.correlation,
+    current.masterConstraint?.truePeakDb,
+    current.masterPlan?.truePeakCeilingDb ?? current.masterPlan?.ceilingDb];
+  if (!required.every((value) => typeof value === 'number' && Number.isFinite(value))) {
+    return { allow: false, reason: 'unmeasured', verified: false, clipFail: false, tpFail: false, monoWarn: false,
+      message: 'Export blocked: final safety measurements are missing or invalid. Render the master again.' };
+  }
   const clipFail = Number(metrics.clipPercent) > 0.001 || Number(metrics.peakDb) > -0.1;
   const ceiling = Number(current.masterPlan?.truePeakCeilingDb ?? current.masterPlan?.ceilingDb ?? -1);
   const truePeak = Number(current.masterConstraint?.truePeakDb ?? metrics.peakDb);
@@ -38,7 +45,10 @@ function syncExportUi(snapshot = state) {
   const button = $('exportBtn');
   const box = $('exportSafety');
   const msg = $('exportSafetyMsg');
-  if (button) button.textContent = gate.verified ? 'Download verified release WAV' : 'Download release WAV';
+  if (button) {
+    button.textContent = gate.verified ? 'Download checked release WAV' : 'Download release WAV';
+    button.disabled = !gate.allow;
+  }
   if (box && msg) {
     if (gate.clipFail || gate.tpFail) {
       box.classList.remove('hidden');
@@ -105,7 +115,7 @@ $('exportBtn').addEventListener('click', async () => {
     const base = (state.file?.name || 'mix').replace(/\.[^.]+$/, '').replace(/[^a-z0-9._-]/gi, '_');
     anchor.href = url; anchor.download = `${base}-mixforge-release-${bitDepth}bit.wav`; document.body.append(anchor); anchor.click(); anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 30000);
-    setStatus('exportStatus', gate.verified ? 'Verified release WAV exported.' : 'Release WAV exported. Hard checks did not all pass.', gate.verified ? 'ok' : 'warn');
+    setStatus('exportStatus', gate.verified ? 'Release WAV exported; available safety checks passed.' : 'Release WAV exported. Hard checks did not all pass.', gate.verified ? 'ok' : 'warn');
   } catch (error) {
     console.error(error);
     setStatus('exportStatus', `Export failed: ${error.message}`, 'error');

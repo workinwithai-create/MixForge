@@ -30,6 +30,7 @@ const context = vm.createContext({
   state: {
     master: { numberOfChannels: 1, length: 1, sampleRate: 48000, getChannelData: () => new Float32Array([0]) },
     masterDirty: true,
+    masterConstraint: { truePeakDb: -1.2 },
     finalMetrics: { clipPercent: 0, peakDb: -1.2, correlation: 0.6 },
     masterPlan: { truePeakCeilingDb: -1, ceilingDb: -1.2 },
     exportOverride: false,
@@ -88,3 +89,11 @@ assert.equal(clean.allow, true);
 assert.equal(clean.verified, true);
 
 console.log('MixForge export-state smoke tests passed');
+
+
+for (const missing of [null, {}, { clipPercent: NaN, peakDb: -1.4, correlation: 0.5 }]) {
+  const gate = context.evaluateExportGate({ ...context.state, finalMetrics: missing, exportOverride: true });
+  assert.equal(gate.allow, false, 'missing measurements must block even with override');
+  assert.equal(gate.verified, false);
+}
+assert.equal(context.evaluateExportGate({ ...context.state, masterConstraint: null }).allow, false);

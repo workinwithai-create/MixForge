@@ -30,6 +30,8 @@ function invalidateRenderedMaster(message = 'The release settings changed. Rende
   state.finalMetrics = null;
   state.masterDelta = null;
   state.masterChange = null;
+  state.masterConstraint = null;
+  state.masterLevelMatched = null;
   state.masterDirty = true;
   if ($('exportBtn')) $('exportBtn').disabled = true;
   hide('previewBox');
@@ -48,7 +50,11 @@ function markMasterRendered(buffer) {
 
 if ($('targetLufs')) {
   $('targetLufs').addEventListener('change', () => {
-    if (state.master) invalidateRenderedMaster();
+    if (state.correctedMetrics) {
+      invalidateRenderedMaster();
+      state.masterPlan = buildMasterPlan(state.correctedMetrics, Number($('targetLufs').value));
+      renderMasterChain(state.masterPlan);
+    }
   });
 }
 

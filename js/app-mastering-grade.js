@@ -132,11 +132,11 @@ function mfProEstimateTruePeakDb(buffer) {
     const data = buffer.getChannelData(channel);
     if (!data.length) continue;
     peak = Math.max(peak, Math.abs(data[0]), Math.abs(data[data.length - 1]));
-    for (let index = 1; index < data.length - 2; index++) {
-      const p0 = data[index - 1];
+    for (let index = 0; index < data.length - 1; index++) {
+      const p0 = data[Math.max(0, index - 1)];
       const p1 = data[index];
       const p2 = data[index + 1];
-      const p3 = data[index + 2];
+      const p3 = data[Math.min(data.length - 1, index + 2)];
       peak = Math.max(
         peak,
         Math.abs(p1),
@@ -357,30 +357,35 @@ renderProcessedBuffer = async function renderProcessedBufferPro(sourceBuffer, op
 };
 
 renderReleaseMaster = async function renderReleaseMasterPro() {
-  let rendered = await renderPreLimitedMaster(state.corrected, state.masterPlan);
-  rendered = lookAheadLimit(rendered, state.masterPlan.ceilingDb);
+  const source = state.corrected;
+  const plan = state.masterPlan;
+  let rendered = await renderPreLimitedMaster(source, plan);
+  rendered = lookAheadLimit(rendered, plan.ceilingDb);
 
   for (let pass = 0; pass < 2; pass++) {
     const metrics = measureBuffer(rendered);
-    const error = state.masterPlan.targetLufs - metrics.lufs;
+    const error = plan.targetLufs - metrics.lufs;
     if (Math.abs(error) < 0.3) break;
-    rendered = lookAheadLimit(mfProGainBuffer(rendered, clamp(error, -2.5, 2.5)), state.masterPlan.ceilingDb);
+    rendered = lookAheadLimit(mfProGainBuffer(rendered, clamp(error, -2.5, 2.5)), plan.ceilingDb);
     await sleep(0);
   }
 
   let truePeakDb = mfProEstimateTruePeakDb(rendered);
-  if (truePeakDb > state.masterPlan.truePeakCeilingDb) {
-    rendered = mfProGainBuffer(rendered, state.masterPlan.truePeakCeilingDb - truePeakDb - 0.03);
+  if (truePeakDb > plan.truePeakCeilingDb) {
+    rendered = mfProGainBuffer(rendered, plan.truePeakCeilingDb - truePeakDb - 0.03);
     truePeakDb = mfProEstimateTruePeakDb(rendered);
   }
 
   const finalMetrics = measureBuffer(rendered);
+  if (state.corrected !== source || state.masterPlan !== plan) {
+    throw new Error('The source or mastering settings changed during rendering. Render again.');
+  }
   state.masterConstraint = {
     truePeakDb,
-    targetLufs: state.masterPlan.targetLufs,
+    targetLufs: plan.targetLufs,
     achievedLufs: finalMetrics.lufs,
-    loudnessShortfall: state.masterPlan.targetLufs - finalMetrics.lufs,
-    peakLimited: Math.abs(truePeakDb - state.masterPlan.truePeakCeilingDb) < 0.18,
+    loudnessShortfall: plan.targetLufs - finalMetrics.lufs,
+    peakLimited: Math.abs(truePeakDb - plan.truePeakCeilingDb) < 0.18,
   };
   state.masterLevelMatched = mfProGainBuffer(rendered, clamp(state.mixMetrics.lufs - finalMetrics.lufs, -18, 0));
   return rendered;
@@ -407,7 +412,7 @@ renderVerification = function renderVerificationPro(metrics, plan) {
   if (shortfall > 0.55) {
     const targetRow = document.createElement('div');
     targetRow.className = `check ${shortfall <= 1.5 ? 'warn' : 'fail'}`;
-    targetRow.innerHTML = `<b>${shortfall <= 1.5 ? '!' : '×'}</b><div><strong>Peak-safe loudness limit: </strong>The master finished ${shortfall.toFixed(1)} LU below the requested target because true-peak safety took priority over extra limiting.</div>`;
+    targetRow.innerHTML = `<b>${shortfall <= 1.5 ? '!' : '×'}</b><div><strong>Peak-safe loudness limit: </strong>The master finished ${shortfall.toFixed(1)} LU below the requested target after the bounded gain passes and peak-safety trim. The requested loudness was not reached.</div>`;
     root.append(targetRow);
   }
 };
