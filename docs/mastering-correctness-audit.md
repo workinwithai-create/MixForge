@@ -13,6 +13,9 @@ Scope: repository main at 91b9009e4d80794cf2dedb85f7f4298ac6e4ee35. This is a co
 | Accurate peak checks | Cubic estimator omitted the penultimate sample and boundary intervals | Include all sample positions and boundary intervals; still an estimate, not a certified true-peak meter |
 | Export requires evidence | Missing/NaN measurements could pass export and receive a verified label | Require finite peak, clipping, correlation, peak estimate and ceiling; missing evidence cannot be overridden |
 | Honor the current loudness target | Target selection invalidated a master without rebuilding its plan | Rebuild the plan on change, clear old derived buffers, reject settings/source changes during render |
+| Repair choices invalidate downstream audio | Preserve/Balanced/Assertive could change in the UI while an older corrected mix/master remained current | Add monotonic repair revisions across rebuild, mastering and export; clear corrected/mastered buffers and block stale export when a repair choice changes |
+| Preserve dynamics before chasing LUFS | A peak-safe master had no measured bound on transient/macro-dynamic loss | Measure crest/LRA-like loss against the corrected source; back off loudness and bypass glue when needed; fall back to a transparent headroom-bounded path instead of forcing the target |
+| Guarded gain math remains accurate | Backing off from a target whose original gain was already capped could produce a mismatched effective gain | Recompute guarded gain from measured corrected-mix LUFS instead of subtracting from an already-clamped requested gain |
 | Source attribution | A two-tone test signal was labeled 84% likely lead vocal by a band-energy formula | Remove instrument-presence percentages; distinguish user notes from confirmed identity |
 | Timeline claims | Zero issue load before and after was called strong improvement | Require a positive starting issue load before claiming improvement |
 | Honest improvement language | Frequency-gap reduction was asserted to prove clearer vocals | Label it band-balance change and require listening to assess clarity |
@@ -23,10 +26,11 @@ Scope: repository main at 91b9009e4d80794cf2dedb85f7f4298ac6e4ee35. This is a co
 - Quick Master follows a separate stereo path. It does not invoke sequential stem mixing.
 - Whole-buffer loudness and sample measurements exist, but spectral analysis samples windows. Gemini receives a compact listening excerpt. Do not claim it listens to every moment of the song.
 - Demucs routing supports vocals, bass, drums and other. Guitar and keys remain combined in other. The leakage/fit score is a heuristic, not measured separation accuracy.
-- Limiting and peak trimming exist. Repeated gain/limiter passes are not yet bounded by a measured maximum transient-loss or gain-reduction budget. A peak-safe file can still sound overcompressed.
+- Mastering now has a measured dynamics-preservation guard. Its crest-loss and LRA-like limits are conservative MixForge product heuristics, not published mastering standards. They still require calibration against real music and blind listening.
+- If the requested target costs too much measured dynamics, MixForge first lowers the effective target and bypasses planned master glue. If that still fails, it uses a transparent safety path with no mastering EQ/compression and limits gain to measured true-peak headroom. The requested target remains visible as the request; the effective target is reported separately.
 - A level-matched master preview exists, but its attenuation is capped and cannot fully match every source/master loudness relationship. A broad loudness-range A/B test remains necessary.
 - Producer-facing copy still contains technical terms and some heuristic judgments stated too confidently. The whole narrative needs a separate evidence-to-language review.
-- UI controls for individual candidate changes do not yet comprehensively invalidate an already rebuilt corrected mix. This needs a unified revision model across repair, render, preview and export.
+- Repair selection now has a unified revision model across corrected mix, master and export. Browser interaction still needs a real-song pass to confirm the intended UX when a user changes a repair after rendering.
 
 ## Complaint-driven acceptance work
 
@@ -40,9 +44,11 @@ Before claiming superiority, compare identical licensed source tracks across cur
 
 ## Validation completed
 
-- Existing npm test suite passed before changes, demonstrating its coverage gap.
-- Full npm test suite passed after changes, including new sequential and target regression suites.
-- Synthetic tests cover all peak positions in short buffers, stereo-channel peak detection, missing/invalid export measurements, effective-anchor feedback, immutable/no-op audio, stale sequential plans, render failure propagation and target changes during rendering.
-- Cloud browser rejected the local test URL with ERR_BLOCKED_BY_CLIENT. A temporary authenticated Vercel preview subsequently loaded successfully. On commit 45d7454, an eight-second synthetic tone file decoded, scanned, received a Gemini response, rendered at -12 LUFS, invalidated export after a target change, and rerendered at -14 LUFS. Browser observations then motivated the source-attribution and zero-issue timeline corrections.
-- The download event timed out in browser tooling; a downloaded WAV was not inspected. Final source-context/timeline copy changes are regression-tested but have not been rerun in the deployed browser.
+- Existing npm test suite passed before the first audit changes, demonstrating its earlier coverage gap.
+- Full GitHub Actions `npm test` passed on commit 9a932fa after the dynamics guard, script wiring and dynamics regression test were added. The test exercises normal pass-through, measured loudness backoff/no-glue behavior, transparent fallback, source-LUFS-derived guarded gain and reset of prior effective-path evidence.
+- A newer run was triggered after the final stale-state cleanup; that cleanup only clears `masterEffectivePlan` alongside the other invalidated downstream buffers and evidence.
+- Synthetic tests cover all peak positions in short buffers, stereo-channel peak detection, missing/invalid export measurements, effective-anchor feedback, immutable/no-op audio, stale sequential plans, render failure propagation, target changes during rendering, stale repair choices, and dynamics-preservation fallback behavior.
+- Vercel automatically created READY preview deployments for the audit branch, including the state-integrity and dynamics commits. The branch preview remains protected by Vercel authentication in the available fetch tooling, so this audit does not claim a fresh end-to-end click-through of the newest UI state.
+- A prior temporary authenticated Vercel preview loaded successfully. On commit 45d7454, an eight-second synthetic tone file decoded, scanned, received a Gemini response, rendered at -12 LUFS, invalidated export after a target change, and rerendered at -14 LUFS. Browser observations then motivated the source-attribution and zero-issue timeline corrections.
+- The download event timed out in browser tooling; a downloaded WAV was not inspected.
 - No authenticated separation job, real-song listening comparison, independent certified meter comparison or production deployment was verified in this audit.
