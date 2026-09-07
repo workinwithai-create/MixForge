@@ -138,6 +138,14 @@ async function renderReleaseMaster() {
 }
 
 $('renderMasterBtn').addEventListener('click', async () => {
+  const license = (globalThis.MixForgeHub && typeof MixForgeHub.requireEntitlement === 'function')
+    ? MixForgeHub.requireEntitlement('quickMaster')
+    : { ok: false, reason: 'login', redirectUrl: 'https://workinwithai.com/login?next=https://mixforge.workinwithai.com/' };
+  if (!license.ok) {
+    setStatus('masterStatus', `Release master needs a MixForge or Forge Pass license (${license.reason}).`, 'error');
+    if (license.redirectUrl) globalThis.location.href = license.redirectUrl;
+    return;
+  }
   $('renderMasterBtn').disabled = true;
   setStatus('masterStatus', 'Rendering tonal balance, dynamics, loudness and look-ahead limiting…', 'busy');
   try {

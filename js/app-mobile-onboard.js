@@ -1,7 +1,7 @@
 'use strict';
 
-// MixForge mobile onboarding. Injects a first-run coach and iOS Files hint.
-// Does not gate billing — Hub license lives in app-hub-license.js.
+// MixForge mobile onboarding. Uses the existing #mobileOnboard mount when present.
+// Stereo scan is free; paid mastering/export are explained without blocking file selection.
 const MF_ONBOARD_KEY = 'mixforge-mobile-onboard-v1';
 const MF_HUB_PRICING = 'https://workinwithai.com/#pricing';
 const MF_IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -32,11 +32,13 @@ function mfEnsureMobileHint() {
 }
 
 function mfBuildOnboardSheet() {
-  const existing = document.getElementById('mobileOnboard');
-  if (existing) return existing;
-  const sheet = document.createElement('div');
-  sheet.id = 'mobileOnboard';
-  sheet.className = 'mobile-onboard';
+  let sheet = document.getElementById('mobileOnboard');
+  if (!sheet) {
+    sheet = document.createElement('aside');
+    sheet.id = 'mobileOnboard';
+    sheet.className = 'mobile-onboard';
+    document.querySelector('.hero')?.insertAdjacentElement('afterend', sheet);
+  }
   sheet.setAttribute('role', 'dialog');
   sheet.setAttribute('aria-labelledby', 'mobileOnboardTitle');
   sheet.innerHTML = `
@@ -44,18 +46,17 @@ function mfBuildOnboardSheet() {
       <p class="mobile-onboard-kicker">First open on this phone</p>
       <h2 id="mobileOnboardTitle">Load a mix, then hear a master</h2>
       <ol class="mobile-onboard-steps">
-        <li>Tap <strong>Choose a mix</strong>. If the file lives in iCloud, Download Now first.</li>
-        <li>Scan the stereo mix. Pick <strong>Quick Master</strong> to A/B original vs master, or <strong>Forensic Fix</strong> only when you need stems.</li>
-        <li>Play the release master, then download a 24-bit or 16-bit WAV.</li>
+        <li>Tap <strong>Choose a mix</strong>. On iPhone, use <strong>Download Now</strong> first if the file is only in iCloud.</li>
+        <li>Scan the stereo mix for free. Pick <strong>Quick Master</strong> for an Original vs Master A/B, or <strong>Forensic Fix</strong> when isolation is actually needed.</li>
+        <li>Sign in on this phone before rendering or downloading the release WAV.</li>
       </ol>
-      <p class="mobile-onboard-note">MixForge measures change. It does not claim the mix sounds better. Vocal performance lives in AuraMix. License and billing are on the Hub.</p>
+      <p class="mobile-onboard-note">MixForge measures change; it does not claim the mix sounds better. Vocal performance lives in AuraMix.</p>
       <div class="mobile-onboard-actions">
         <button type="button" class="primary" id="mobileOnboardStart">Choose a mix</button>
-        <a class="mobile-onboard-hub" href="${MF_HUB_PRICING}" target="_blank" rel="noopener noreferrer">Hub pricing</a>
-        <button type="button" class="secondary" id="mobileOnboardSkip">Skip</button>
+        <a class="secondary mobile-onboard-hub" href="${MF_HUB_PRICING}">Hub pricing</a>
+        <button type="button" class="secondary" id="mobileOnboardDismiss">Got it</button>
       </div>
     </div>`;
-  document.body.appendChild(sheet);
   return sheet;
 }
 
@@ -71,16 +72,17 @@ function mfOpenOnboard() {
   sheet.hidden = false;
   sheet.classList.add('open');
   const start = document.getElementById('mobileOnboardStart');
-  const skip = document.getElementById('mobileOnboardSkip');
+  const dismiss = document.getElementById('mobileOnboardDismiss');
   const dropzone = document.getElementById('dropzone');
   start?.addEventListener('click', () => {
     mfCloseOnboard(sheet);
     dropzone?.click();
   }, { once: true });
-  skip?.addEventListener('click', () => mfCloseOnboard(sheet), { once: true });
+  dismiss?.addEventListener('click', () => mfCloseOnboard(sheet), { once: true });
 }
 
 function mfInstallMobileOnboard() {
+  if (!MF_IS_MOBILE) return;
   mfEnsureMobileHint();
   mfOpenOnboard();
 }
