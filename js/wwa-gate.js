@@ -5,7 +5,7 @@
   const MIX = 'https://mixforge.workinwithai.com';
   const PRODUCT_TOKEN_URL = `${HUB}/api/product-token?product=mix`;
   const ENTITLEMENTS_URL = `${HUB}/api/entitlements/me`;
-  const SEPARATION_FUNCTION = '/functions/v1/separate-stem';
+  const PROTECTED_URL_PARTS = ['/api/analyze', '/functions/v1/separate-stem'];
 
   document.documentElement.classList.add('wwa-gate-pending');
 
@@ -33,6 +33,10 @@
   let token = null;
   let fetchWrapped = false;
 
+  function isProtectedUrl(url) {
+    return PROTECTED_URL_PARTS.some((part) => url.includes(part));
+  }
+
   function installProtectedFetch() {
     if (fetchWrapped) return;
     fetchWrapped = true;
@@ -41,7 +45,7 @@
       const url = typeof input === 'string' || input instanceof URL
         ? String(input)
         : String(input?.url || '');
-      if (!url.includes(SEPARATION_FUNCTION)) return nativeFetch(input, init);
+      if (!isProtectedUrl(url)) return nativeFetch(input, init);
 
       const headers = new Headers(input instanceof Request ? input.headers : undefined);
       new Headers(init.headers || {}).forEach((value, key) => headers.set(key, value));
@@ -88,7 +92,7 @@
         body: JSON.stringify({ lookupKey, returnTo: MIX }),
       });
       if (response.status === 401) {
-        location.href = `${HUB}/login?next=${encodeURIComponent(`${MIX}/membership/`)}`;
+        location.href = `${HUB}/login?next=${encodeURIComponent(MIX)}`;
         return;
       }
       const data = await response.json().catch(() => ({}));
@@ -140,6 +144,7 @@
   }
 
   function unlock() {
+    installProtectedFetch();
     gate?.remove();
     gate = null;
     document.documentElement.classList.remove('wwa-gate-pending');
@@ -151,7 +156,7 @@
     const data = await response.json().catch(() => ({}));
     if (!data.signedIn) return { kind: 'login' };
     if (!data.hasMix) return { kind: 'subscribe' };
-    return { kind: 'access' };
+    return { kind: 'access-without-token' };
   }
 
   async function accessAttempt() {
@@ -160,13 +165,10 @@
       const data = await response.json().catch(() => ({}));
       if (!data.accessToken) return { kind: 'unavailable' };
       token = data.accessToken;
-      installProtectedFetch();
       return { kind: 'access' };
     }
     if (response.status === 401) return { kind: 'login' };
     if (response.status === 402) return { kind: 'subscribe' };
-    // Branch previews can exist before the matching Hub route is promoted.
-    // Fall back to the already-live entitlement endpoint for visual QA only.
     if (response.status === 404) return fallbackEntitlements();
     return { kind: 'unavailable' };
   }
@@ -191,6 +193,9 @@
       }
 
       if (result.kind === 'access') return unlock();
+      if (result.kind === 'access-without-token') {
+        return showUnavailable('Your membership is active, but the secure product token is not live yet. Try again after the WorkinWithAI update finishes deploying.');
+      }
       if (result.kind === 'login') return showLogin();
       if (result.kind === 'subscribe') return showSubscribe();
       return showUnavailable();
