@@ -37,4 +37,13 @@
 .hero-modes span{border:1px solid rgba(209,136,69,.45);background:rgba(209,136,69,.08);padding:7px 11px;border-radius:999px;font-size:.78rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
 .hero-modes b{color:var(--muted);font-weight:600}
 .hero-modes i{font-style:normal;color:var(--muted);font-size:.78rem}
-@media(max-width:660px){.path-grid{grid-template-columns:1fr}.ab-toggle-group{width:100%}.ab-btn{flex:1}}
+.mobile-onboard{margin:0 0 18px;padding:14px 16px;border:1px solid rgba(209,136,69,.38);border-radius:14px;background:linear-gradient(180deg,rgba(209,136,69,.08),#101318)}
+.mobile-onboard[hidden]{display:none!important}
+.mobile-onboard-kicker{margin:0 0 5px;color:var(--copper);font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+.mobile-onboard h2{margin:0 0 10px;font-size:1.05rem}
+.mobile-onboard-steps{margin:0 0 10px;padding-left:20px;color:var(--muted);font-size:.86rem;line-height:1.5}
+.mobile-onboard-note,.mobile-file-hint{color:var(--muted);font-size:.8rem;line-height:1.45}
+.mobile-onboard-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.mobile-onboard-actions button,.mobile-onboard-actions a,.path-card,.ab-btn{min-height:44px}
+.mobile-onboard-actions a{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+@media(max-width:660px){.path-grid{grid-template-columns:1fr}.ab-toggle-group{width:100%}.ab-btn{flex:1}.mobile-onboard-actions>*{flex:1 1 100%}}

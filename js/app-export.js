@@ -95,6 +95,16 @@ $('exportBtn').addEventListener('click', async () => {
     syncExportUi(state);
     return;
   }
+  const license = (globalThis.MixForgeHub && typeof MixForgeHub.requireEntitlement === 'function')
+    ? MixForgeHub.requireEntitlement('export')
+    : { ok: false, reason: 'login', redirectUrl: 'https://workinwithai.com/#pricing' };
+  if (!license.ok) {
+    setStatus('exportStatus', `Release WAV download needs a MixForge or Forge Pass license (${license.reason}).`, 'error');
+    if (license.redirectUrl && globalThis.location && typeof globalThis.location.href === 'string') {
+      globalThis.location.href = license.redirectUrl;
+    }
+    return;
+  }
   $('exportBtn').disabled = true;
   setStatus('exportStatus', 'Encoding release WAV…', 'busy');
   try {
