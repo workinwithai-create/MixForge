@@ -2,6 +2,8 @@ const DEMUCS_STEMS = new Set(["vocals", "bass", "drums", "other"]);
 const STEM_ALIASES: Record<string, string> = { guitars: "other", keys: "other" };
 const SUPPORTED_ENGINES = new Set(["demucs", "melband", "auto"]);
 const SUPPORTED_MODES = new Set(["fast", "quality", "forensic", "hq"]);
+const HUB_ENTITLEMENTS_URL = "https://workinwithai.com/api/entitlements/me";
+const MIX_ORIGIN = "https://mixforge.workinwithai.com";
 const ALLOWED_ORIGINS = [
   /^https:\/\/mix\.workinwithai\.com$/,
   /^https:\/\/mixforge\.workinwithai\.com$/,
@@ -21,7 +23,7 @@ function cors(req) {
   return {
     "Access-Control-Allow-Origin": isAllowedOrigin(origin) ? origin : "https://mix.workinwithai.com",
     "Vary": "Origin",
-    "Access-Control-Allow-Headers": "authorization, apikey, content-type",
+    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-wwa-token",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Content-Type": "application/json",
     "Cache-Control": "no-store",
@@ -30,6 +32,31 @@ function cors(req) {
 
 function response(req, status, body) {
   return new Response(JSON.stringify(body), { status, headers: cors(req) });
+}
+
+async function verifyPaidAccess(req: Request) {
+  const token = req.headers.get("x-wwa-token")?.trim() || "";
+  if (!token) return { ok: false, status: 401, reason: "login" };
+
+  try {
+    const res = await fetch(HUB_ENTITLEMENTS_URL, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Origin": MIX_ORIGIN,
+        "Accept": "application/json",
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, status: 503, reason: "unavailable" };
+    if (!data?.signedIn) return { ok: false, status: 401, reason: "login" };
+    if (!data?.hasMix) return { ok: false, status: 402, reason: "subscribe" };
+    return { ok: true, status: 200, reason: "ok" };
+  } catch (error) {
+    console.error("MixForge separation entitlement check failed", error);
+    return { ok: false, status: 503, reason: "unavailable" };
+  }
 }
 
 function safeStems(value: unknown) {
@@ -253,6 +280,17 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return response(req, 405, { ok: false, error: "Method not allowed" });
   const origin = req.headers.get("origin") || "";
   if (!origin || !isAllowedOrigin(origin)) return response(req, 403, { ok: false, error: "Origin not allowed" });
+
+  const access = await verifyPaidAccess(req);
+  if (!access.ok) {
+    const error = access.reason === "subscribe"
+      ? "MixForge subscription required"
+      : access.reason === "login"
+        ? "WorkinWithAI login required"
+        : "WorkinWithAI access check unavailable";
+    return response(req, access.status, { ok: false, error, reason: access.reason });
+  }
+
   let storagePath = "";
   try {
     const body = await req.json();
