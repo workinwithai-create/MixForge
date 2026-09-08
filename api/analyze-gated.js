@@ -8,15 +8,15 @@ function json(res, status, body) {
 }
 
 async function verifyMixAccess(req) {
-  const cookie = String(req.headers?.cookie || '');
-  if (!cookie) return { ok: false, status: 401, reason: 'login' };
+  const token = String(req.headers?.['x-wwa-token'] || '').trim();
+  if (!token) return { ok: false, status: 401, reason: 'login' };
 
   let response;
   try {
     response = await fetch(HUB_ENTITLEMENTS_URL, {
       method: 'GET',
       headers: {
-        Cookie: cookie,
+        Authorization: `Bearer ${token}`,
         Origin: MIX_ORIGIN,
         Accept: 'application/json',
       },
@@ -57,7 +57,7 @@ export default async function handler(req, res) {
         ok: false,
         error: 'MixForge subscription required',
         reason: 'subscribe',
-        membershipUrl: `${MIX_ORIGIN}/membership/`,
+        membershipUrl: MIX_ORIGIN,
       });
     }
     return json(res, 503, {
