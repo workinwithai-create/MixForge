@@ -47,7 +47,8 @@ export function configured() {
   const anon = process.env.HUB_SUPABASE_ANON_KEY?.trim() || '';
   const service = process.env.HUB_SUPABASE_SERVICE_ROLE_KEY?.trim() || '';
   const secret = process.env.MIXFORGE_LICENSE_SECRET?.trim() || '';
-  return { url, anon, service, secret, ready: Boolean(url && (anon || service) && secret) };
+  const supabaseReady = Boolean(url && (anon || service));
+  return { url, anon, service, secret, supabaseReady, ready: Boolean(secret || supabaseReady) };
 }
 
 export function normalizeProduct(value) {
@@ -172,6 +173,40 @@ export function extractLicenseToken(req) {
   return found ? decodeURIComponent(found.slice('mixforge_license='.length)) : '';
 }
 
+export function hubMeToIdentity(payload) {
+  if (!payload || typeof payload !== 'object') return { user: null, rows: [] };
+  const signedIn = Boolean(payload.signedIn || payload.email || payload.userId);
+  if (!signedIn) return { user: null, rows: [] };
+  const user = {
+    id: payload.userId || payload.email || 'hub-user',
+    email: payload.email || null,
+  };
+  const rows = [];
+  if (payload.hasBundle) rows.push({ product: 'bundle', status: 'active' });
+  if (payload.hasMix) rows.push({ product: 'mix', status: 'active' });
+  const products = Array.isArray(payload.products) ? payload.products : [];
+  for (const product of products) {
+    const normalized = normalizeProduct(product);
+    if (normalized) rows.push({ product: normalized, status: 'active' });
+  }
+  return { user, rows };
+}
+
+export async function fetchHubEntitlementsMe(req) {
+  const headers = { Accept: 'application/json' };
+  const cookie = req?.headers?.cookie || req?.headers?.Cookie;
+  if (cookie) headers.Cookie = cookie;
+  const authorization = req?.headers?.authorization || req?.headers?.Authorization;
+  if (authorization) headers.Authorization = authorization;
+  const response = await fetch(`${HUB_ORIGIN}/api/entitlements/me`, {
+    method: 'GET',
+    headers,
+  });
+  if (!response.ok) return null;
+  const payload = await response.json().catch(() => null);
+  return payload && typeof payload === 'object' ? payload : null;
+}
+
 async function supabaseUser(cfg, accessToken) {
   if (!accessToken) return null;
   const response = await fetch(`${cfg.url}/auth/v1/user`, {
@@ -214,21 +249,53 @@ function attachLicense(status, cfg) {
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  const requestOrigin = req.headers.origin || '';
+  const allowOrigin = /workinwithai\.com$/.test(new URL(requestOrigin || APP_ORIGIN).hostname) ? requestOrigin : APP_ORIGIN;
+  try {
+    if (requestOrigin) {
+      const host = new URL(requestOrigin).hostname;
+      if (host === 'workinwithai.com' || host.endsWith('.workinwithai.com') || host.endsWith('.vercel.app')) {
+        res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+      }
+    }
+  } catch (_) {
+    res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-MixForge-License');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Vary', 'Origin');
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'GET' && req.method !== 'POST') return json(res, 405, { ok: false, error: 'Method not allowed' });
 
   const cfg = configured();
-  if (!cfg.ready) return json(res, 200, evaluateEntitlement({ misconfigured: true }));
 
   try {
-    const license = verifyLicense(extractLicenseToken(req) || req.body?.license || '', cfg.secret);
+    const license = cfg.secret
+      ? verifyLicense(extractLicenseToken(req) || req.body?.license || '', cfg.secret)
+      : null;
+
+    let user = null;
+    let rows = [];
+
+    try {
+      const hubMe = await fetchHubEntitlementsMe(req);
+      const fromHub = hubMeToIdentity(hubMe);
+      user = fromHub.user;
+      rows = fromHub.rows;
+    } catch (error) {
+      console.error('MixForge entitlement Hub forward failed:', error);
+    }
+
     const accessToken = extractBearer(req) || req.body?.access_token || '';
-    const user = accessToken ? await supabaseUser(cfg, accessToken) : null;
-    const rows = user ? await supabaseEntitlements(cfg, user, accessToken) : [];
-    return json(res, 200, attachLicense(evaluateEntitlement({ user, rows, license }), cfg));
+    if (!user && accessToken && cfg.supabaseReady) {
+      user = await supabaseUser(cfg, accessToken);
+      rows = user ? await supabaseEntitlements(cfg, user, accessToken) : [];
+    }
+
+    const status = evaluateEntitlement({ user, rows, license });
+    if (status.reason === 'ungated-preview') status.reason = status.entitled ? 'ok' : (user ? 'signed-in-unpaid' : 'anonymous');
+    return json(res, 200, attachLicense(status, cfg));
   } catch (error) {
     console.error('MixForge entitlement error:', error);
     return json(res, 200, evaluateEntitlement({ misconfigured: true }));

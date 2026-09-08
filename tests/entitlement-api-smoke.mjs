@@ -6,6 +6,7 @@ import {
   evaluateEntitlement,
   extractBearer,
   extractLicenseToken,
+  hubMeToIdentity,
   hubUrls,
   isFounder,
   normalizeProduct,
@@ -109,5 +110,32 @@ assert.equal(extractLicenseToken({ headers: { cookie: `mixforge_license=${encode
 const urls = hubUrls('https://mixforge.workinwithai.com/');
 assert.equal(urls.checkoutApi, 'https://workinwithai.com/api/checkout');
 assert.match(urls.loginUrl, /next=https%3A%2F%2Fmixforge\.workinwithai\.com%2F/);
+
+const anonymousHub = hubMeToIdentity({ signedIn: false, hasMix: false, hasBundle: false });
+assert.equal(anonymousHub.user, null);
+assert.equal(anonymousHub.rows.length, 0);
+
+const firstPartyBuyer = hubMeToIdentity({
+  signedIn: true,
+  userId: 'buyer-1',
+  email: 'buyer@example.com',
+  hasMix: true,
+  hasBundle: false,
+});
+assert.equal(firstPartyBuyer.user.id, 'buyer-1');
+assert.equal(firstPartyBuyer.user.email, 'buyer@example.com');
+assert.ok(firstPartyBuyer.rows.some((row) => row.product === 'mix'));
+
+const passHolder = hubMeToIdentity({
+  signedIn: true,
+  userId: 'pass-1',
+  email: 'pass@example.com',
+  hasMix: true,
+  hasBundle: true,
+});
+const passEval = evaluateEntitlement({ user: passHolder.user, rows: passHolder.rows });
+assert.equal(passEval.entitled, true);
+assert.equal(passEval.product, 'bundle');
+assert.notEqual(passEval.reason, 'ungated-preview');
 
 console.log('entitlement-api-smoke: ok');
