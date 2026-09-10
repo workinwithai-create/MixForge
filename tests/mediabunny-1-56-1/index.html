@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111318">
+  <title>MixForge Test — MediaBunny 1.56.1</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #0d0f12; color: #f5f1e8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    .test-label { position: sticky; top: 0; z-index: 2; padding: 12px 16px; background: #ffd166; color: #17130a; text-align: center; font-weight: 800; letter-spacing: .05em; }
+    main { width: min(720px, 100%); margin: auto; padding: 22px 16px 64px; }
+    h1 { margin-bottom: 6px; }
+    .lede, small { color: #b9bec8; }
+    .card { margin: 18px 0; padding: 18px; border: 1px solid #333944; border-radius: 14px; background: #171a20; }
+    label { display: block; margin: 12px 0 6px; font-weight: 700; }
+    input[type=file], input[type=number], button, a.button { width: 100%; min-height: 48px; border-radius: 9px; font: inherit; }
+    input { padding: 10px; background: #0f1115; color: white; border: 1px solid #4a5260; }
+    .range { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    button, a.button { display: grid; place-items: center; margin-top: 12px; padding: 11px; border: 0; background: #65d6c4; color: #07110f; font-weight: 800; text-decoration: none; }
+    button.secondary { background: #2a303a; color: white; }
+    button:disabled { opacity: .45; }
+    audio { width: 100%; margin-top: 12px; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; min-height: 120px; margin: 0; color: #d6e2ea; }
+    .pass { color: #79e69c; } .fail { color: #ff8e8e; }
+  </style>
+</head>
+<body>
+  <div class="test-label">TEST BUILD · MEDIABUNNY 1.56.1 · NOT LIVE</div>
+  <main>
+    <h1>iPhone audio trim lab</h1>
+    <p class="lede">This isolates MediaBunny’s new trim and timestamp behavior without changing MixForge’s live mixing pipeline.</p>
+
+    <section class="card">
+      <strong>1. Choose a real WAV</strong>
+      <label for="audioFile">Mix, vocal, or AuraMix export</label>
+      <input id="audioFile" type="file" accept="audio/wav,.wav,audio/*">
+      <div class="range">
+        <div><label for="startTime">Start (seconds)</label><input id="startTime" type="number" min="0" step="0.1" value="1"></div>
+        <div><label for="endTime">End (seconds)</label><input id="endTime" type="number" min="0" step="0.1" value="6"></div>
+      </div>
+      <button id="trimButton" disabled>Trim once</button>
+      <button id="repeatButton" class="secondary" disabled>Repeat 5 times (freeze check)</button>
+      <small>Nothing uploads. The file stays inside this browser tab.</small>
+    </section>
+
+    <section class="card">
+      <strong>2. Compare the result</strong>
+      <audio id="player" controls></audio>
+      <a id="download" class="button" hidden>Download trimmed WAV</a>
+    </section>
+
+    <section class="card" aria-live="polite">
+      <strong>3. Test report</strong>
+      <pre id="report">Waiting for a WAV file…</pre>
+    </section>
+  </main>
+  <script type="module" src="./lab.js"></script>
+</body>
+</html>
