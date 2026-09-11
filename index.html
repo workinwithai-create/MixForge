@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="/timeline.css?v=2.6.0">
   <link rel="stylesheet" href="/targeted-repair.css?v=2.6.0">
   <link rel="stylesheet" href="/musician-ux.css?v=2.6.0">
+  <link rel="stylesheet" href="/semantic-separation.css?v=2.6.0">
   <link rel="stylesheet" href="/license.css?v=2.6.0">
 </head>
 <body>
@@ -61,6 +62,7 @@
       <div class="score-row"><div class="score"><strong id="readinessScore">—</strong><span>release readiness</span></div><p id="auditSummary"></p></div>
       <div class="metrics" id="mixMetrics"></div><div class="findings" id="auditFindings"></div>
       <section class="problem-timeline" id="problemTimeline" aria-live="polite"></section>
+      <section class="semantic-diagnosis hidden" id="semanticDiagnosis" aria-live="polite"></section>
       <div class="actions hidden" id="separateActions"><button class="primary" id="separateBtn">Start source investigation</button><small id="stemListLabel"></small></div>
       <div class="status" id="separationStatus" aria-live="polite"></div>
     </section>
@@ -108,6 +110,7 @@
   <script src="/js/app-timeline-ui.js?v=2.6.0" defer></script>
   <script src="/js/app-targeted-repair.js?v=2.6.0" defer></script>
   <script src="/js/app-targeted-repair-guard.js?v=2.6.0" defer></script>
+  <script src="/js/app-semantic-separation.js?v=2.6.0" defer></script>
   <script src="/js/app-mobile-onboard.js?v=2.6.0" defer></script>
   <script src="/js/app-musician-ux.js?v=2.6.0" defer></script>
   <script src="/js/app-hub-entitlement.js?v=2.6.0" defer></script>
