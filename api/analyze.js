@@ -2,7 +2,7 @@ const CANONICAL_STEMS = new Set(['vocals', 'bass', 'drums', 'other']);
 const STEM_ALIASES = { guitars: 'other', keys: 'other' };
 const GEMINI_TIMEOUT_MS = 52000;
 const ANTHROPIC_TIMEOUT_MS = 52000;
-const GEMINI_DEFAULT_MODEL = 'gemini-3.6-flash';
+const GEMINI_DEFAULT_MODEL = 'gemini-3.8-flash';
 const LISTENING_CLIP_MAX_CHARS = 3500000;
 
 export const config = {
@@ -216,7 +216,7 @@ async function callAnthropicStems(body) {
   if (!key) throw new Error('ANTHROPIC_API_KEY is not configured.');
   const prompt = stemPrompt(body);
   if (prompt.length > 18000) throw new Error('Analysis payload is too large.');
-  const model = process.env.ANTHROPIC_MODEL?.trim() || 'claude-sonnet-4-6';
+  const model = process.env.ANTHROPIC_MODEL?.trim() || 'claude-sonnet-5';
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ANTHROPIC_TIMEOUT_MS);
   let response;
@@ -224,7 +224,7 @@ async function callAnthropicStems(body) {
     response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model, max_tokens: 2400, temperature: 0.1, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model, max_tokens: 2400, messages: [{ role: 'user', content: prompt }] }),
       signal: controller.signal,
     });
   } catch (error) {

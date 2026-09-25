@@ -38,9 +38,9 @@ Stereo audit stays free. Quick Master, Forensic Fix, and WAV export require an a
 
 ### Vercel
 - `GEMINI_API_KEY` — native-audio listening pass on the stereo mix audit. The API route reads **only** `process.env.GEMINI_API_KEY`. Set it on the Vercel mix-forge project for **Production and Preview**. No key is shipped in the client or repo.
-- `GEMINI_MODEL` (optional; defaults to `gemini-3.6-flash`)
+- `GEMINI_MODEL` (optional; defaults to `gemini-3.8-flash`)
 - `ANTHROPIC_API_KEY` — optional; used only for stem-plan text after isolation
-- `ANTHROPIC_MODEL` (optional; defaults to `claude-sonnet-4-6`)
+- `ANTHROPIC_MODEL` (optional; defaults to `claude-sonnet-5`)
 
 `GET /api/analyze` reports `{ listeningConfigured: true|false }` without exposing the key. If the env var is missing, the client skips the excerpt upload and says: “Listening model not configured — using measurements only.” Claude is not used to restate numbers it cannot hear.
 

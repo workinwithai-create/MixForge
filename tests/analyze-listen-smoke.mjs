@@ -11,7 +11,11 @@ import {
 } from '../api/analyze.js';
 import handler from '../api/analyze.js';
 
-assert.doesNotMatch(fs.readFileSync(new URL('../api/analyze.js', import.meta.url), 'utf8'), /AIza[0-9A-Za-z_-]{10,}/);
+const analyzeSource = fs.readFileSync(new URL('../api/analyze.js', import.meta.url), 'utf8');
+assert.doesNotMatch(analyzeSource, /AIza[0-9A-Za-z_-]{10,}/);
+assert.match(analyzeSource, /claude-sonnet-5/);
+assert.doesNotMatch(analyzeSource, /claude-sonnet-4-/);
+assert.doesNotMatch(analyzeSource, /max_tokens:\s*2400,\s*temperature:/);
 assert.equal(typeof listeningConfigured(), 'boolean');
 assert.equal(listeningStatusPayload().ok, true);
 assert.equal(Object.prototype.hasOwnProperty.call(listeningStatusPayload(), 'apiKey'), false);
@@ -45,9 +49,9 @@ assert.doesNotMatch(prompt, /guitars or keys as separate/);
 const previousKey = process.env.GEMINI_API_KEY;
 const previousModel = process.env.GEMINI_MODEL;
 process.env.GEMINI_API_KEY = 'test-key';
-process.env.GEMINI_MODEL = 'gemini-3.6-flash';
+process.env.GEMINI_MODEL = 'gemini-3.8-flash';
 const request = buildGeminiMixRequest({ metrics: { lufs: -14 }, notes: '', targetLufs: -12 }, clip);
-assert.match(request.url, /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-3\.6-flash:generateContent/);
+assert.match(request.url, /generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-3\.8-flash:generateContent/);
 assert.equal(request.payload.contents[0].parts[1].inline_data.mime_type, 'audio/wav');
 assert.equal(request.payload.contents[0].parts[1].inline_data.data, 'UklGRg==');
 assert.equal(request.payload.generationConfig.responseMimeType, 'application/json');
