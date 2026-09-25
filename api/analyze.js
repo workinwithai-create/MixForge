@@ -2,7 +2,7 @@ const CANONICAL_STEMS = new Set(['vocals', 'bass', 'drums', 'other']);
 const STEM_ALIASES = { guitars: 'other', keys: 'other' };
 const GEMINI_TIMEOUT_MS = 52000;
 const ANTHROPIC_TIMEOUT_MS = 52000;
-const GEMINI_DEFAULT_MODEL = 'gemini-3.6-flash';
+const GEMINI_DEFAULT_MODEL = 'gemini-3.8-flash';
 const LISTENING_CLIP_MAX_CHARS = 3500000;
 
 export const config = {
