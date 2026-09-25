@@ -11,7 +11,11 @@ import {
 } from '../api/analyze.js';
 import handler from '../api/analyze.js';
 
-assert.doesNotMatch(fs.readFileSync(new URL('../api/analyze.js', import.meta.url), 'utf8'), /AIza[0-9A-Za-z_-]{10,}/);
+const analyzeSource = fs.readFileSync(new URL('../api/analyze.js', import.meta.url), 'utf8');
+assert.doesNotMatch(analyzeSource, /AIza[0-9A-Za-z_-]{10,}/);
+assert.match(analyzeSource, /claude-sonnet-5/);
+assert.doesNotMatch(analyzeSource, /claude-sonnet-4-/);
+assert.doesNotMatch(analyzeSource, /max_tokens:\s*2400,\s*temperature:/);
 assert.equal(typeof listeningConfigured(), 'boolean');
 assert.equal(listeningStatusPayload().ok, true);
 assert.equal(Object.prototype.hasOwnProperty.call(listeningStatusPayload(), 'apiKey'), false);
