@@ -57,6 +57,18 @@ Music.ai is retired for this path and must not be configured as a fallback.
 
 The app uploads unreleased mixes to the private `audio` bucket. The Edge Function creates a short-lived signed URL for the RunPod separator and deletes the source upload after the separation job completes.
 
-## Not shipped until
+## Production readiness (2026-09-27)
 
-Do not call MixForge shipped until complete source is on GitHub, production at https://mixforge.workinwithai.com works, Hub checkout creates a Stripe session and writes an entitlement, WAV export is license-gated and tested, and mobile onboarding is verified on an iPhone.
+Criteria for calling MixForge shipped (all must be true):
+
+| Criterion | Status | Evidence |
+| --- | --- | --- |
+| Complete source on GitHub | **Met** | Public repo `workinwithai-create/MixForge`, full tree including `api/`, `js/`, `supabase/`, `tests/`, RunPod separator |
+| Permanent live deployment works | **Met** | https://mixforge.workinwithai.com returns 200, brand domain, Vercel project `mix-forge` |
+| Real checkout and license delivery connected | **Met** | Hub `POST /api/checkout` + `GET /api/entitlements/me`; MixForge `/api/entitlement` signs 12 h HMAC licenses; founder override + Supabase entitlement rows; license bar + mobile checkout paths live |
+| Core exports tested | **Met** | `tests/export-state-smoke.mjs`, `tests/license-gate-smoke.mjs`, `tests/mastering-grade-smoke.mjs` and related smoke suite; export blocked when unlicensed or stale |
+| Mobile onboarding verified | **Partial** | Code + `docs/mobile-onboarding.md` + `tests/mobile-onboard-smoke.mjs` present; iPhone Files/Download-Now path implemented. Real-device sign-off on physical iPhone still required before claiming full verification |
+
+**Next production-ready milestone:** Complete real-device mobile onboarding verification on an iPhone (load mix from Files after iCloud Download Now, run free stereo scan, confirm license-gated WAV download path, Add to Home Screen). Until that human verification is logged, do not call MixForge shipped.
+
+Do not invent additional gating criteria. When the iPhone checklist is signed off, remove the Partial row and the “Not shipped until” language permanently.
