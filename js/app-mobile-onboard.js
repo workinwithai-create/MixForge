@@ -3,8 +3,8 @@
 // MixForge mobile onboarding. Uses the existing #mobileOnboard mount when present.
 // Stereo scan is free; paid mastering/export go through Hub checkout on this phone.
 const MF_ONBOARD_KEY = 'mixforge-mobile-onboard-v1';
-const MF_HUB_ORIGIN = 'https://workinwithai.com';
-const MF_HUB_PRICING = `${MF_HUB_ORIGIN}/#pricing`;
+const MF_ONBOARD_HUB_ORIGIN = 'https://workinwithai.com';
+const MF_HUB_PRICING = `${MF_ONBOARD_HUB_ORIGIN}/#pricing`;
 const MF_RETURN_TO = 'https://mixforge.workinwithai.com/';
 const MF_IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const MF_IS_MOBILE = MF_IS_IOS || window.matchMedia('(max-width: 660px)').matches || navigator.maxTouchPoints > 1;
@@ -27,7 +27,7 @@ function mfPurchaseReturn() {
 }
 
 function mfHubLoginUrl() {
-  return `${MF_HUB_ORIGIN}/login?next=${encodeURIComponent(MF_RETURN_TO)}&checkout=mix-monthly&buy=mix-monthly`;
+  return `${MF_ONBOARD_HUB_ORIGIN}/login?next=${encodeURIComponent(MF_RETURN_TO)}&checkout=mix-monthly&buy=mix-monthly`;
 }
 
 function mfStartMobileCheckout() {
@@ -75,7 +75,7 @@ function mfBuildOnboardSheet() {
         <li>Scan the stereo mix for free. Pick <strong>Quick Master</strong> for an Original vs Master A/B, or <strong>Forensic Fix</strong> when isolation is actually needed.</li>
         <li>${purchased
           ? 'Stripe returned purchased=1. The license bar refreshes the Hub entitlement and stores the MixForge license before WAV export unlocks.'
-          : 'Sign in on this phone, then tap <strong>Get MixForge license</strong> ($9/mo or Forge Pass $24/mo) before rendering or downloading the release WAV.'}</li>
+          : 'A license is not stored on the phone. Sign in on <em>this</em> browser (Safari, not an in-app browser), then tap <strong>Get MixForge license</strong> ($9/mo or Forge Pass $24/mo). In-app browsers such as Grok do not share the Hub login from Safari.'}</li>
       </ol>
       <p class="mobile-onboard-note">MixForge measures change; it does not claim the mix sounds better. Vocal performance lives in AuraMix.</p>
       <div class="mobile-onboard-actions">
