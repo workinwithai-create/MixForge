@@ -35,6 +35,7 @@ assert.equal(anon.reason, 'anonymous');
 assert.equal(anon.product, null);
 assert.notEqual(anon.reason, 'ungated-preview');
 assert.match(anon.loginUrl, /workinwithai\.com\/login/);
+assert.doesNotMatch(anon.loginUrl, /(?:checkout|buy)=/);
 assert.equal(anon.checkoutApi, `${HUB_ORIGIN}/api/checkout`);
 assert.equal(anon.returnTo, `${APP_ORIGIN}/`);
 
@@ -110,6 +111,7 @@ assert.equal(extractLicenseToken({ headers: { cookie: `mixforge_license=${encode
 const urls = hubUrls('https://mixforge.workinwithai.com/');
 assert.equal(urls.checkoutApi, 'https://workinwithai.com/api/checkout');
 assert.match(urls.loginUrl, /next=https%3A%2F%2Fmixforge\.workinwithai\.com%2F/);
+assert.doesNotMatch(urls.loginUrl, /(?:checkout|buy)=/);
 
 const anonymousHub = hubMeToIdentity({ signedIn: false, hasMix: false, hasBundle: false });
 assert.equal(anonymousHub.user, null);
