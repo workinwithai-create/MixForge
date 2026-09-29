@@ -25,7 +25,12 @@ function mfFirstPartyReturn() {
 }
 
 function mfHubLoginUrl(returnTo = mfFirstPartyReturn()) {
-  return `${MF_HUB_ORIGIN}/login?next=${encodeURIComponent(returnTo)}&checkout=mix-monthly&buy=mix-monthly`;
+  return `${MF_HUB_ORIGIN}/login?next=${encodeURIComponent(returnTo)}`;
+}
+
+function mfHubCheckoutLoginUrl(returnTo = mfFirstPartyReturn(), lookupKey = 'mix-monthly') {
+  const key = lookupKey === 'forge-pass-monthly' ? 'forge-pass-monthly' : 'mix-monthly';
+  return `${MF_HUB_ORIGIN}/login?next=${encodeURIComponent(returnTo)}&checkout=${encodeURIComponent(key)}&buy=${encodeURIComponent(key)}`;
 }
 
 function mfDefaultStatus(reason = 'login') {
@@ -72,7 +77,6 @@ function mfNormalizeHubMe(payload) {
   status.product = payload.hasBundle ? 'bundle' : payload.hasMix ? 'mix' : null;
   status.reason = payload.reason || (status.entitled ? 'ok' : status.signedIn ? 'subscribe' : 'login');
   if (status.reason === 'ungated-preview') status.reason = status.entitled ? 'ok' : (status.signedIn ? 'subscribe' : 'login');
-  if (payload.loginUrl) status.loginUrl = payload.loginUrl;
   if (payload.checkoutLookupKeys) status.checkoutLookupKeys = payload.checkoutLookupKeys;
   return status;
 }
@@ -90,7 +94,6 @@ function mfNormalizeLocalEntitlement(payload) {
   status.license = payload.license || null;
   status.reason = payload.reason || (status.entitled ? 'ok' : status.signedIn ? 'signed-in-unpaid' : 'anonymous');
   if (status.reason === 'ungated-preview') status.reason = status.entitled ? 'ok' : (status.signedIn ? 'signed-in-unpaid' : 'login');
-  if (payload.loginUrl) status.loginUrl = payload.loginUrl;
   if (payload.checkoutUrl) status.checkoutUrl = payload.checkoutUrl;
   if (payload.pricingUrl) status.pricingUrl = payload.pricingUrl;
   return status;
@@ -208,7 +211,7 @@ const MixForgeHubClient = {
         body: JSON.stringify({ lookupKey: key, returnTo }),
       }, 8000);
       if (result.status === 401) {
-        const loginUrl = result.payload?.loginUrl || mfHubLoginUrl(returnTo);
+        const loginUrl = mfHubCheckoutLoginUrl(returnTo, key);
         if (globalThis.location) globalThis.location.href = loginUrl;
         return { ok: false, reason: 'login', loginUrl };
       }
