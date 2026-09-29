@@ -187,6 +187,7 @@ async function loadFile(file) {
     state.storagePath = null;
     state.stemBuffers = {};
     state.stemPlans = {};
+    state.semanticSpotChecks = [];
     resetResults();
     $('dropzone').classList.add('loaded');
     $('fileMeta').textContent = `${file.name} · ${formatDuration(decoded.duration)} · ${decoded.sampleRate / 1000} kHz · ${decoded.numberOfChannels === 1 ? 'mono' : 'stereo'}`;

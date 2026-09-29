@@ -53,6 +53,19 @@ Stem-separation quota: 12 stems/hour and 30/day.
 
 Music.ai is retired for this path and must not be configured as a fallback.
 
+## Experimental semantic source diagnosis
+
+The `feature/sam-audio-prove-first` branch contains an off-by-default SAM-Audio-compatible diagnostic path. It does not change Quick Master, Forensic Fix, Demucs separation, export, or any existing sync flow.
+
+- Enable a local or preview URL with `?semanticSeparation=1`.
+- Exercise graceful fallback without credentials with `?semanticSeparation=1&semanticMock=reject` or `semanticMock=fail`.
+- The browser sends at most a 12-second stereo WAV excerpt. The API refuses mono and longer or whole-song diagnostic requests.
+- A source stays **Unconfirmed** unless target + residual reconstruct the excerpt, stereo is preserved, the target has plausible energy, and the measured symptom concentrates in the target.
+- Source-aware repair stays locked until confirmation. Existing bounded stereo repair and Demucs standard stems remain independent fallbacks.
+- The future full-song sync render is architecture only and disabled. It requires two matching confirmed spot checks before review, followed later by full-song reconstruction, bleed/artifact QC, and human approval.
+
+Actual SAM-Audio inference is not bundled here. A preview deployment needs `SAM_AUDIO_ENDPOINT` and `SAM_AUDIO_API_KEY`; the endpoint must return stereo WAV `target` and `residual` payloads. Without those variables, the route returns a fast 503 and the app keeps working normally.
+
 ## Storage
 
 The app uploads unreleased mixes to the private `audio` bucket. The Edge Function creates a short-lived signed URL for the RunPod separator and deletes the source upload after the separation job completes.
