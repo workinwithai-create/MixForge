@@ -32,7 +32,7 @@ export function json(res, status, body) {
 
 export function hubUrls(returnTo = APP_ORIGIN + '/') {
   const safeReturn = String(returnTo || APP_ORIGIN + '/');
-  const loginUrl = `${HUB_ORIGIN}/login?next=${encodeURIComponent(safeReturn)}&checkout=mix-monthly&buy=mix-monthly`;
+  const loginUrl = `${HUB_ORIGIN}/login?next=${encodeURIComponent(safeReturn)}`;
   return {
     loginUrl,
     checkoutUrl: `${HUB_ORIGIN}/get-mix-forge`,
