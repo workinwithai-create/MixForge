@@ -2,6 +2,12 @@
 
 MixForge is a browser forensic release-prep pipeline — not a one-click loudness clone.
 
+## Pipe Dreams Crew worker
+
+Dream Mix can run the real MixForge targeted-repair engine as a local Pipe Dreams specialist. The worker never embeds its credential in the site or repository: `scripts/pipe_dreams_worker.py` reads the `pipe-dreams-dream-mix` token from macOS Keychain, serves this repo only on localhost, and opens `?crew-worker=1`. That browser mode independently measures the Producer-marked region, only accepts a repair type that MixForge itself detects there, runs the existing targeted-repair renderer and regression checks, uploads a private 24-bit WAV proposal, and leaves the current recording untouched until the artist approves it in Your Crew.
+
+Supported Crew repair classes are the same bounded operations already shipped by MixForge: harshness, sibilance, sub-bass excess, mono-width instability, peak risk, and review-gated sustained loudness dips. Clipping reconstruction, arbitrary stem automation, pitch/timing edits, and vague improvement requests are refused.
+
 LANDR, eMastered, BandLab Mastering, CloudBounce, and RoEx win on making a file louder in one click. MixForge wins on evidence: measure → locate problem windows → optional honest stem repair → conservative master → show measured change. It does not claim musical improvement.
 
 1. Audit a stereo mix. Measurements are ground truth for clip %, LUFS, sample peak, correlation, and DC.
