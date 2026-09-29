@@ -15,6 +15,7 @@ assert.match(indexHtml, /app-sequential-mixing\.js/);
 assert.match(indexHtml, /app-mobile-onboard\.js/);
 assert.match(indexHtml, /id="licenseBar"/);
 assert.match(indexHtml, /id="licenseBuyBtn"/);
+assert.doesNotMatch(indexHtml, /licenseSignInBtn" href="[^"]*(?:checkout|buy)=/);
 assert.match(indexHtml, /2\.6\.0/);
 assert.equal(pkg.version, '2.6.0');
 assert.match(pkg.scripts.test, /entitlement-api-smoke/);
@@ -26,6 +27,9 @@ assert.match(hubSource, /https:\/\/workinwithai\.com\/api\/checkout/);
 assert.match(hubSource, /MixForgeHubClient/);
 assert.match(hubSource, /mix-monthly/);
 assert.match(hubSource, /forge-pass-monthly/);
+const loginHelper = hubSource.match(/function mfHubLoginUrl[\\s\\S]*?\\n}\\n/)?.[0] || '';
+assert.doesNotMatch(loginHelper, /checkout=|buy=/);
+assert.match(hubSource, /function mfHubCheckoutLoginUrl/);
 assert.match(exportSource, /requireEntitlement\(['"]export['"]\)/);
 assert.match(masterSource, /requireEntitlement\(['"]quickMaster['"]\)/);
 
