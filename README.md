@@ -57,18 +57,18 @@ Music.ai is retired for this path and must not be configured as a fallback.
 
 The app uploads unreleased mixes to the private `audio` bucket. The Edge Function creates a short-lived signed URL for the RunPod separator and deletes the source upload after the separation job completes.
 
-## Production readiness (2026-09-27)
+## Production readiness (2026-09-30)
 
 Criteria for calling MixForge shipped (all must be true):
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
 | Complete source on GitHub | **Met** | Public repo `workinwithai-create/MixForge`, full tree including `api/`, `js/`, `supabase/`, `tests/`, RunPod separator |
-| Permanent live deployment works | **Met** | https://mixforge.workinwithai.com returns 200, brand domain, Vercel project `mix-forge` |
-| Real checkout and license delivery connected | **Met** | Hub `POST /api/checkout` + `GET /api/entitlements/me`; MixForge `/api/entitlement` signs 12 h HMAC licenses; founder override + Supabase entitlement rows; license bar + mobile checkout paths live |
+| Permanent live deployment works | **Met** | https://mixforge.workinwithai.com returns the live shell; Vercel project `mix-forge`; re-checked 2026-09-30 |
+| Real checkout and license delivery connected | **Met** | Hub `POST /api/checkout` + `GET /api/entitlements/me` (anonymous JSON with `mix-monthly` lookup key re-checked 2026-09-30); MixForge `/api/entitlement` signs 12 h HMAC licenses; founder override + Supabase entitlement rows; license bar + mobile checkout paths live |
 | Core exports tested | **Met** | `tests/export-state-smoke.mjs`, `tests/license-gate-smoke.mjs`, `tests/mastering-grade-smoke.mjs` and related smoke suite; export blocked when unlicensed or stale |
-| Mobile onboarding verified | **Partial** | Code + `docs/mobile-onboarding.md` + `tests/mobile-onboard-smoke.mjs` present; iPhone Files/Download-Now path implemented. Real-device sign-off on physical iPhone still required before claiming full verification |
+| Mobile onboarding verified | **Partial** | Coach + in-app-browser Safari warning + A2HS copy + `docs/mobile-onboarding.md` + `docs/iphone-signoff.md` + `tests/mobile-onboard-smoke.mjs`. Real-device sign-off on a physical iPhone is still required |
 
-**Next production-ready milestone:** Complete real-device mobile onboarding verification on an iPhone (load mix from Files after iCloud Download Now, run free stereo scan, confirm license-gated WAV download path, Add to Home Screen). Until that human verification is logged, do not call MixForge shipped.
+**Next production-ready milestone:** Fill `docs/iphone-signoff.md` on a physical iPhone (Safari, Files Download Now, free scan, licensed WAV download, Add to Home Screen). Until that human verification is logged, do not call MixForge shipped.
 
 Do not invent additional gating criteria. When the iPhone checklist is signed off, remove the Partial row and the “Not shipped until” language permanently.
