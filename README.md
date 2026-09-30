@@ -1,5 +1,9 @@
 # MixForge
 
+## v2.6.4 — Pipe Dreams single-sign-on race fix (2026-09-30)
+
+When embedded in Pipe Dreams Studio, a verified Warehouse session is now treated as trusted client state and cannot be overwritten by a later anonymous startup refresh. MixForge also requests the Studio session after its auth listener is installed, closing the iframe listener-timing gap. Standalone login remains separate from checkout.
+
 MixForge is a browser forensic release-prep pipeline — not a one-click loudness clone.
 
 LANDR, eMastered, BandLab Mastering, CloudBounce, and RoEx win on making a file louder in one click. MixForge wins on evidence: measure → locate problem windows → optional honest stem repair → conservative master → show measured change. It does not claim musical improvement.

@@ -90,7 +90,7 @@
       if (client) {
         const entitled = Boolean(payload.entitled);
         const product = payload.product || null;
-        client.status = {
+        const studioStatus = {
           ok: true, entitled, signedIn: Boolean(payload.email || payload.userId), product,
           reason: payload.reason || (entitled ? 'ok' : 'signed-in-unpaid'),
           email: payload.email || null, userId: payload.userId || null,
@@ -99,12 +99,16 @@
           loginUrl: payload.loginUrl, checkoutUrl: payload.checkoutUrl,
           pricingUrl: payload.pricingUrl, returnTo: payload.returnTo,
         };
-        if (client.features) {
-          client.features.quickMaster = entitled;
-          client.features.forensicStems = entitled;
-          client.features.export = entitled;
+        if (typeof client.applyStudioStatus === 'function') client.applyStudioStatus(studioStatus);
+        else {
+          client.status = studioStatus;
+          if (client.features) {
+            client.features.quickMaster = entitled;
+            client.features.forensicStems = entitled;
+            client.features.export = entitled;
+          }
+          client.render?.();
         }
-        client.render?.();
       }
       parent?.postMessage({ type: 'PIPE_DREAMS_STUDIO_SESSION_READY', room: 'MIXFORGE', entitled: Boolean(payload.entitled) }, parentOrigin);
     } catch (error) {
@@ -116,4 +120,12 @@
     if (event.data?.type !== 'PIPE_DREAMS_STUDIO_SESSION' || !allowedParent(event.origin)) return;
     void applyWarehouseSession(event.data.accessToken, event.origin);
   });
+
+  // The parent may have posted its token before this deferred script installed its listener.
+  // Ask for it explicitly once the listener is ready; the request carries no credential.
+  if (window.parent && window.parent !== window) {
+    try {
+      window.parent.postMessage({ type: 'PIPE_DREAMS_STUDIO_SESSION_REQUEST', room: 'MIXFORGE' }, '*');
+    } catch (_) {}
+  }
 })();

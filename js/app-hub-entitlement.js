@@ -138,6 +138,25 @@ const MixForgeHubClient = {
   pricing: { mixforgeMonthly: 9, forgePassMonthly: 24 },
   features: { quickMaster: false, forensicStems: false, export: false, stereoAudit: true },
   status: mfDefaultStatus('login'),
+  studioStatus: null,
+
+  applyStudioStatus(status) {
+    if (!status || typeof status !== 'object') return this.status;
+    const trusted = { ...mfDefaultStatus(status.reason || 'signed-in-unpaid'), ...status, studioSession: true };
+    trusted.signedIn = Boolean(trusted.signedIn || trusted.email || trusted.userId);
+    trusted.entitled = Boolean(trusted.entitled || trusted.hasMix || trusted.hasBundle);
+    if (['anonymous', 'checking', 'ungated-preview'].includes(trusted.reason)) {
+      trusted.reason = trusted.entitled ? 'ok' : (trusted.signedIn ? 'signed-in-unpaid' : 'login');
+    }
+    if (trusted.license) mfStoreLicense(trusted.license);
+    this.studioStatus = trusted;
+    this.status = mfPickRicher(trusted, this.status);
+    this.features.quickMaster = Boolean(this.status.entitled);
+    this.features.forensicStems = Boolean(this.status.entitled);
+    this.features.export = Boolean(this.status.entitled);
+    this.render();
+    return this.status;
+  },
 
   requireEntitlement(feature) {
     const name = String(feature || '');
@@ -160,10 +179,14 @@ const MixForgeHubClient = {
 
   async refresh() {
     const returnTo = mfFirstPartyReturn();
-    this.status = mfDefaultStatus('login');
-    this.features.quickMaster = false;
-    this.features.forensicStems = false;
-    this.features.export = false;
+    if (!this.studioStatus) {
+      this.status = mfDefaultStatus('login');
+      this.features.quickMaster = false;
+      this.features.forensicStems = false;
+      this.features.export = false;
+    } else {
+      this.status = mfPickRicher(this.studioStatus, this.status);
+    }
     this.render();
 
     const token = mfReadStoredLicense();
@@ -187,7 +210,8 @@ const MixForgeHubClient = {
     const local = localRes?.payload ? mfNormalizeLocalEntitlement(localRes.payload) : null;
     if (local?.license) mfStoreLicense(local.license);
 
-    this.status = mfPickRicher(hub, local);
+    const refreshed = mfPickRicher(hub, local);
+    this.status = this.studioStatus ? mfPickRicher(this.studioStatus, refreshed) : refreshed;
     if (this.status.reason === 'ungated-preview' || this.status.reason === 'anonymous' || this.status.reason === 'checking') {
       this.status.reason = this.status.entitled ? 'ok' : (this.status.signedIn ? 'subscribe' : 'login');
     }
@@ -272,6 +296,7 @@ try {
     MixForgeHub.pricing = MixForgeHubClient.pricing;
     MixForgeHub.status = MixForgeHubClient.status;
     MixForgeHub.refresh = () => MixForgeHubClient.refresh();
+    MixForgeHub.applyStudioStatus = (status) => MixForgeHubClient.applyStudioStatus(status);
     MixForgeHub.startCheckout = (key) => MixForgeHubClient.startCheckout(key);
     MixForgeHub.render = () => MixForgeHubClient.render();
   }
