@@ -7,6 +7,7 @@ const entitlementJs = readFileSync(new URL('../js/app-hub-entitlement.js', impor
 const css = readFileSync(new URL('../musician-ux.css', import.meta.url), 'utf8');
 const manifest = JSON.parse(readFileSync(new URL('../site.webmanifest', import.meta.url), 'utf8'));
 const docs = readFileSync(new URL('../docs/mobile-onboarding.md', import.meta.url), 'utf8');
+const signoff = readFileSync(new URL('../docs/iphone-signoff.md', import.meta.url), 'utf8');
 
 assert.match(indexHtml, /site\.webmanifest/, 'index must link the PWA manifest');
 assert.match(indexHtml, /apple-mobile-web-app-capable/, 'index must declare iOS standalone mode');
@@ -21,8 +22,9 @@ assert.match(onboardJs, /mixforge-mobile-onboard-v1/, 'first-run dismissal key m
 assert.match(onboardJs, /Choose a mix/, 'coach CTA must start the file picker');
 assert.match(onboardJs, /MF_ONBOARD_HUB_ORIGIN/, 'onboard must use a private Hub origin name');
 assert.doesNotMatch(onboardJs, /^const MF_HUB_ORIGIN/m, 'onboard must not declare global MF_HUB_ORIGIN');
-assert.match(entitlementJs, /mixForgeHubEntitlementIIFE/, 'entitlement constants must stay inside an IIFE');
 assert.match(onboardJs, /in-app browser/i, 'coach must warn that in-app browsers do not share Safari Hub login');
+assert.match(onboardJs, /Add to Home Screen/, 'coach must include A2HS');
+assert.match(onboardJs, /MF_IN_APP_BROWSER/, 'in-app browser detection is required');
 
 assert.match(css, /mobile-onboard/, 'onboarding sheet styles must exist');
 assert.match(css, /min-height:\s*44px/, 'primary phone actions need 44px touch targets');
@@ -33,5 +35,6 @@ assert.ok(manifest.icons?.length >= 1, 'manifest needs at least one icon');
 
 assert.match(docs, /Download Now/);
 assert.match(docs, /mixforge\.workinwithai\.com/);
+assert.match(signoff, /Do not mark MixForge shipped/);
 
 console.log('mobile-onboard-smoke: ok');

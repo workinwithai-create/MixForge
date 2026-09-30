@@ -10,15 +10,21 @@ MixForge 2.6.1 mobile onboarding is a first-run coach plus iOS Files guidance. I
 4. If the song is only in iCloud, Files → Download Now, then pick it again. The app must not spin forever.
 5. After a successful decode, **Scan mix** is enabled.
 6. After a master renders, **Download release WAV** is reachable without horizontal scroll.
-7. Add to Home Screen uses `site.webmanifest` + the apple touch icon.
+7. Add to Home Screen uses `site.webmanifest` + the apple touch icon (Share → Add to Home Screen).
 8. The license bar must leave **Checking MixForge license…** within a few seconds. Anonymous phones show Sign in, not a hung check.
-9. A Hub license is account-based, not stored on the device. Sign in on *this* browser. In-app browsers (Grok, Instagram, Mail) do not share Safari cookies, so an existing Hub login will look like “no license.”
+9. A Hub license is account-based, not stored on the device. Sign in on *this* browser. In-app browsers (Grok, Instagram, Mail) do not share Safari cookies, so an existing Hub login will look like “no license.” The coach now detects that case and tells the musician to Open in Safari.
+
+## Remote checks logged 2026-09-30
+
+- Brand domain https://mixforge.workinwithai.com returns the live MixForge shell.
+- Hub identity `GET https://workinwithai.com/api/entitlements/me` returns structured JSON with `hasMix`, `hasBundle`, `checkoutLookupKeys.mix = mix-monthly`, and `reason: login` when anonymous.
+- These checks do **not** replace physical iPhone sign-off.
 
 ## Not claimed by this milestone
 
 - Certified EBU metering.
 - Stem separation quality.
-- Physical iPhone sign-off of the Files / Download Now / Add to Home Screen path.
+- Physical iPhone sign-off of the Files / Download Now / Add to Home Screen path. See `docs/iphone-signoff.md`.
 
 ## Regression
 
