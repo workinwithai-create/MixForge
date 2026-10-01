@@ -1,17 +1,5 @@
 # MixForge
 
-## v2.7.1 — iPhone WAV save handoff (2026-10-01)
-
-Encoding a release WAV is async, so Safari drops the original download click. On a phone, Download release WAV now stages the file and reveals **Save release WAV to Files**. That second tap is a fresh user gesture: Web Share writes to Files when the browser allows file shares, otherwise the download anchor runs in the gesture. Desktop still downloads immediately. The export actions stick above the home indicator. This does not replace physical iPhone sign-off.
-
-## v2.7.0 — Sequential mixing, finished and verified (2026-10-01)
-
-Forensic Fix now builds the mix in order and shows its work. The sequential layer added on 2026-09-04 was computed but, in any session with a vocal stem, its stage log crashed on the Vocal Layer Cleanup controls and the app silently fell back to the old parallel rebuild. That is fixed and covered by a test. On top of it: the anchor is chosen from the song (a present lead vocal, otherwise the melodic bed); each stage is measured against the placed anchor and everything else in the 2–5 kHz band, and a stage that leaves the mix measurably worse is retried at half strength or undone; each source gets a confidence state from separation fit and anchor bleed, and untrustworthy sources are left unprocessed; a producer-style summary leads the stage log; and every stage can be auditioned, level-matched, from the original to the rebuilt mix. See `docs/sequential-mixing-audit.md`.
-
-## v2.6.4 — Pipe Dreams single-sign-on race fix (2026-09-30)
-
-When embedded in Pipe Dreams Studio, a verified Warehouse session is now treated as trusted client state and cannot be overwritten by a later anonymous startup refresh. MixForge also requests the Studio session after its auth listener is installed, closing the iframe listener-timing gap. Standalone login remains separate from checkout.
-
 MixForge is a browser forensic release-prep pipeline — not a one-click loudness clone.
 
 LANDR, eMastered, BandLab Mastering, CloudBounce, and RoEx win on making a file louder in one click. MixForge wins on evidence: measure → locate problem windows → optional honest stem repair → conservative master → show measured change. It does not claim musical improvement.
@@ -69,18 +57,18 @@ Music.ai is retired for this path and must not be configured as a fallback.
 
 The app uploads unreleased mixes to the private `audio` bucket. The Edge Function creates a short-lived signed URL for the RunPod separator and deletes the source upload after the separation job completes.
 
-## Production readiness (2026-09-30)
+## Production readiness (2026-10-01)
 
 Criteria for calling MixForge shipped (all must be true):
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
 | Complete source on GitHub | **Met** | Public repo `workinwithai-create/MixForge`, full tree including `api/`, `js/`, `supabase/`, `tests/`, RunPod separator |
-| Permanent live deployment works | **Met** | https://mixforge.workinwithai.com returns the live shell; Vercel project `mix-forge`; re-checked 2026-09-30 |
-| Real checkout and license delivery connected | **Met** | Hub `POST /api/checkout` + `GET /api/entitlements/me` (anonymous JSON with `mix-monthly` lookup key re-checked 2026-09-30); MixForge `/api/entitlement` signs 12 h HMAC licenses; founder override + Supabase entitlement rows; license bar + mobile checkout paths live |
-| Core exports tested | **Met** | `tests/export-state-smoke.mjs` still covers the desktop gate. v2.7.1 adds the phone save handoff (`Save release WAV to Files`, share sheet, sticky export dock) covered by `tests/mobile-onboard-smoke.mjs`. |
+| Permanent live deployment works | **Met** | https://mixforge.workinwithai.com returns the 2.7.1 shell; Vercel project `mix-forge`; `GET /api/analyze` reports `{ listeningConfigured: true }` (re-checked 2026-10-01) |
+| Real checkout and license delivery connected | **Met** | Hub `POST /api/checkout` + `GET /api/entitlements/me` returns `mix-monthly` / `forge-pass-monthly`; MixForge `/api/entitlement` is fail-closed for anonymous (`reason: anonymous`, first-party `returnTo`); founder override + Supabase entitlement rows; license bar + mobile checkout paths live |
+| Core exports tested | **Met** | `tests/export-state-smoke.mjs`, `tests/license-gate-smoke.mjs`, `tests/mastering-grade-smoke.mjs`, `tests/live-production-health-smoke.mjs` and related smoke suite; export blocked when unlicensed or stale |
 | Mobile onboarding verified | **Partial** | Coach + in-app-browser Safari warning + A2HS copy + `docs/mobile-onboarding.md` + `docs/iphone-signoff.md` + `tests/mobile-onboard-smoke.mjs`. Real-device sign-off on a physical iPhone is still required |
 
-**Next production-ready milestone:** Fill `docs/iphone-signoff.md` on a physical iPhone (Safari, Files Download Now, free scan, licensed WAV via Save release WAV to Files, Add to Home Screen). Until that human verification is logged, do not call MixForge shipped.
+**Not shipped.** Next production-ready milestone remains human: fill `docs/iphone-signoff.md` on a physical iPhone (Safari, Files Download Now, free scan, licensed WAV download, Add to Home Screen). Automated smokes cannot close that row.
 
-Do not invent additional gating criteria. When the iPhone checklist is signed off, remove the Partial row and the “Not shipped until” language permanently.
+Do not invent additional gating criteria. When the iPhone checklist is signed off, remove the Partial row and the “Not shipped” language permanently.
