@@ -1,5 +1,9 @@
 # MixForge
 
+## v2.7.0 — Sequential mixing, finished and verified (2026-10-01)
+
+Forensic Fix now builds the mix in order and shows its work. The sequential layer added on 2026-09-04 was computed but, in any session with a vocal stem, its stage log crashed on the Vocal Layer Cleanup controls and the app silently fell back to the old parallel rebuild. That is fixed and covered by a test. On top of it: the anchor is chosen from the song (a present lead vocal, otherwise the melodic bed); each stage is measured against the placed anchor and everything else in the 2–5 kHz band, and a stage that leaves the mix measurably worse is retried at half strength or undone; each source gets a confidence state from separation fit and anchor bleed, and untrustworthy sources are left unprocessed; a producer-style summary leads the stage log; and every stage can be auditioned, level-matched, from the original to the rebuilt mix. See `docs/sequential-mixing-audit.md`.
+
 ## v2.6.4 — Pipe Dreams single-sign-on race fix (2026-09-30)
 
 When embedded in Pipe Dreams Studio, a verified Warehouse session is now treated as trusted client state and cannot be overwritten by a later anonymous startup refresh. MixForge also requests the Studio session after its auth listener is installed, closing the iframe listener-timing gap. Standalone login remains separate from checkout.

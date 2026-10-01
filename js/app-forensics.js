@@ -137,7 +137,7 @@ function mfRenderForensicAudit(audit, metrics) {
 renderAudit = mfRenderForensicAudit;
 
 function mfStemQuality(stem, metrics, mixMetrics) {
-  const levelGap=Math.abs(metrics.lufs-mixMetrics.lufs); const widthPenalty=Math.max(0,Math.abs(metrics.widthDb)-18); const phasePenalty=Math.max(0,.15-metrics.correlation)*55;
+  const levelGap=Math.abs(metrics.lufs-mixMetrics.lufs); const widthPenalty=Math.max(0,metrics.widthDb-18); /* a narrow stem (centred lead) is normal, not leakage; only extreme width counts */ const phasePenalty=Math.max(0,.15-metrics.correlation)*55;
   const score=clamp(Math.round(96-levelGap*.45-widthPenalty-phasePenalty),35,97);
   return { score, risk:score>=82?'low':score>=65?'moderate':'high', guidance:score>=82?'Safe for conservative corrective processing.':score>=65?'Use only broad, low-intensity correction; leakage may be present.':'Do not use aggressive processing. Prefer mix-bus correction or another separation strategy.' };
 }
