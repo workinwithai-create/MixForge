@@ -35,6 +35,13 @@ assert.ok(manifest.icons?.length >= 1, 'manifest needs at least one icon');
 
 assert.match(docs, /Download Now/);
 assert.match(docs, /mixforge\.workinwithai\.com/);
+const exportJs = readFileSync(new URL('../js/app-export.js', import.meta.url), 'utf8');
+assert.match(exportJs, /Save release WAV to Files/, 'phone export must stage a fresh tap after encode');
+assert.match(exportJs, /navigator\.share/, 'iPhone save must offer the Files share sheet');
+assert.match(exportJs, /mfNeedsSaveGesture/, 'desktop export must stay a direct download');
+assert.match(indexHtml, /exportSaveBtn/, 'save control must be in the page');
+assert.match(css, /export-actions/, 'export actions must stick above the home indicator');
 assert.match(signoff, /Do not mark MixForge shipped/);
+assert.match(signoff, /Save release WAV to Files/);
 
 console.log('mobile-onboard-smoke: ok');

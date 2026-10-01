@@ -14,7 +14,7 @@ Date: __________  Tester: __________
 | License bar leaves “Checking MixForge license…”; unsigned shows Sign in | | |
 | Sign in on this Safari session; Hub entitlement appears | | |
 | Quick Master renders Original vs Master A/B | | |
-| Download release WAV is on-screen without sideways scroll and writes a file to Files | | |
+| Download release WAV encodes, then Save release WAV to Files is on-screen without sideways scroll and writes a file to Files | | |
 | Share → Add to Home Screen opens MixForge standalone | | |
 | In-app browser warning appears if opened from Grok | | |
 

@@ -97,7 +97,7 @@ function mfBuildOnboardSheet() {
         <li>Tap <strong>Choose a mix</strong>. On iPhone, use <strong>Download Now</strong> first if the file is only in iCloud.</li>
         <li>Scan the stereo mix for free. Pick <strong>Quick Master</strong> for an Original vs Master A/B, or <strong>Forensic Fix</strong> when isolation is actually needed.</li>
         <li>${safariNote}</li>
-        <li>After a master renders, <strong>Download release WAV</strong> stays on screen without sideways scroll. To pin MixForge: Safari Share → <strong>Add to Home Screen</strong>.</li>
+        <li>After a master renders, tap <strong>Download release WAV</strong>, then <strong>Save release WAV to Files</strong>. Encoding is async, so iPhone drops a download that is not a fresh tap. The save button stays on screen.</li>
       </ol>
       <p class="mobile-onboard-note">MixForge measures change; it does not claim the mix sounds better. Vocal performance lives in AuraMix. Physical iPhone sign-off is still required before calling MixForge shipped.</p>
       <div class="mobile-onboard-actions">

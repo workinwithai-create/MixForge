@@ -9,7 +9,7 @@ MixForge 2.6.1 mobile onboarding is a first-run coach plus iOS Files guidance. I
 3. Tap **Choose a mix**. The Files picker accepts WAV, AIFF, M4A, MP3, CAF.
 4. If the song is only in iCloud, Files → Download Now, then pick it again. The app must not spin forever.
 5. After a successful decode, **Scan mix** is enabled.
-6. After a master renders, **Download release WAV** is reachable without horizontal scroll.
+6. After a master renders, **Download release WAV** encodes, then **Save release WAV to Files** is a second tap (iPhone drops blob downloads started after `await`). The save control is sticky above the home indicator. If the browser can share files, the share sheet writes to Files.
 7. Add to Home Screen uses `site.webmanifest` + the apple touch icon (Share → Add to Home Screen).
 8. The license bar must leave **Checking MixForge license…** within a few seconds. Anonymous phones show Sign in, not a hung check.
 9. A Hub license is account-based, not stored on the device. Sign in on *this* browser. In-app browsers (Grok, Instagram, Mail) do not share Safari cookies, so an existing Hub login will look like “no license.” The coach now detects that case and tells the musician to Open in Safari.

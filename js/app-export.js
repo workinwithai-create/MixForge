@@ -110,11 +110,13 @@ $('exportBtn').addEventListener('click', async () => {
   try {
     const bitDepth = Number($('bitDepth').value) === 16 ? 16 : 24;
     const blob = await encodeWav(state.master, bitDepth, (percent) => setStatus('exportStatus', `Encoding ${bitDepth}-bit WAV… ${percent}%`, 'busy'));
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
     const base = (state.file?.name || 'mix').replace(/\.[^.]+$/, '').replace(/[^a-z0-9._-]/gi, '_');
-    anchor.href = url; anchor.download = `${base}-mixforge-release-${bitDepth}bit.wav`; document.body.append(anchor); anchor.click(); anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    const filename = `${base}-mixforge-release-${bitDepth}bit.wav`;
+    if (mfNeedsSaveGesture()) {
+      mfStagePhoneExport(blob, filename, gate);
+      return;
+    }
+    await mfDeliverWav(blob, filename);
     setStatus('exportStatus', gate.verified ? 'Verified release WAV exported.' : 'Release WAV exported. Hard checks did not all pass.', gate.verified ? 'ok' : 'warn');
   } catch (error) {
     console.error(error);
@@ -123,6 +125,75 @@ $('exportBtn').addEventListener('click', async () => {
     $('exportBtn').disabled = false;
   }
 });
+
+function mfNeedsSaveGesture() {
+  try {
+    const ua = navigator.userAgent || '';
+    const ios = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const narrow = window.matchMedia && window.matchMedia('(max-width: 660px)').matches;
+    return Boolean(ios || narrow);
+  } catch (_) {
+    return false;
+  }
+}
+
+function mfStagePhoneExport(blob, filename, gate) {
+  const save = $('exportSaveBtn');
+  if (save) {
+    save.hidden = false;
+    save.disabled = false;
+    save.dataset.filename = filename;
+    save.textContent = 'Save release WAV to Files';
+  }
+  globalThis.MixForgePendingExport = { blob, filename, verified: Boolean(gate.verified) };
+  const note = gate.verified ? 'Verified WAV is ready.' : 'WAV is ready. Hard checks did not all pass.';
+  setStatus('exportStatus', `${note} Tap Save release WAV to Files — iPhone drops the download if it is not a fresh tap after encoding.`, 'warn');
+}
+
+async function mfDeliverWav(blob, filename) {
+  try {
+    if (typeof File === 'function' && typeof navigator !== 'undefined' && navigator.canShare) {
+      const file = new File([blob], filename, { type: 'audio/wav' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: filename });
+        return 'share';
+      }
+    }
+  } catch (_) {}
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  return 'anchor';
+}
+
+const exportSaveBtn = $('exportSaveBtn');
+if (exportSaveBtn && exportSaveBtn.addEventListener) {
+  exportSaveBtn.addEventListener('click', async () => {
+    const pending = globalThis.MixForgePendingExport;
+    if (!pending?.blob) {
+      setStatus('exportStatus', 'Encode the release WAV first, then save it.', 'error');
+      return;
+    }
+    exportSaveBtn.disabled = true;
+    try {
+      const mode = await mfDeliverWav(pending.blob, pending.filename);
+      setStatus('exportStatus', mode === 'share' ? 'Share sheet opened. Save the WAV to Files.' : 'Release WAV download started.', pending.verified ? 'ok' : 'warn');
+    } catch (error) {
+      if (error && error.name === 'AbortError') {
+        setStatus('exportStatus', 'Save cancelled. The WAV is still ready.', 'warn');
+      } else {
+        setStatus('exportStatus', `Save failed: ${error.message}`, 'error');
+      }
+    } finally {
+      exportSaveBtn.disabled = false;
+    }
+  });
+}
 
 if ($('exportOverride')) {
   $('exportOverride').addEventListener('change', (event) => {

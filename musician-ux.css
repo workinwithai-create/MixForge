@@ -46,4 +46,6 @@
 .mobile-onboard-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
 .mobile-onboard-actions button,.mobile-onboard-actions a,.path-card,.ab-btn{min-height:44px}
 .mobile-onboard-actions a{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
-@media(max-width:660px){.path-grid{grid-template-columns:1fr}.ab-toggle-group{width:100%}.ab-btn{flex:1}.mobile-onboard-actions>*{flex:1 1 100%}}
+.export-actions{position:sticky;bottom:calc(12px + env(safe-area-inset-bottom));z-index:4;background:rgba(13,15,18,.92);padding:8px 0}
+#exportSaveBtn{min-height:44px}
+@media(max-width:660px){.export-actions{flex-direction:column}.export-actions .primary{width:100%}}
