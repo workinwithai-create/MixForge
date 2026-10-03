@@ -42,10 +42,30 @@ def download(url: str, destination: Path) -> None:
                     handle.write(chunk)
 
 
-def upload(url: str, source: Path) -> None:
-    with source.open("rb") as handle:
-        response = requests.put(url, data=handle, headers={"Content-Type": "audio/wav"}, timeout=300)
-    response.raise_for_status()
+UPLOAD_ATTEMPTS = 4
+RETRYABLE_UPLOAD_STATUSES = {408, 425, 429, 500, 502, 503, 504, 520, 522, 524}
+
+
+def upload(url: str, source: Path, attempts: int = UPLOAD_ATTEMPTS, sleep=time.sleep) -> None:
+    # A stem is 40-60 MB in one PUT. A transient gateway failure (e.g. a 520 from
+    # the storage edge) must not throw away a finished GPU separation, so retry
+    # with backoff. Storage writes are atomic, so an "already exists" answer on a
+    # retry means an earlier attempt landed.
+    for attempt in range(1, attempts + 1):
+        try:
+            with source.open("rb") as handle:
+                response = requests.put(url, data=handle, headers={"Content-Type": "audio/wav"}, timeout=300)
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == attempts:
+                raise
+        else:
+            if response.ok:
+                return
+            if attempt > 1 and response.status_code in (400, 409) and "exist" in response.text.lower():
+                return
+            if response.status_code not in RETRYABLE_UPLOAD_STATUSES or attempt == attempts:
+                response.raise_for_status()
+        sleep(min(20, 2 ** attempt))
 
 
 def run_command(command, timeout_seconds):
