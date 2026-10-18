@@ -121,7 +121,7 @@ function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
   const bullets = [
     `Loudness ${before.lufs.toFixed(1)} → ${after.lufs.toFixed(1)} LUFS (${lufsDelta >= 0 ? '+' : ''}${lufsDelta.toFixed(1)}).`,
     `Sample peak ${sampleBefore.toFixed(2)} → ${sampleAfter.toFixed(2)} dBFS.`,
-    `True-peak estimate ${peakBefore.toFixed(2)} → ${peakAfter.toFixed(2)} dBTP (ceiling ${Number(plan?.truePeakCeilingDb ?? plan?.ceilingDb ?? -1).toFixed(1)}; cubic-interp, not a certified meter).`,
+    `True-peak estimate ${peakBefore.toFixed(2)} → ${peakAfter.toFixed(2)} dBTP (ceiling ${Number(plan?.truePeakCeilingDb ?? plan?.ceilingDb ?? -1).toFixed(1)}; 4× oversampled, not a certified meter).`,
     `Stereo correlation ${Number.isFinite(corrBefore) ? corrBefore.toFixed(2) : '—'} → ${Number.isFinite(corrAfter) ? corrAfter.toFixed(2) : '—'}.`,
     `Release readiness ${readinessBefore} → ${readinessAfter} (measurement-based, not a quality score).`,
     path === 'quick'
@@ -329,8 +329,8 @@ function mfUpdateMasterCopy() {
   if (!copy) return;
   const hasReference = Boolean(forensicState?.references?.length);
   copy.textContent = hasReference
-    ? 'Reference-bounded tonal balance is active because a reference file is loaded. Controlled dynamics, loudness, limiting, cubic-interp peak safety. First value is hearing Original vs Master.'
-    : 'Conservative stereo master. Optional reference-bounded tonal balance only if you load a reference. Controlled dynamics, loudness, limiting, cubic-interp peak safety. First value is hearing Original vs Master.';
+    ? 'Reference-bounded tonal balance is active because a reference file is loaded. Controlled dynamics, loudness, smooth-attack limiting, 4× oversampled peak safety. First value is hearing Original vs Master.'
+    : 'Conservative stereo master. Optional reference-bounded tonal balance only if you load a reference. Controlled dynamics, loudness, smooth-attack limiting, 4× oversampled peak safety. First value is hearing Original vs Master.';
 }
 
 function mfHideStemUi() {

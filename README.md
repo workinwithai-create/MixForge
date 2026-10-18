@@ -16,6 +16,10 @@ LANDR, eMastered, BandLab Mastering, CloudBounce, and RoEx win on making a file 
 
 Thesis: evidence-first, conservative repairs, show measured change (loudness, peak, remaining risks). MixForge is mix repair + release master; dedicated vocal production lives in AuraMix.
 
+## Competitor benchmarking
+
+`tools/master-diff.mjs` compares an original mix with a master returned by any service (LANDR, eMastered, Ozone, MixForge itself) and reports the loudness target, true-peak ceiling, effective EQ curve, per-band compression, stereo width and gain reduction. It measures audio only. See `docs/competitor-benchmarking.md`.
+
 ## License and checkout
 
 Stereo audit stays free. Quick Master, Forensic Fix, and WAV export require an active MixForge (`mix`) or Forge Pass (`bundle`) entitlement.
