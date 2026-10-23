@@ -116,11 +116,104 @@ measureBuffer = function measureBufferPro(buffer) {
   };
 };
 
-function mfProCubicSample(p0, p1, p2, p3, t) {
-  const a0 = -0.5 * p0 + 1.5 * p1 - 1.5 * p2 + 0.5 * p3;
-  const a1 = p0 - 2.5 * p1 + 2 * p2 - 0.5 * p3;
-  const a2 = -0.5 * p0 + 0.5 * p2;
-  return ((a0 * t + a1) * t + a2) * t + p1;
+// 4x oversampled peak detection. Each in-between point is a 16-tap
+// Blackman-windowed sinc, normalized to unity DC gain. This follows the
+// BS.1770 idea (oversample, then take the absolute maximum) but is still an
+// estimate, not a certified true-peak meter.
+const MF_PRO_OS_TAPS = 16;
+const MF_PRO_OS_CENTER = 7;
+const mfProOversampleKernel = (() => {
+  const phases = [];
+  let maxAbsSum = 0;
+  for (let phase = 1; phase < 4; phase++) {
+    const taps = new Float64Array(MF_PRO_OS_TAPS);
+    let sum = 0;
+    for (let tap = 0; tap < MF_PRO_OS_TAPS; tap++) {
+      const x = phase / 4 - (tap - MF_PRO_OS_CENTER);
+      const sinc = Math.abs(x) < 1e-12 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x);
+      const half = MF_PRO_OS_TAPS / 2;
+      const window = 0.42 + 0.5 * Math.cos(Math.PI * x / half) + 0.08 * Math.cos(2 * Math.PI * x / half);
+      taps[tap] = sinc * window;
+      sum += taps[tap];
+    }
+    let absSum = 0;
+    for (let tap = 0; tap < MF_PRO_OS_TAPS; tap++) {
+      taps[tap] /= sum;
+      absSum += Math.abs(taps[tap]);
+    }
+    maxAbsSum = Math.max(maxAbsSum, absSum);
+    phases.push(taps);
+  }
+  return { phases, maxAbsSum };
+})();
+
+const MF_PRO_BLOCK_SHIFT = 5;
+
+function mfProBlockMaxima(data) {
+  const blocks = new Float32Array((data.length >> MF_PRO_BLOCK_SHIFT) + 1);
+  for (let index = 0; index < data.length; index++) {
+    const value = Math.abs(data[index]);
+    const block = index >> MF_PRO_BLOCK_SHIFT;
+    if (value > blocks[block]) blocks[block] = value;
+  }
+  return blocks;
+}
+
+// Upper bound on any interpolated value between index and index + 1, so quiet
+// regions can skip the FIR work entirely.
+function mfProInterpolationBound(blocks, index, length) {
+  const lo = Math.max(0, index - MF_PRO_OS_CENTER) >> MF_PRO_BLOCK_SHIFT;
+  const hi = Math.min(length - 1, index - MF_PRO_OS_CENTER + MF_PRO_OS_TAPS - 1) >> MF_PRO_BLOCK_SHIFT;
+  let local = blocks[lo];
+  for (let block = lo + 1; block <= hi; block++) if (blocks[block] > local) local = blocks[block];
+  return local * mfProOversampleKernel.maxAbsSum;
+}
+
+const [mfProTaps1, mfProTaps2, mfProTaps3] = mfProOversampleKernel.phases;
+
+// Largest absolute value at the three 4x-oversampled points between index and index + 1.
+function mfProInterSamplePeak(data, index) {
+  const first = index - MF_PRO_OS_CENTER;
+  let v1 = 0;
+  let v2 = 0;
+  let v3 = 0;
+  if (first >= 0 && first + MF_PRO_OS_TAPS <= data.length) {
+    for (let tap = 0; tap < MF_PRO_OS_TAPS; tap++) {
+      const x = data[first + tap];
+      v1 += mfProTaps1[tap] * x;
+      v2 += mfProTaps2[tap] * x;
+      v3 += mfProTaps3[tap] * x;
+    }
+  } else {
+    for (let tap = 0; tap < MF_PRO_OS_TAPS; tap++) {
+      const position = first + tap;
+      if (position < 0 || position >= data.length) continue;
+      const x = data[position];
+      v1 += mfProTaps1[tap] * x;
+      v2 += mfProTaps2[tap] * x;
+      v3 += mfProTaps3[tap] * x;
+    }
+  }
+  return Math.max(Math.abs(v1), Math.abs(v2), Math.abs(v3));
+}
+
+// Per-frame linked peak including inter-sample peaks on both sides of the frame.
+// Interpolation is skipped where it provably cannot exceed `floor`.
+function mfProTruePeakFrames(buffer, floor = 0) {
+  const peaks = new Float32Array(buffer.length);
+  for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+    const data = buffer.getChannelData(channel);
+    const blocks = mfProBlockMaxima(data);
+    for (let index = 0; index < data.length; index++) {
+      const sample = Math.abs(data[index]);
+      if (sample > peaks[index]) peaks[index] = sample;
+      if (mfProInterpolationBound(blocks, index, data.length) <= floor) continue;
+      const between = mfProInterSamplePeak(data, index);
+      if (between > peaks[index]) peaks[index] = between;
+      if (index + 1 < data.length && between > peaks[index + 1]) peaks[index + 1] = between;
+    }
+  }
+  return peaks;
 }
 
 function mfProEstimateTruePeakDb(buffer) {
@@ -130,20 +223,13 @@ function mfProEstimateTruePeakDb(buffer) {
   let peak = 0;
   for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
     const data = buffer.getChannelData(channel);
-    if (!data.length) continue;
-    peak = Math.max(peak, Math.abs(data[0]), Math.abs(data[data.length - 1]));
-    for (let index = 1; index < data.length - 2; index++) {
-      const p0 = data[index - 1];
-      const p1 = data[index];
-      const p2 = data[index + 1];
-      const p3 = data[index + 2];
-      peak = Math.max(
-        peak,
-        Math.abs(p1),
-        Math.abs(mfProCubicSample(p0, p1, p2, p3, 0.25)),
-        Math.abs(mfProCubicSample(p0, p1, p2, p3, 0.5)),
-        Math.abs(mfProCubicSample(p0, p1, p2, p3, 0.75)),
-      );
+    const blocks = mfProBlockMaxima(data);
+    for (let index = 0; index < data.length; index++) {
+      const sample = Math.abs(data[index]);
+      if (sample > peak) peak = sample;
+      if (mfProInterpolationBound(blocks, index, data.length) <= peak) continue;
+      const between = mfProInterSamplePeak(data, index);
+      if (between > peak) peak = between;
     }
   }
   const result = gainToDb(peak);
@@ -222,7 +308,7 @@ renderMasterChain = function renderMasterChainPro(plan) {
   if (plan.compressor) steps.push([plan.compressor.label, describeOperation(plan.compressor)]);
   else steps.push(['Dynamics decision', 'No master compression; source dynamics are already controlled or do not justify it']);
   steps.push(['Loudness normalization', `${plan.gainDb >= 0 ? '+' : ''}${plan.gainDb.toFixed(1)} dB requested toward ${plan.targetLufs.toFixed(1)} LUFS`]);
-  steps.push(['Linked look-ahead limiter', `${plan.ceilingDb.toFixed(1)} dBFS internal ceiling`]);
+  steps.push(['Linked true-peak limiter', `${plan.ceilingDb.toFixed(1)} dBTP internal ceiling · 4× oversampled detection · 5 ms ramped attack`]);
   steps.push(['True-peak safety trim', `${plan.truePeakCeilingDb.toFixed(1)} dBTP final ceiling · loudness yields to peak safety`]);
   steps.push(['Tonal context', plan.referenceUsed ? 'Reference-informed, level-normalized and correction-limited' : 'Conservative internal guardrails; no blind match-EQ']);
 
@@ -238,44 +324,55 @@ renderMasterChain = function renderMasterChainPro(plan) {
   }
 };
 
-lookAheadLimit = function lookAheadLimitPro(buffer, ceilingDb = -1.2, lookaheadMs = 7, releaseMs = 110) {
+// Linked true-peak look-ahead limiter.
+// 1. Required gain per frame from the 4x oversampled detector.
+// 2. Instant attack / exponential release on that requirement.
+// 3. Min-hold over the look-ahead window, then a moving average of the same
+//    length. Audio is read look-ahead - 1 frames behind, so every peak is met by
+//    a gain ramp that starts look-ahead frames earlier instead of a hard step,
+//    and the averaged gain at each peak is still at or below what it requires.
+lookAheadLimit = function lookAheadLimitPro(buffer, ceilingDb = -1.2, lookaheadMs = 5, releaseMs = 110) {
   const ceiling = dbToGain(ceilingDb);
+  const length = buffer.length;
   const lookahead = Math.max(1, Math.round(buffer.sampleRate * lookaheadMs / 1000));
   const releaseCoeff = Math.exp(-1 / Math.max(1, buffer.sampleRate * releaseMs / 1000));
   const out = cloneBuffer(buffer);
-  const framePeaks = new Float32Array(buffer.length);
-  for (let index = 0; index < buffer.length; index++) {
-    let peak = 0;
-    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-      peak = Math.max(peak, Math.abs(buffer.getChannelData(channel)[index]));
-    }
-    framePeaks[index] = peak;
+  if (!length) return out;
+
+  const span = length + lookahead - 1;
+  const required = new Float32Array(span);
+  const peaks = mfProTruePeakFrames(buffer, ceiling);
+  let released = 1;
+  for (let index = 0; index < span; index++) {
+    const peak = index < length ? peaks[index] : 0;
+    const desired = peak > ceiling ? ceiling / peak : 1;
+    released = desired < released ? desired : desired + releaseCoeff * (released - desired);
+    required[index] = released;
   }
 
-  const capacity = lookahead + 3;
-  const queue = new Int32Array(capacity);
+  const queue = new Int32Array(lookahead + 1);
+  const capacity = queue.length;
   let head = 0;
   let tail = 0;
-  const get = (position) => queue[position % capacity];
-  const push = (index) => {
-    const value = framePeaks[index];
-    while (tail > head && framePeaks[get(tail - 1)] <= value) tail--;
+  const ring = new Float64Array(lookahead).fill(1);
+  let ringSum = lookahead;
+  const channels = Array.from({ length: out.numberOfChannels }, (_, channel) => out.getChannelData(channel));
+
+  for (let index = 0; index < span; index++) {
+    while (tail > head && required[queue[(tail - 1) % capacity]] >= required[index]) tail--;
     queue[tail % capacity] = index;
     tail++;
-  };
-  for (let index = 0; index < Math.min(buffer.length, lookahead + 1); index++) push(index);
+    while (queue[head % capacity] <= index - lookahead) head++;
+    const held = required[queue[head % capacity]];
 
-  let gain = 1;
-  for (let index = 0; index < out.length; index++) {
-    while (tail > head && get(head) < index) head++;
-    const futurePeak = tail > head ? framePeaks[get(head)] : framePeaks[index];
-    const desired = futurePeak > ceiling ? ceiling / futurePeak : 1;
-    gain = desired < gain ? desired : 1 - (1 - gain) * releaseCoeff;
-    for (let channel = 0; channel < out.numberOfChannels; channel++) {
-      out.getChannelData(channel)[index] *= gain;
-    }
-    const next = index + lookahead + 1;
-    if (next < buffer.length) push(next);
+    const slot = index % lookahead;
+    ringSum += held - ring[slot];
+    ring[slot] = held;
+
+    const frame = index - lookahead + 1;
+    if (frame < 0) continue;
+    const gain = Math.min(1, ringSum / lookahead);
+    for (const data of channels) data[frame] *= gain;
   }
   return out;
 };
@@ -395,7 +492,7 @@ renderVerification = function renderVerificationPro(metrics, plan) {
   const peakSafe = truePeakDb <= plan.truePeakCeilingDb + 0.05;
   const truePeakRow = document.createElement('div');
   truePeakRow.className = `check ${peakSafe ? '' : 'fail'}`;
-  truePeakRow.innerHTML = `<b>${peakSafe ? '✓' : '×'}</b><div><strong>Cubic-interp peak estimate: </strong>${truePeakDb.toFixed(2)} dBTP vs ${plan.truePeakCeilingDb.toFixed(1)} dBTP ceiling. Not a certified true-peak meter.</div>`;
+  truePeakRow.innerHTML = `<b>${peakSafe ? '✓' : '×'}</b><div><strong>4× oversampled peak estimate: </strong>${truePeakDb.toFixed(2)} dBTP vs ${plan.truePeakCeilingDb.toFixed(1)} dBTP ceiling. Not a certified true-peak meter.</div>`;
   root.append(truePeakRow);
 
   const rangeRow = document.createElement('div');

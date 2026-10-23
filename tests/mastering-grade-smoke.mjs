@@ -97,4 +97,51 @@ let limitedPeak = 0;
 for (const sample of limited.getChannelData(0)) limitedPeak = Math.max(limitedPeak, Math.abs(sample));
 assert.ok(limitedPeak <= 10 ** (-1.2 / 20) + 1e-5, `limiter exceeded ceiling: ${limitedPeak}`);
 
+// Classic inter-sample over: fs/4 sine at 45 degrees. Every sample sits at
+// 0.707 (-3.01 dBFS) but the waveform between samples reaches 1.0 (0 dBTP).
+context.interSampleBuffer = new FakeBuffer(2, 48000, 48000);
+for (let index = 0; index < 48000; index++) {
+  const value = Math.sin(Math.PI / 2 * index + Math.PI / 4);
+  context.interSampleBuffer.data[0][index] = value;
+  context.interSampleBuffer.data[1][index] = value;
+}
+const interSamplePeak = vm.runInContext('mfProEstimateTruePeakDb(interSampleBuffer)', context);
+assert.ok(Math.abs(interSamplePeak) < 0.15, `oversampled detector should find ~0 dBTP between samples, got ${interSamplePeak}`);
+
+context.limitedInterSample = vm.runInContext('lookAheadLimit(interSampleBuffer, -1.2)', context);
+const limitedTruePeak = vm.runInContext('mfProEstimateTruePeakDb(limitedInterSample)', context);
+assert.ok(limitedTruePeak <= -1.15, `limiter must hold inter-sample peaks under the ceiling, got ${limitedTruePeak} dBTP`);
+
+// A short loud burst inside a quiet passage: gain must ramp down ahead of the
+// burst over the look-ahead window, not drop in a single sample.
+const rate = 48000;
+context.burstBuffer = new FakeBuffer(2, rate, rate);
+const burstStart = Math.round(0.5 * rate);
+const burstEnd = burstStart + Math.round(0.05 * rate);
+for (let index = 0; index < rate; index++) {
+  const amplitude = index >= burstStart && index < burstEnd ? 1.5 : 0.3;
+  const value = Math.sin(2 * Math.PI * 100 * index / rate) * amplitude;
+  context.burstBuffer.data[0][index] = value;
+  context.burstBuffer.data[1][index] = value;
+}
+const burstLimited = vm.runInContext('lookAheadLimit(burstBuffer, -1.2, 5, 110)', context);
+const input = context.burstBuffer.data[0];
+const output = burstLimited.getChannelData(0);
+let previousGain = null;
+let maxStep = 0;
+let firstReduced = -1;
+for (let index = 0; index < rate; index++) {
+  if (Math.abs(input[index]) < 0.1) { previousGain = null; continue; }
+  const gain = output[index] / input[index];
+  if (firstReduced < 0 && gain < 0.999) firstReduced = index;
+  if (previousGain !== null) maxStep = Math.max(maxStep, Math.abs(gain - previousGain));
+  previousGain = gain;
+}
+const lookaheadFrames = Math.round(0.005 * rate);
+assert.ok(firstReduced >= burstStart - lookaheadFrames - 1 && firstReduced < burstStart, `gain reduction should start within the look-ahead before the burst, started at ${firstReduced} (burst ${burstStart})`);
+assert.ok(maxStep < 0.02, `gain must ramp, not step; largest per-sample gain change ${maxStep}`);
+let burstPeak = 0;
+for (let index = burstStart; index < burstEnd; index++) burstPeak = Math.max(burstPeak, Math.abs(output[index]));
+assert.ok(burstPeak <= 10 ** (-1.2 / 20) + 1e-5, `burst exceeded ceiling: ${burstPeak}`);
+
 console.log('MixForge mastering-grade smoke tests passed');
