@@ -17,7 +17,11 @@ async function getText(url) {
 
 const shell = await getText(`${LIVE}/`);
 assert.match(shell, /MixForge/);
-assert.match(shell, /2\.7\.1/);
+// The live version moves with every deploy, so check the shell carries a
+// well-formed version rather than pinning one that the next release breaks.
+const liveVersion = shell.match(/MixForge <span>(\d+\.\d+\.\d+)<\/span>/)?.[1];
+assert.ok(liveVersion, 'live shell must show a MixForge version');
+console.log(`live-production-health-smoke: live version ${liveVersion}`);
 assert.match(shell, /Download release WAV/);
 assert.doesNotMatch(shell, /ungated-preview/);
 
