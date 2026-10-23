@@ -130,7 +130,9 @@ function mfPlainWhatChanged(before, after, plan, path = 'quick', options = {}) {
   ];
   if (plan?.eq?.length) bullets.push(`Tonal moves: ${plan.eq.map((item) => item.label).join('; ')}.`);
   else bullets.push('Tonal balance: no broad EQ was justified by the measurements.');
-  if (plan?.compressor) bullets.push(`Dynamics: ${plan.compressor.label}.`);
+  const multibandBands = plan?.multiband?.bands?.filter((band) => band.engaged) || [];
+  if (multibandBands.length) bullets.push(`Dynamics: multiband surge control on ${multibandBands.map((band) => band.name).join(', ')}; other bands untouched.`);
+  else if (plan?.compressor) bullets.push(`Dynamics: ${plan.compressor.label}.`);
   else bullets.push('Dynamics: no master compression (source already controlled or not justified).');
   const remaining = Array.isArray(options.remainingRisks) ? options.remainingRisks : [];
   return {
@@ -329,8 +331,8 @@ function mfUpdateMasterCopy() {
   if (!copy) return;
   const hasReference = Boolean(forensicState?.references?.length);
   copy.textContent = hasReference
-    ? 'Reference-bounded tonal balance is active because a reference file is loaded. Controlled dynamics, loudness, smooth-attack limiting, 4× oversampled peak safety. First value is hearing Original vs Master.'
-    : 'Conservative stereo master. Optional reference-bounded tonal balance only if you load a reference. Controlled dynamics, loudness, smooth-attack limiting, 4× oversampled peak safety. First value is hearing Original vs Master.';
+    ? 'Reference-bounded tonal balance is active because a reference file is loaded. Surge-aware multiband dynamics, loudness, smooth-attack limiting, 4× oversampled peak safety. First value is hearing Original vs Master.'
+    : 'Conservative stereo master. Optional reference-bounded tonal balance only if you load a reference. Surge-aware multiband dynamics, loudness, smooth-attack limiting, 4× oversampled peak safety. First value is hearing Original vs Master.';
 }
 
 function mfHideStemUi() {
