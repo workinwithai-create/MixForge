@@ -5,7 +5,7 @@
 // copyable receipts. It never changes audio or overrides the engine's verdict.
 (function installCriticGate() {
   const VERSION = 'mixagent-pattern-v1';
-  const finite = (value) => Number.isFinite(Number(value));
+  const finite = (value) => value !== null && value !== '' && Number.isFinite(Number(value));
   const rounded = (value, digits = 3) => finite(value) ? Number(Number(value).toFixed(digits)) : null;
 
   function operationChanges(operation, index) {
