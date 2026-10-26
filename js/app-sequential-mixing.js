@@ -622,6 +622,7 @@
       seq.stages.push({
         ...stage,
         source,
+        proposed: decision,
         decision: finalDecision,
         applied,
         attempts,
@@ -655,6 +656,9 @@
     // Re-render the cards so they show the moves that were actually kept.
     if (typeof renderStemPlans === 'function') renderStemPlans();
     renderStageLog();
+    if (typeof mfCriticGateRender === 'function') {
+      mfCriticGateRender(seq.stages, { plan: seq.plan, assessment: seq.assessment });
+    }
     return working;
   }
 
