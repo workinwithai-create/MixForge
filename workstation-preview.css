@@ -1,0 +1,37 @@
+
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:#0f1615;color:#e9ebe4}
+body{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:radial-gradient(circle at 95% 0%,#263126,transparent 32%),linear-gradient(#111816,#0d1312);-webkit-overflow-scrolling:touch;overflow-y:auto}
+.demo-shell{max-width:1120px;margin:auto;padding:26px 18px 50px}
+.hero{padding:8px 0 12px;border:0;background:none}
+.demo-brand{display:flex;align-items:center;gap:13px}
+.demo-mark{display:grid;place-items:center;width:46px;height:46px;border:1px solid #806549;background:#29271f;color:#e9cba5;font:bold 25px Georgia,serif;border-radius:12px}
+.demo-mark span{color:#8baf9c}
+.demo-brand strong{display:block;font-size:19px;letter-spacing:.13em}
+.demo-brand small{font-size:9px;letter-spacing:.18em;color:#cba47d}
+.demo-intro{margin:19px 0 17px;line-height:1.4;color:#dde3d9;font-size:clamp(17px,2.4vw,24px);font-weight:600;max-width:650px}
+.demo-loader{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;padding:14px;background:#1c2622;border:1px solid #455247;border-radius:8px}
+.demo-field{display:grid;gap:6px;min-width:205px;flex:1}
+.demo-field label{font-size:12px;font-weight:700;color:#e0e9de}
+.demo-field input{max-width:100%;font-size:11px;color:#bdc9bb;border:1px solid #566458;padding:10px;border-radius:4px;background:#26332c}
+.demo-field input::file-selector-button{margin-right:8px;border:0;background:#c4a07d;color:#1c241d;padding:8px 11px;border-radius:3px;font-weight:700}
+.demo-field small{color:#859c88;font-size:10px;line-height:1.4}
+#demoReset{font-size:11px;border:1px solid #8b775c;color:#dfc8a9;padding:12px;border-radius:4px;background:#302b23;font-weight:700}
+.demo-status{color:#b5d0bb;margin:13px 2px 0;font-size:12px;line-height:1.45}
+.demo-footer{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;border-top:1px solid #344438;padding:18px 0;color:#87988c;font-size:10px}
+.hero .mf-workstation-launch{display:none}
+.mf-workstation{margin:13px 0 24px;box-shadow:0 20px 70px #0003}
+.mfws-top-actions{display:none}
+.mfws-truth{font-size:12px}
+@media(max-width:650px){
+ .demo-shell{padding:16px 10px 35px}
+ .demo-loader{padding:10px;gap:10px}
+ .demo-field{min-width:100%;width:100%}
+ #demoReset{width:100%}
+ .mf-workstation{padding:10px;margin-top:12px}
+ .mfws-top h2{font-size:22px}
+ .mfws-tools{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .mfws-tracks{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media(max-width:390px){.mfws-tracks{grid-template-columns:repeat(2,minmax(0,1fr))}}
