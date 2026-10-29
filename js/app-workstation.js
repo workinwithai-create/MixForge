@@ -20,7 +20,7 @@
       selected: 0, startPct: 22, endPct: 69, fadeIn: .14, fadeOut: .14,
       clipDb: -3, eqHz: 2400, eqDb: -2, tool: 'Clip gain',
       splits: [], edits: [], dry: false, playing: false,
-      offset: 0, startCtxTime: 0, ctx: null, sources: [], activeNodes: [], raf: null
+      offset: 0, startCtxTime: 0, ctx: null, sources: [], activeNodes: [], outputNodes: {}, raf: null
     };
     const color = ['#d7a977','#929ee0','#9cbba9','#c6989d','#a4b2c0'];
     const dB = value => Math.pow(10, Number(value) / 20);
@@ -55,7 +55,7 @@
       model.playing=false;
       for(const src of model.sources) {try{src.onended=null;src.stop();}catch(_){}try{src.disconnect();}catch(_){}}
       for(const node of model.activeNodes){try{node.disconnect()}catch(_){}}
-      model.sources=[];model.activeNodes=[];
+      model.sources=[];model.activeNodes=[];model.outputNodes={};
       if(model.raf)cancelAnimationFrame(model.raf);model.raf=null;
       model.offset=reset?0:v;
       if(root.hidden) return;
@@ -69,6 +69,14 @@
       param.setValueAtTime(initial,now);
       const pts=[[start,outside],[start+a,inside],[end-b,inside],[end,outside]];
       for(const [t,val] of pts)if(t>offset+.001)param.linearRampToValueAtTime(val,now+t-offset);
+    }
+    function updateAuditionGains(){
+      const soloActive=model.solo.size>0;
+      for(const track of model.tracks){
+        const out=model.outputNodes[track.name];if(!out||!model.ctx)continue;
+        const audible=!model.mute.has(track.name)&&(!soloActive||model.solo.has(track.name));
+        out.gain.setTargetAtTime(audible?dB(model.levels[track.name]??0):0,model.ctx.currentTime,.012);
+      }
     }
     async function play(){
       refreshTracks();
@@ -94,7 +102,7 @@
           const active=(!model.mute.has(track.name)) && (!activeSolo||model.solo.has(track.name));
           out.gain.value=active?dB(model.levels[track.name]??0):0;
           out.connect(model.ctx.destination);
-          model.activeNodes.push(out);
+          model.activeNodes.push(out);model.outputNodes[track.name]=out;
           const isSelected=i===model.selected&&!model.dry;
           if(isSelected){
             const dry=model.ctx.createGain(),wet=model.ctx.createGain();
@@ -161,11 +169,11 @@
           out.textContent=(Number(slider.value)>0?'+':'')+slider.value+' dB';
           card.querySelector('.mfws-vertical-meter i').style.height=Math.min(98,Math.max(10,70+Number(slider.value)*2))+'%';
         };renderLevel();
-        slider.oninput=()=>{model.levels[t.name]=Number(slider.value);renderLevel()};
+        slider.oninput=()=>{model.levels[t.name]=Number(slider.value);renderLevel();updateAuditionGains()};
         const mute=card.querySelector('.mute'),solo=card.querySelector('.solo');
         const redrawButtons=()=>{mute.classList.toggle('on',model.mute.has(t.name));solo.classList.toggle('on',model.solo.has(t.name));mute.setAttribute('aria-pressed',String(model.mute.has(t.name)));solo.setAttribute('aria-pressed',String(model.solo.has(t.name)));};
-        mute.onclick=()=>{model.mute.has(t.name)?model.mute.delete(t.name):model.mute.add(t.name);redrawButtons();if(model.playing)stop()};
-        solo.onclick=()=>{model.solo.has(t.name)?model.solo.delete(t.name):model.solo.add(t.name);redrawButtons();if(model.playing)stop()};
+        mute.onclick=()=>{model.mute.has(t.name)?model.mute.delete(t.name):model.mute.add(t.name);redrawButtons();updateAuditionGains()};
+        solo.onclick=()=>{model.solo.has(t.name)?model.solo.delete(t.name):model.solo.add(t.name);redrawButtons();updateAuditionGains()};
         redrawButtons();tracksEl.appendChild(card);
       });
       const select=root.querySelector('#mfwsSelected');
