@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>MixForge · Vocal Style Prior Lab</title>
+  <style>
+    :root {
+      --paper: #f4efe5;
+      --ink: #171713;
+      --muted: #6d6a60;
+      --line: #cbc3b4;
+      --soft-line: #dfd8cb;
+      --panel: #fbf8f1;
+      --orange: #dc5d2a;
+      --blue: #1f5f6b;
+      --green: #3e6c51;
+      --red: #9c392d;
+      --shadow: 0 24px 70px rgba(53, 43, 28, .12);
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--paper); }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(rgba(23,23,19,.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(23,23,19,.035) 1px, transparent 1px),
+        var(--paper);
+      background-size: 28px 28px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      min-height: 100vh;
+    }
+    button, input { font: inherit; }
+    .shell { width: min(1180px, calc(100% - 32px)); margin: auto; padding: 30px 0 70px; }
+    .topline { display: flex; justify-content: space-between; gap: 18px; align-items: center; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+    .brand { font-weight: 900; letter-spacing: -.04em; font-size: 1.08rem; }
+    .brand span { color: var(--orange); }
+    .lab-tag { color: var(--muted); text-transform: uppercase; letter-spacing: .16em; font-size: .68rem; font-weight: 800; }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(240px, .65fr); gap: 42px; padding: 48px 0 38px; align-items: end; }
+    h1 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(3.2rem, 8vw, 7.2rem); line-height: .83; letter-spacing: -.065em; font-weight: 500; }
+    h1 em { color: var(--orange); font-weight: 500; }
+    .lede { margin: 0; color: var(--muted); font-size: 1.02rem; line-height: 1.65; max-width: 430px; }
+    .lede strong { color: var(--ink); }
+    .workbench { background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); min-height: 570px; display: grid; grid-template-columns: 265px minmax(0, 1fr); }
+    .rail { border-right: 1px solid var(--line); padding: 26px 22px; background: rgba(222, 211, 192, .25); }
+    .kicker { font-size: .66rem; color: var(--muted); text-transform: uppercase; letter-spacing: .17em; font-weight: 900; }
+    .rail h2 { font: 500 1.8rem/1.05 Georgia, serif; margin: 10px 0 24px; }
+    .profile-list { display: grid; gap: 8px; }
+    .profile {
+      width: 100%; border: 1px solid transparent; background: transparent; color: var(--ink); text-align: left;
+      padding: 12px; cursor: pointer; transition: .16s ease;
+    }
+    .profile:hover { background: rgba(255,255,255,.48); }
+    .profile[aria-pressed="true"] { background: var(--panel); border-color: var(--ink); box-shadow: 4px 4px 0 var(--ink); transform: translate(-2px,-2px); }
+    .profile b { display: block; font-size: .86rem; }
+    .profile small { color: var(--muted); display: block; margin-top: 4px; line-height: 1.4; }
+    .rail-note { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--soft-line); color: var(--muted); font-size: .76rem; line-height: 1.55; }
+    .stage { padding: 28px 30px 30px; min-width: 0; }
+    .stage-head { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; padding-bottom: 22px; border-bottom: 1px solid var(--soft-line); }
+    .stage h2 { margin: 6px 0 0; font-size: 1.22rem; }
+    .state { border: 1px solid var(--green); color: var(--green); padding: 7px 10px; font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; font-weight: 900; white-space: nowrap; }
+    .control { display: grid; grid-template-columns: 160px minmax(0,1fr) 58px; gap: 14px; align-items: center; padding: 22px 0 18px; }
+    .control label { font-size: .82rem; font-weight: 800; }
+    .control label span { display: block; color: var(--muted); font-size: .7rem; line-height: 1.4; font-weight: 500; margin-top: 4px; }
+    input[type="range"] { width: 100%; accent-color: var(--orange); cursor: pointer; }
+    output { text-align: right; font-variant-numeric: tabular-nums; font-weight: 900; }
+    .chain { border-top: 1px solid var(--soft-line); }
+    .chain-head, .row { display: grid; grid-template-columns: minmax(132px,1.3fr) repeat(2,minmax(100px,.8fr)) 96px; gap: 16px; align-items: center; }
+    .chain-head { padding: 16px 0 9px; color: var(--muted); font-size: .65rem; text-transform: uppercase; letter-spacing: .12em; font-weight: 900; }
+    .row { padding: 16px 0; border-top: 1px solid var(--soft-line); }
+    .effect b { display: block; font-size: .87rem; }
+    .effect small { color: var(--muted); font-size: .7rem; }
+    .value { font: 500 1.25rem/1 Georgia, serif; font-variant-numeric: tabular-nums; }
+    .value.personal { color: var(--blue); }
+    .delta { justify-self: end; padding: 5px 7px; background: #e8e3d8; color: var(--muted); font-size: .7rem; font-weight: 900; }
+    .delta.changed { background: #dce8e5; color: var(--blue); }
+    .evidence { margin-top: 22px; display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); }
+    .evidence > div { padding: 18px; }
+    .evidence > div + div { border-left: 1px solid var(--line); }
+    .evidence strong { display: block; font: 500 1.5rem/1 Georgia, serif; margin: 8px 0 5px; }
+    .evidence p { margin: 0; color: var(--muted); font-size: .76rem; line-height: 1.5; }
+    .actions { display: flex; align-items: center; gap: 11px; flex-wrap: wrap; margin-top: 20px; }
+    .primary, .secondary { border: 1px solid var(--ink); padding: 11px 15px; cursor: pointer; font-weight: 850; font-size: .78rem; }
+    .primary { color: white; background: var(--ink); }
+    .secondary { color: var(--ink); background: transparent; }
+    .primary:hover, .secondary:hover { transform: translateY(-1px); box-shadow: 3px 3px 0 var(--orange); }
+    .primary:focus-visible, .secondary:focus-visible, .profile:focus-visible, input:focus-visible { outline: 3px solid var(--orange); outline-offset: 3px; }
+    #message { color: var(--green); font-size: .78rem; font-weight: 750; min-height: 1.2em; }
+    .guardrail { margin-top: 18px; border-left: 3px solid var(--orange); padding: 3px 0 3px 14px; color: var(--muted); font-size: .75rem; line-height: 1.55; }
+    .research-note { margin: 28px auto 0; max-width: 840px; color: var(--muted); text-align: center; font-size: .75rem; line-height: 1.6; }
+    .research-note a { color: var(--blue); }
+    @media (max-width: 820px) {
+      .hero { grid-template-columns: 1fr; gap: 20px; }
+      h1 { font-size: clamp(3.1rem,16vw,5.7rem); }
+      .workbench { grid-template-columns: 1fr; }
+      .rail { border-right: 0; border-bottom: 1px solid var(--line); }
+      .profile-list { grid-template-columns: repeat(3,1fr); }
+      .rail-note { display: none; }
+    }
+    @media (max-width: 590px) {
+      .shell { width: min(100% - 18px,1180px); padding-top: 18px; }
+      .lab-tag { display: none; }
+      .hero { padding-top: 34px; }
+      .profile-list { grid-template-columns: 1fr; }
+      .stage { padding: 22px 17px; }
+      .control { grid-template-columns: 1fr 54px; }
+      .control label { grid-column: 1 / -1; }
+      .chain-head { display: none; }
+      .row { grid-template-columns: 1fr 1fr; gap: 9px; }
+      .effect { grid-column: 1 / -1; }
+      .delta { justify-self: start; }
+      .evidence { grid-template-columns: 1fr; }
+      .evidence > div + div { border-left: 0; border-top: 1px solid var(--line); }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topline">
+      <div class="brand">MIX<span>FORGE</span></div>
+      <div class="lab-tag">Research lab · isolated preview · no production route</div>
+    </header>
+
+    <section class="hero">
+      <h1>Your taste,<br><em>not a preset.</em></h1>
+      <p class="lede"><strong>MixForge already records what each correction changed.</strong> This lab shows how those receipts could become a cautious style prior: the song still drives the vocal chain, while repeated preferences gently shape the starting point.</p>
+    </section>
+
+    <section class="workbench" aria-label="Vocal style prior simulator">
+      <aside class="rail">
+        <div class="kicker">Saved working style</div>
+        <h2>Choose a receipt history</h2>
+        <div class="profile-list" id="profiles"></div>
+        <p class="rail-note">A real profile would be learned from accepted correction receipts—not from private audio. Rejected moves should not train it. Sparse history should fall back to the generic content recommendation.</p>
+      </aside>
+
+      <div class="stage">
+        <div class="stage-head">
+          <div>
+            <div class="kicker">Lead vocal · phrase 02:14–02:26</div>
+            <h2 id="profile-title">Faithful &amp; open</h2>
+          </div>
+          <div class="state" id="gate-state">Within safe range</div>
+        </div>
+
+        <div class="control">
+          <label for="confidence">Trust saved style <span>Wider uncertainty lets this song pull harder.</span></label>
+          <input id="confidence" type="range" min="0" max="100" value="58" aria-describedby="confidence-help">
+          <output id="confidence-value" for="confidence">58%</output>
+        </div>
+        <span id="confidence-help" hidden>Adjust how strongly accepted historical settings influence this recommendation.</span>
+
+        <div class="chain" id="chain">
+          <div class="chain-head"><span>Processor</span><span>Song-only</span><span>Personalized</span><span>Movement</span></div>
+        </div>
+
+        <div class="evidence">
+          <div>
+            <div class="kicker">Evidence used</div>
+            <strong id="receipt-count">18 receipts</strong>
+            <p>Accepted vocal-chain decisions. Original audio and rejected corrections stay outside the profile.</p>
+          </div>
+          <div>
+            <div class="kicker">Largest content signal</div>
+            <strong>Air · dynamics · space</strong>
+            <p>The new study found only a small content signal overall, concentrated in high-frequency EQ, compression and reverb.</p>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="primary" id="save" type="button">Save as review candidate</button>
+          <button class="secondary" id="reset" type="button">Use song-only chain</button>
+          <span id="message" role="status" aria-live="polite"></span>
+        </div>
+        <p class="guardrail" id="guardrail"><strong>Safety gate:</strong> this is an editable candidate, not an automatic mix. Loudness-match the audition, keep the original rollback point, and reject any move that weakens singer identity or consonants.</p>
+      </div>
+    </section>
+
+    <p class="research-note">Interaction prototype only: it demonstrates the product contract, not the paper’s trained content model or exact Gaussian label-shift calculation. Source: <a href="https://arxiv.org/abs/2610.38696">Personalising Parametric Audio Effect Recommendation for Vocals from Parameter-only Style Priors</a> (submitted October 28, 2026).</p>
+  </main>
+
+  <script>
+    const parameters = [
+      { id: 'air', name: 'High shelf', detail: '9.6 kHz', unit: ' dB', generic: 1.2, variance: 1.5 },
+      { id: 'threshold', name: 'Compressor', detail: 'threshold', unit: ' dB', generic: -18.0, variance: 4.2 },
+      { id: 'ratio', name: 'Compression ratio', detail: 'soft knee', unit: ':1', generic: 2.5, variance: .8 },
+      { id: 'reverb', name: 'Vocal reverb', detail: 'send', unit: '%', generic: 14, variance: 7.0 }
+    ];
+
+    const profiles = [
+      {
+        id: 'faithful', name: 'Faithful & open', note: 'Light control, natural air', receipts: 18,
+        prior: { air: .6, threshold: -15, ratio: 2.0, reverb: 10 }
+      },
+      {
+        id: 'upfront', name: 'Forward vocal', note: 'Tighter and closer', receipts: 31,
+        prior: { air: 2.4, threshold: -22, ratio: 3.5, reverb: 8 }
+      },
+      {
+        id: 'warm', name: 'Warm distance', note: 'Softer top, longer room', receipts: 9,
+        prior: { air: -.8, threshold: -19, ratio: 2.8, reverb: 20 }
+      }
+    ];
+
+    let active = profiles[0];
+    const profileList = document.querySelector('#profiles');
+    const chain = document.querySelector('#chain');
+    const confidence = document.querySelector('#confidence');
+    const confidenceValue = document.querySelector('#confidence-value');
+    const gateState = document.querySelector('#gate-state');
+    const message = document.querySelector('#message');
+
+    function format(parameter, value) {
+      const digits = parameter.id === 'reverb' ? 0 : 1;
+      return `${value.toFixed(digits)}${parameter.unit}`;
+    }
+
+    function personalized(parameter, trust) {
+      if (trust === 0) return parameter.generic;
+      const historyConfidence = Math.min(1, active.receipts / 24);
+      const weight = (trust / 100) * historyConfidence;
+      return parameter.generic + (active.prior[parameter.id] - parameter.generic) * weight;
+    }
+
+    function renderChain() {
+      chain.querySelectorAll('.row').forEach((row) => row.remove());
+      const trust = Number(confidence.value);
+      confidenceValue.value = `${trust}%`;
+      let maxNormalizedMove = 0;
+
+      parameters.forEach((parameter) => {
+        const result = personalized(parameter, trust);
+        const delta = result - parameter.generic;
+        maxNormalizedMove = Math.max(maxNormalizedMove, Math.abs(delta) / parameter.variance);
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `
+          <div class="effect"><b>${parameter.name}</b><small>${parameter.detail}</small></div>
+          <div class="value">${format(parameter, parameter.generic)}</div>
+          <div class="value personal">${format(parameter, result)}</div>
+          <div class="delta ${Math.abs(delta) > .04 ? 'changed' : ''}">${delta >= 0 ? '+' : ''}${format(parameter, delta)}</div>`;
+        chain.append(row);
+      });
+
+      const needsReview = maxNormalizedMove > .72;
+      gateState.textContent = needsReview ? 'Review unusual move' : 'Within safe range';
+      gateState.style.color = needsReview ? 'var(--red)' : 'var(--green)';
+      gateState.style.borderColor = needsReview ? 'var(--red)' : 'var(--green)';
+      document.querySelector('#guardrail').innerHTML = needsReview
+        ? '<strong>Safety gate:</strong> this profile is pulling one or more controls unusually far. Require a loudness-matched A/B and explicit approval before it can become active.'
+        : '<strong>Safety gate:</strong> this is an editable candidate, not an automatic mix. Loudness-match the audition, keep the original rollback point, and reject any move that weakens singer identity or consonants.';
+    }
+
+    function selectProfile(profile) {
+      active = profile;
+      document.querySelector('#profile-title').textContent = profile.name;
+      document.querySelector('#receipt-count').textContent = `${profile.receipts} receipts`;
+      [...profileList.children].forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.profile === profile.id)));
+      message.textContent = '';
+      renderChain();
+    }
+
+    profiles.forEach((profile, index) => {
+      const button = document.createElement('button');
+      button.className = 'profile';
+      button.type = 'button';
+      button.dataset.profile = profile.id;
+      button.setAttribute('aria-pressed', String(index === 0));
+      button.innerHTML = `<b>${profile.name}</b><small>${profile.note} · ${profile.receipts} accepted</small>`;
+      button.addEventListener('click', () => selectProfile(profile));
+      profileList.append(button);
+    });
+
+    confidence.addEventListener('input', () => { message.textContent = ''; renderChain(); });
+    document.querySelector('#reset').addEventListener('click', () => {
+      confidence.value = 0;
+      message.textContent = 'Song-only chain restored. Saved style was not deleted.';
+      renderChain();
+    });
+    document.querySelector('#save').addEventListener('click', () => {
+      message.textContent = `Review candidate saved with ${active.name} provenance.`;
+    });
+    renderChain();
+  </script>
+</body>
+</html>
