@@ -1,0 +1,10 @@
+import { readFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
+const html = readFileSync(new URL('../compression-fingerprint-lab.html', import.meta.url), 'utf8');
+assert.match(html, /autoGainControl:false/);
+assert.match(html, /latencyHint:'interactive'/);
+assert.match(html, /Compression-like/);
+assert.match(html, /heuristic, not proof/i);
+assert.match(html, /No recording is uploaded or saved/);
+assert.doesNotMatch(html, /connect\(audioContext\.destination\)/);
+console.log('compression fingerprint lab smoke: ok');
