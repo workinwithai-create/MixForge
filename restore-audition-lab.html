@@ -6,6 +6,7 @@
   <title>MixForge · RESTORE Audition Lab</title>
   <style>
     :root{color-scheme:dark;--bg:#07080b;--card:#11141b;--line:#2b303c;--text:#f5f4ef;--muted:#9ca3b3;--amber:#ffb65c;--cyan:#60e6df;--red:#ff7171;--green:#89ef9b}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 90% 0,#25303b 0,transparent 38%),var(--bg);font-family:Inter,ui-sans-serif,system-ui;color:var(--text)}main{max-width:1120px;margin:auto;padding:38px 20px 76px}.eyebrow{color:var(--amber);font-size:.72rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase}h1{font-size:clamp(2.3rem,7vw,5.2rem);line-height:.92;margin:14px 0;max-width:900px}.lede{max-width:760px;color:var(--muted);font-size:1.08rem;line-height:1.6}.warning{margin:24px 0;border:1px solid #654b30;background:#21180f;padding:14px 16px;border-radius:12px;color:#f5d8ad}.grid{display:grid;grid-template-columns:1.6fr 1fr;gap:18px}.card{background:#11141be8;border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:0 20px 60px #0006}.now{display:flex;justify-content:space-between;gap:18px;align-items:start}.now h2{margin:0;font-size:1.45rem}.badge{white-space:nowrap;border-radius:999px;padding:7px 10px;background:#19242a;color:var(--cyan);font-size:.78rem;font-weight:800}.wave{height:138px;margin:20px 0;border-radius:12px;background:linear-gradient(90deg,transparent 49.8%,#ffffff55 50%,transparent 50.2%),repeating-linear-gradient(90deg,#31414e 0 2px,transparent 2px 7px);mask:linear-gradient(to bottom,transparent,black 12%,black 88%,transparent);opacity:.8;animation:pulse 4s ease-in-out infinite}@keyframes pulse{50%{opacity:.45;transform:scaleY(.7)}}audio{width:100%;accent-color:var(--amber)}.choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:18px}.choices button{border:1px solid var(--line);background:#161a22;color:var(--text);border-radius:10px;padding:11px;text-align:left;font-weight:700;cursor:pointer}.choices button small{display:block;color:var(--muted);font-weight:500;margin-top:4px}.choices button[aria-pressed=true]{border-color:var(--amber);background:#2a2117}.choices button:focus-visible,.verdict button:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}.metric{border-bottom:1px solid var(--line);padding:15px 0}.metric:last-child{border:0}.metric strong{font-size:1.7rem;display:block}.metric span{color:var(--muted);font-size:.86rem}.test{margin-top:18px}.test h2{font-size:1.05rem}.check{display:flex;gap:10px;padding:9px 0;color:var(--muted)}.check input{accent-color:var(--green)}.verdict{display:flex;gap:9px;margin-top:14px}.verdict button{flex:1;border:1px solid var(--line);border-radius:10px;padding:10px;background:#171b23;color:var(--text);font-weight:800;cursor:pointer}.verdict .pass{color:var(--green)}.verdict .flag{color:var(--red)}#decision{min-height:24px;margin-top:12px;color:var(--amber);font-weight:700}.footer{margin-top:18px;color:var(--muted);font-size:.9rem;line-height:1.6}.footer a{color:var(--cyan)}@media(max-width:820px){.grid{grid-template-columns:1fr}.choices{grid-template-columns:1fr}h1{font-size:3rem}}
+    button{font:inherit;border:1px solid var(--line);border-radius:8px;background:#19242a;color:var(--text);padding:10px;cursor:pointer}button:disabled{opacity:.4;cursor:not-allowed}label{display:block;margin:12px 0}input[type=range],textarea,select{width:100%;accent-color:var(--amber)}textarea,select{background:#161a22;color:var(--text);border:1px solid var(--line);padding:8px;border-radius:8px}#notes{max-height:240px;overflow:auto;padding-left:22px}#notes li{margin:12px 0;white-space:pre-wrap;overflow-wrap:anywhere}.verdict{flex-wrap:wrap}#time{display:block;font-variant-numeric:tabular-nums}
   </style>
 </head>
 <body>
@@ -13,12 +14,18 @@
   <div class="eyebrow">MixForge Research Lab · isolated side-file preview</div>
   <h1>Hear what restoration removes—and invents.</h1>
   <p class="lede">RESTORE does not hide its decisions inside one processed waveform. Switch between retained content, removed damage, and generated high frequencies at the same playback position, then decide whether each layer is safe for a modern vocal workflow.</p>
-  <div class="warning"><strong>Internal evaluation only.</strong> RESTORE is CC BY-NC 4.0 and cannot ship in paid MixForge without separate commercial permission. The audio below is the authors’ official loudness-matched flamenco example; our independent CPU run used the bundled WAV of this sample.</div>
+  <div class="warning"><strong>Internal evaluation only.</strong> RESTORE is CC BY-NC 4.0 and cannot ship in paid MixForge without separate commercial permission. The original and restored outputs below use the authors’ loudness-matched flamenco files. Diagnostic stems are normalized individually: their solo volume does not represent their contribution to the mix. No checkpoint runs here.</div>
   <div class="grid">
     <section class="card" aria-labelledby="player-title">
       <div class="now"><div><div class="eyebrow">Now auditioning</div><h2 id="player-title">Original input</h2></div><span class="badge" id="kind">REFERENCE</span></div>
-      <div class="wave" aria-hidden="true"></div>
-      <audio id="player" controls preload="metadata" crossorigin="anonymous"></audio>
+      <p class="footer">Start with Original → Extension off → Extension on. Then inspect every diagnostic layer. Start at a low headphone volume.</p>
+      <button id="load">Load audition audio</button>
+      <button id="play" disabled>Play</button>
+      <label>Position <input id="seek" type="range" min="0" max="60" step="0.01" value="0" disabled></label>
+      <output id="time">0:00 / 0:00</output>
+      <label>Listening volume <input id="volume" type="range" min="0" max="0.5" step="0.01" value="0.25"></label>
+      <p id="status" role="status">Load all nine sources for synchronized switching.</p>
+      <p id="level" class="warning"></p>
       <div class="choices" id="choices"></div>
       <p id="announce" aria-live="polite"></p>
     </section>
@@ -28,11 +35,14 @@
       <div class="metric"><strong>6 layers</strong><span>content, degradations, residual, and generated extension</span></div>
       <div class="test">
         <h2>Modern-vocal acceptance gate</h2>
-        <label class="check"><input type="checkbox"> Consonants stay sharp</label>
-        <label class="check"><input type="checkbox"> Rasp and breaths remain natural</label>
-        <label class="check"><input type="checkbox"> No guide-vocal leakage</label>
-        <label class="check"><input type="checkbox"> Extension adds no invented melody</label>
-        <div class="verdict"><button class="pass" data-verdict="Candidate passed the listening gate.">Pass candidate</button><button class="flag" data-verdict="Candidate flagged—keep the faithful source.">Flag artifact</button></div>
+        <p class="footer">Judge each restored candidate separately. These historical demos do not validate your modern vocals.</p>
+        <div id="criteria"></div>
+        <label for="note">What do you hear at this moment?</label>
+        <textarea id="note" rows="3" maxlength="2000" placeholder="Example: breath disappears, or rasp remains natural"></textarea>
+        <div class="verdict"><button id="save">Save timestamped note</button><button id="pass" disabled>Pass candidate</button><button id="flag">Flag artifact</button></div>
+        <button id="export">Download listening notes</button>
+        <p id="storage" role="status"></p>
+        <ol id="notes"></ol>
         <p id="decision"></p>
       </div>
     </aside>
@@ -52,11 +62,43 @@ const tracks=[
  {id:'residual.m4a',name:'Removed residual',kind:'REMOVED',note:'Unexplained material—inspect closely for lost identity.'},
  {id:'extension.m4a',name:'Generated HF extension',kind:'GENERATED',note:'Synthesized high-frequency content; never treat as ground truth.'}
 ];
-const player=document.querySelector('#player'),choices=document.querySelector('#choices');
-function select(i,autoplay=false){const t=tracks[i],at=player.currentTime||0,wasPlaying=!player.paused||autoplay;player.src=root+t.id;player.currentTime=at;document.querySelector('#player-title').textContent=t.name;document.querySelector('#kind').textContent=t.kind;document.querySelector('#announce').textContent=t.note;[...choices.children].forEach((b,n)=>b.setAttribute('aria-pressed',n===i));if(wasPlaying)player.play().catch(()=>{})}
-tracks.forEach((t,i)=>{const b=document.createElement('button');b.innerHTML=t.name+'<small>'+t.note+'</small>';b.setAttribute('aria-pressed',i===0);b.addEventListener('click',()=>select(i));choices.append(b)});
-document.querySelectorAll('[data-verdict]').forEach(b=>b.addEventListener('click',()=>document.querySelector('#decision').textContent=b.dataset.verdict));
-player.src=root+tracks[0].id;
+const $=id=>document.getElementById(id);
+const key='mixforge-restore-audition-v2';
+const criteria=['Consonants stay sharp','Breaths remain natural','Rasp stays intact','Singer identity is preserved','Existing high frequencies survive','No invented melody or metallic artifacts'];
+let ctx,master,buffers=[],nodes=[],gains=[],selected=0,playing=false,offset=0,started=0,duration=0,loading=false;
+let reviews={1:{},2:{}},notes=[],heard=new Set(),seenOriginal=false;
+try {const saved=JSON.parse(localStorage.getItem(key)||'null');if(saved&&saved.version===2){notes=Array.isArray(saved.notes)?saved.notes:[];reviews=saved.reviews||reviews;}}catch(e){$('storage').textContent='Saved notes unavailable. You can still download this session.';}
+function persist(){try{localStorage.setItem(key,JSON.stringify({version:2,notes,reviews}));$('storage').textContent='Saved on this browser only. Download notes to share them.';}catch(e){$('storage').textContent='Browser storage unavailable. Download notes before closing.';}}
+const fmt=t=>Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0');
+function position(){return Math.max(0,Math.min(duration,playing?offset+ctx.currentTime-started:offset));}
+function stop(){if(playing)offset=position();playing=false;nodes.forEach(n=>{try{n.stop();}catch(e){}n.disconnect();});gains.forEach(g=>g.disconnect());nodes=[];gains=[];$('play').textContent='Play';}
+async function start(){if(!buffers.length||playing)return;try{await ctx.resume();if(playing)return;if(ctx.state!=='running')throw new Error('Audio is suspended');if(offset>=duration)offset=0;started=ctx.currentTime+0.04;
+ buffers.forEach((buffer,i)=>{const n=ctx.createBufferSource(),g=ctx.createGain();n.buffer=buffer;g.gain.value=i===selected?1:0;n.connect(g).connect(master);n.start(started,offset);nodes.push(n);gains.push(g);});playing=true;$('play').textContent='Pause';$('status').textContent='Playing — switching keeps the shared timeline.';
+}catch(e){stop();$('status').textContent='Playback could not start. Tap Play to retry.';}}
+function stats(buffer){let sum=0,peak=0,count=0;for(let c=0;c<buffer.numberOfChannels;c++){const data=buffer.getChannelData(c);for(const x of data){sum+=x*x;peak=Math.max(peak,Math.abs(x));count++;}}return {rms:20*Math.log10(Math.sqrt(sum/count)||1e-12),peak:20*Math.log10(peak||1e-12)};}
+function select(i){selected=i;const t=tracks[i];$('player-title').textContent=t.name;$('kind').textContent=t.kind;$('announce').textContent=t.note;
+ [...$('choices').children].forEach((b,n)=>b.setAttribute('aria-pressed',n===i));
+ if(playing){const at=ctx.currentTime;gains.forEach((g,n)=>{g.gain.cancelScheduledValues(at);g.gain.setValueAtTime(g.gain.value,at);g.gain.linearRampToValueAtTime(n===i?1:0,at+0.02);});}
+ $('level').textContent=i<3?'OUTPUT COMPARISON · Authors’ loudness-matched files. No extra +5.5 dB correction applied.':'DIAGNOSTIC SOLO · Independently normalized. Do not infer removal amount from solo loudness; do not sum these demo stems.';
+ if(buffers[i]){const m=stats(buffers[i]);$('level').textContent+=' File RMS '+m.rms.toFixed(1)+' dBFS; sample peak '+m.peak.toFixed(1)+' dBFS (diagnostics, not LUFS).';}
+ renderCriteria();}
+function renderCriteria(){const box=$('criteria');box.replaceChildren();criteria.forEach((text,i)=>{const label=document.createElement('label');label.textContent=text;const select=document.createElement('select');select.disabled=selected!==1&&selected!==2;[['','Not assessed'],['pass','Preserved / clear'],['fail','Damaged / changed'],['uncertain','Unsure']].forEach(([value,name])=>{const o=document.createElement('option');o.value=value;o.textContent=name;select.append(o);});select.value=reviews[selected]?.[i]||'';select.addEventListener('change',()=>{reviews[selected]??={};reviews[selected][i]=select.value;persist();updateGate();});label.append(select);box.append(label);});updateGate();}
+function updateGate(){$('pass').disabled=!([1,2].includes(selected)&&seenOriginal&&heard.has(selected)&&criteria.every((_,i)=>reviews[selected]?.[i]==='pass'));}
+function renderNotes(){$('notes').replaceChildren();notes.forEach(n=>{const li=document.createElement('li');li.textContent=fmt(Number(n.seconds)||0)+' · '+n.track+' · '+n.verdict+' — '+n.text;$('notes').append(li);});}
+function record(verdict){if(!buffers.length){$('decision').textContent='Load and play audio before recording a listening verdict.';return;}if(verdict==='Pass'&&$('pass').disabled)return;if(!heard.has(selected)){$('decision').textContent='Play this source before saving a listening note.';return;}if(verdict==='Note'&&!$('note').value.trim()){$('decision').textContent='Add what you hear before saving.';return;}
+ notes.push({at:new Date().toISOString(),seconds:Number(position().toFixed(2)),source:tracks[selected].id,track:tracks[selected].name,verdict,text:$('note').value.trim(),criteria:{...(reviews[selected]||{})},levelBasis:selected<3?'authors-matched-output':'individually-normalized-diagnostic',volume:master.gain.value});persist();renderNotes();$('note').value='';$('decision').textContent=verdict==='Pass'?'Listening pass recorded for this candidate only. Research status is unchanged.':'Timestamped '+verdict.toLowerCase()+' saved.';}
+tracks.forEach((t,i)=>{const b=document.createElement('button');b.textContent=t.name;const small=document.createElement('small');small.textContent=t.note;b.append(small);b.addEventListener('click',()=>select(i));$('choices').append(b);});
+$('load').addEventListener('click',async()=>{if(loading)return;loading=true;$('load').disabled=true;$('status').textContent='Loading nine sources…';try{ctx??=new (window.AudioContext||window.webkitAudioContext)();await ctx.resume();master??=ctx.createGain();master.gain.value=Number($('volume').value);master.connect(ctx.destination);
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);let loaded;try{loaded=await Promise.all(tracks.map(async t=>{const r=await fetch(root+t.id,{signal:controller.signal});if(!r.ok)throw new Error('HTTP '+r.status);return ctx.decodeAudioData(await r.arrayBuffer());}));}finally{clearTimeout(timer);}
+ const lengths=loaded.map(b=>b.duration);if(Math.max(...lengths)-Math.min(...lengths)>0.1)throw new Error('Sources have mismatched durations');buffers=loaded;duration=Math.min(...lengths);$('seek').max=duration;$('seek').disabled=false;$('play').disabled=false;$('load').textContent='All sources loaded';$('status').textContent='Ready. Tap Play, then switch sources.';select(selected);
+ }catch(e){master?.disconnect();$('status').textContent='Audio could not load: '+e.message+'. Check your connection and retry.';$('load').disabled=false;}finally{loading=false;}});
+$('play').addEventListener('click',()=>playing?stop():start());
+$('seek').addEventListener('input',()=>{const resume=playing;stop();offset=Number($('seek').value);if(resume)start();});
+$('volume').addEventListener('input',()=>{if(master)master.gain.setTargetAtTime(Number($('volume').value),ctx.currentTime,0.02);});
+$('save').addEventListener('click',()=>record('Note'));$('flag').addEventListener('click',()=>record('Flag'));$('pass').addEventListener('click',()=>record('Pass'));
+$('export').addEventListener('click',()=>{const payload={version:2,sample:'hist_ood_flamenco_0001',notice:'Internal research; RESTORE CC BY-NC 4.0. Human listening notes, not an automated quality verdict. Diagnostic stems individually normalized.',reviews,notes};const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='mixforge-restore-listening-notes.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
+function tick(){const p=Math.max(0,position());if(playing&&ctx.currentTime>=started&&ctx.state==='running'){heard.add(selected);if(selected===0)seenOriginal=true;updateGate();}if(playing&&p>=duration){stop();offset=duration;}$('seek').value=p;$('time').textContent=fmt(p)+' / '+fmt(duration);requestAnimationFrame(tick);}
+renderNotes();select(0);requestAnimationFrame(tick);
 </script>
 </body>
 </html>
