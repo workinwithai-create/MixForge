@@ -1,0 +1,13 @@
+import { readFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
+const html = readFileSync(new URL('../compression-fingerprint-lab.html', import.meta.url), 'utf8');
+const vercel = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
+assert.match(html, /autoGainControl:false/);
+assert.match(html, /latencyHint:'interactive'/);
+assert.match(html, /Compression-like/);
+assert.match(html, /heuristic, not proof/i);
+assert.match(html, /No recording is uploaded or saved/);
+assert.doesNotMatch(html, /connect\(audioContext\.destination\)/);
+const labHeaders = vercel.headers.find((rule) => rule.source === '/compression-fingerprint-lab.html')?.headers ?? [];
+assert.ok(labHeaders.some(({ key, value }) => key === 'Permissions-Policy' && value.includes('microphone=(self)')));
+console.log('compression fingerprint lab smoke: ok');
