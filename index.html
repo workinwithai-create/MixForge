@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="/targeted-repair.css?v=2.8.0">
   <link rel="stylesheet" href="/musician-ux.css?v=2.8.0">
   <link rel="stylesheet" href="/license.css?v=2.8.0">
+  <link rel="stylesheet" href="/library.css?v=2.8.0">
 </head>
 <body>
   <main class="shell">
@@ -31,6 +32,7 @@
       <div class="pipeline" aria-label="MixForge pipeline"><span>Observe</span><b>→</b><span>Locate</span><b>→</b><span>Isolate</span><b>→</b><span>Confirm</span><b>→</b><span>Repair</span><b>→</b><span>Verify</span></div>
       <p class="pipeline-note" id="pipelineNote">Quick Master skips Isolate / Confirm / Repair: Observe → Locate → Master → Verify. Gemini listens to the mix/master, not vocal performance (AuraMix).</p>
       <div class="hero-modes" id="heroModeRow"><span>Quick Master</span><b>or</b><span>Forensic Fix</span><i>Mix repair + release master · vocals live in <a href="https://auramix.workinwithai.com" target="_blank" rel="noopener noreferrer">AuraMix</a></i></div>
+      <p class="library-entry"><a class="library-link" href="/library.html">My song library →</a> play your saved mixes and stems</p>
     </header>
     <aside class="license-bar" id="licenseBar" data-state="checking" aria-live="polite">
       <div class="license-copy">
@@ -113,5 +115,7 @@
   <script src="/js/app-musician-ux.js?v=2.8.0" defer></script>
   <script src="/js/app-hub-entitlement.js?v=2.8.0" defer></script>
   <script src="/js/app-paid-backend-token.js?v=2.8.0" defer></script>
+  <script src="/js/app-song-library.js?v=2.8.0" defer></script>
+  <script src="/js/app-library-save.js?v=2.8.0" defer></script>
 </body>
 </html>

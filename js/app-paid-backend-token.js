@@ -4,7 +4,7 @@
 // source separation must prove the same WorkinWithAI entitlement server-side.
 (() => {
   const PRODUCT_TOKEN_URL = 'https://workinwithai.com/api/product-token?product=mix';
-  const PROTECTED_PATHS = ['/functions/v1/separate-stem'];
+  const PROTECTED_PATHS = ['/functions/v1/separate-stem', '/functions/v1/stem-library'];
   const nativeFetch = window.fetch.bind(window);
   let accessToken = '';
   let expiresAtMs = 0;
