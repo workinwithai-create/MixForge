@@ -93,5 +93,38 @@
     return confirmed.asset;
   }
 
-  globalThis.MixForgeSongLibrary = { call, saveFile, titleFromFileName, formatBytes, wavMime };
+  // Copy a stem that already sits in MixForge's storage straight into a library song, server to server.
+  // The browser only passes a one-time upload ticket, so a 70 MB stem takes seconds, not a download and re-upload.
+  const MIXFORGE_FUNCTIONS = 'https://xbzypzgnwgrmmvtrmdzl.supabase.co/functions/v1/stem-library';
+  const MIXFORGE_KEY = 'sb_publishable_lhVBmqHvnAiAUR7Q7L_aQQ_BZH05ZGj';
+
+  function mixforgeStoragePath(signedUrl) {
+    try {
+      const url = new URL(signedUrl);
+      if (url.hostname !== 'xbzypzgnwgrmmvtrmdzl.supabase.co') return null;
+      const match = url.pathname.match(/\/storage\/v1\/object\/sign\/audio\/(separated\/[0-9a-f-]{36}\/(?:vocals|bass|drums|other)\.wav)$/i);
+      return match ? match[1] : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function copyFromMixForge(songId, { path, kind = 'stem', stem = null, label = '', size = 0, durationSec = null }) {
+    const ticket = await call('upload', { songId, kind, stem, label, mimeType: 'audio/wav', size: Number(size) || 1, room: 'mix' });
+    const response = await fetch(MIXFORGE_FUNCTIONS, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${MIXFORGE_KEY}`, apikey: MIXFORGE_KEY },
+      body: JSON.stringify({ action: 'copy', path, uploadUrl: ticket.uploadUrl }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      const error = new Error(data.error || `Copying ${label || stem || kind} failed (${response.status}).`);
+      error.status = response.status;
+      throw error;
+    }
+    const confirmed = await call('confirm', { songId, kind, stem, label, path: ticket.path, room: 'mix', durationSec });
+    return confirmed.asset;
+  }
+
+  globalThis.MixForgeSongLibrary = { call, saveFile, copyFromMixForge, mixforgeStoragePath, titleFromFileName, formatBytes, wavMime };
 })();

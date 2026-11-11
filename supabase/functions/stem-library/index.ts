@@ -1,7 +1,9 @@
 // Older MixForge stems: the separations made before the shared song library existed.
 // They were saved by date only (separated/<job>/<stem>.wav) with no song name or owner, so only
 // WorkinWithAI founder accounts may list them. Each can be played here or added to the song library.
-// Read-only: this function never writes or deletes anything in storage.
+// It never writes or deletes anything in MixForge's own storage. Its one write is "copy": it streams
+// an older stem straight into the member's shared song library, using a one-time upload ticket the
+// WorkinWithAI Hub issued for that member's own song, so the file never has to pass through the browser.
 const BUCKET = "audio";
 const HUB_ENTITLEMENTS_URL = "https://workinwithai.com/api/entitlements/me";
 const MIX_ORIGIN = "https://mixforge.workinwithai.com";
@@ -15,6 +17,9 @@ const ALLOWED_ORIGINS = [
 const STEM_PATH = /^separated\/[0-9a-f-]{36}\/(vocals|bass|drums|other)\.wav$/i;
 const UPLOAD_PATH = /^uploads\/[0-9a-f-]{36}-[A-Za-z0-9._-]{1,140}\.wav$/;
 const SIGN_SECONDS = 60 * 60;
+const LIBRARY_HOST = "kldstbhnpwpvvubphnas.supabase.co";
+const LIBRARY_UPLOAD_PREFIX = "/storage/v1/object/upload/sign/song-library/";
+const MAX_COPY_BYTES = 300 * 1024 * 1024;
 const LIST_CONCURRENCY = 8;
 
 function isAllowedOrigin(origin: string) {
@@ -142,6 +147,40 @@ async function signedUrl(path: string, download?: string) {
   return download ? `${url}&download=${encodeURIComponent(download)}` : url;
 }
 
+// Only a Hub-issued upload ticket for the shared song library is accepted as a destination.
+function libraryUploadUrl(raw: unknown): URL | null {
+  try {
+    const url = new URL(String(raw || ""));
+    if (url.protocol !== "https:" || url.hostname !== LIBRARY_HOST || url.port) return null;
+    if (!url.pathname.startsWith(LIBRARY_UPLOAD_PREFIX) || url.pathname.includes("..")) return null;
+    if (!url.searchParams.get("token")) return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+async function copyToLibrary(path: string, uploadUrl: URL) {
+  const { supabaseUrl, serviceKey } = serverCredentials();
+  const encoded = path.split("/").map(encodeURIComponent).join("/");
+  const source = await fetch(`${supabaseUrl}/storage/v1/object/${BUCKET}/${encoded}`, {
+    headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey },
+  });
+  if (!source.ok) throw new Error(`Could not read that stem (${source.status})`);
+  const bytes = new Uint8Array(await source.arrayBuffer());
+  if (!bytes.length || bytes.length > MAX_COPY_BYTES) throw new Error("That stem is empty or larger than 300 MB");
+  const put = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": "audio/wav", "x-upsert": "false" },
+    body: bytes,
+  });
+  if (!put.ok) {
+    const detail = (await put.text().catch(() => "")).slice(0, 200);
+    throw new Error(`The song library refused the copy (${put.status}) ${detail}`.trim());
+  }
+  return bytes.length;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors(req) });
   if (req.method !== "POST") return response(req, 405, { ok: false, error: "Method not allowed" });
@@ -162,9 +201,19 @@ Deno.serve(async (req) => {
       const [playUrl, downloadUrl] = await Promise.all([signedUrl(path), signedUrl(path, fileName)]);
       return response(req, 200, { ok: true, playUrl, downloadUrl, expiresInSec: SIGN_SECONDS });
     }
+    if (body?.action === "copy") {
+      const path = String(body?.path || "");
+      if (path.includes("..") || !(STEM_PATH.test(path) || UPLOAD_PATH.test(path))) {
+        return response(req, 400, { ok: false, error: "Bad path" });
+      }
+      const uploadUrl = libraryUploadUrl(body?.uploadUrl);
+      if (!uploadUrl) return response(req, 400, { ok: false, error: "Bad upload ticket" });
+      const size = await copyToLibrary(path, uploadUrl);
+      return response(req, 200, { ok: true, size });
+    }
     return response(req, 400, { ok: false, error: "Unknown action" });
   } catch (error) {
     console.error("stem-library error", error);
-    return response(req, 500, { ok: false, error: "Older stems are unavailable right now." });
+    return response(req, 500, { ok: false, error: String((error as Error)?.message || "Older stems are unavailable right now.").slice(0, 300) });
   }
 });

@@ -24,3 +24,10 @@ assert.match(page, /app-song-library\.js/);
 assert.match(page, /app-library-page\.js/);
 assert.doesNotMatch(readFileSync(new URL('../js/app-library-page.js', import.meta.url), 'utf8'), /innerHTML/, 'library page builds rows without innerHTML');
 console.log('song library smoke ok');
+
+// Fast server copy: only MixForge stem links turn into a storage path.
+assert.equal(lib.mixforgeStoragePath('https://xbzypzgnwgrmmvtrmdzl.supabase.co/storage/v1/object/sign/audio/separated/68ad3a8e-06cc-4aaf-b258-b88f12aec2bb/vocals.wav?token=x'), 'separated/68ad3a8e-06cc-4aaf-b258-b88f12aec2bb/vocals.wav');
+assert.equal(lib.mixforgeStoragePath('https://evil.example.com/storage/v1/object/sign/audio/separated/68ad3a8e-06cc-4aaf-b258-b88f12aec2bb/vocals.wav'), null);
+assert.equal(lib.mixforgeStoragePath('https://xbzypzgnwgrmmvtrmdzl.supabase.co/storage/v1/object/sign/audio/uploads/x.wav'), null);
+assert.equal(typeof lib.copyFromMixForge, 'function');
+console.log('song library copy smoke ok');
