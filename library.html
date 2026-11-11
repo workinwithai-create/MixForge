@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0d0f12">
+  <title>My song library · MixForge</title>
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="/styles.css?v=2.8.0">
+  <link rel="stylesheet" href="/license.css?v=2.8.0">
+  <link rel="stylesheet" href="/library.css?v=2.8.0">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero library-hero">
+      <div class="eyebrow">Workin' With AI · Song library</div>
+      <h1>My <span>songs</span></h1>
+      <p>Every song you have saved from MixForge and the other WorkinWithAI music tools, with its mix and stems. Tap a song to open it, play any part right here, or save a copy.</p>
+      <div class="actions"><a class="library-link" href="/">← Back to MixForge</a></div>
+    </header>
+    <aside class="license-bar hidden" id="librarySignIn" data-state="login">
+      <div class="license-copy"><strong id="librarySignInTitle">Sign in to open your song library</strong><p id="librarySignInDetail">Your songs stay private to your WorkinWithAI account.</p></div>
+      <div class="license-actions"><a class="primary license-btn" href="https://workinwithai.com/login?next=https%3A%2F%2Fmixforge.workinwithai.com%2Flibrary.html">Sign in</a></div>
+    </aside>
+    <section class="panel">
+      <div class="library-toolbar">
+        <input id="librarySearch" type="search" placeholder="Find a song" aria-label="Find a song" autocomplete="off">
+        <span id="libraryCount" class="library-count"></span>
+      </div>
+      <div class="status busy" id="libraryStatus" aria-live="polite">Opening your song library…</div>
+      <div class="library-list" id="libraryList"></div>
+    </section>
+    <section class="panel hidden" id="olderPanel">
+      <div class="panel-title"><span>↺</span><div><h2>Older MixForge stems</h2><p>Separations from before the song library. They were saved by date only, without a song name. Play them here, or add one to your library and name it there.</p></div></div>
+      <div class="status" id="olderStatus" aria-live="polite"></div>
+      <div class="library-list" id="olderList"></div>
+    </section>
+    <footer>MixForge · song library · files stay private and play through short-lived links · © 2026 Workin' With AI</footer>
+  </main>
+  <script src="/js/app-paid-backend-token.js?v=2.8.0" defer></script>
+  <script src="/js/app-song-library.js?v=2.8.0" defer></script>
+  <script src="/js/app-library-page.js?v=2.8.0" defer></script>
+</body>
+</html>
