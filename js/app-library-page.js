@@ -200,14 +200,14 @@
       try {
         note.className = 'status busy';
         note.textContent = 'Adding to your song library…';
-        const { song } = await library.call('create-song', { title: `MixForge stems · ${when}`, room: 'mix' });
+        // Reuse an empty song left by an earlier try with the same name, so a retry doesn't make a second one.
+        const title = `MixForge stems · ${when}`;
+        const leftover = songs.find((s) => s.title === title && !(s.assets || []).length);
+        const songId = leftover ? leftover.id : (await library.call('create-song', { title, room: 'mix' })).song.id;
+        let done = 0;
         for (const file of ordered) {
-          note.textContent = `Copying the ${file.stem} stem…`;
-          const { playUrl } = await older('sign', { path: file.path });
-          const res = await fetch(playUrl);
-          if (!res.ok) throw new Error(`Could not read the ${file.stem} stem (${res.status}).`);
-          const blob = new Blob([await res.blob()], { type: 'audio/wav' });
-          await library.saveFile(song.id, { kind: 'stem', stem: file.stem, blob, label: file.stem });
+          note.textContent = `Copying the ${file.stem} stem (${++done} of ${ordered.length})…`;
+          await library.copyFromMixForge(songId, { path: file.path, stem: file.stem, label: file.stem, size: file.size });
         }
         note.className = 'status ok';
         note.textContent = 'Added. Rename it in your song library whenever you know which song it is.';

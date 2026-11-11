@@ -66,13 +66,26 @@
         const url = run.outputs[stem];
         if (!url || run.savedParts.includes(stem)) continue;
         say(`Saving the ${stem} stem…`);
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Could not read the ${stem} stem (${response.status}).`);
-        const blob = await response.blob();
-        await library.saveFile(song.id, {
-          kind: 'stem', stem, blob: new Blob([blob], { type: 'audio/wav' }), label: stem,
-          durationSec: state.original?.duration || null,
-        });
+        const path = library.mixforgeStoragePath(url);
+        let copied = false;
+        if (path) {
+          // Fast path: the server copies the stem it already holds. Falls back to the browser if it can't.
+          try {
+            await library.copyFromMixForge(song.id, { path, stem, label: stem, durationSec: state.original?.duration || null });
+            copied = true;
+          } catch (error) {
+            if (![401, 402, 403].includes(error.status)) throw error;
+          }
+        }
+        if (!copied) {
+          const response = await fetch(url);
+          if (!response.ok) throw new Error(`Could not read the ${stem} stem (${response.status}).`);
+          const blob = await response.blob();
+          await library.saveFile(song.id, {
+            kind: 'stem', stem, blob: new Blob([blob], { type: 'audio/wav' }), label: stem,
+            durationSec: state.original?.duration || null,
+          });
+        }
         run.savedParts.push(stem);
       }
       run.savedSongId = song.id;
