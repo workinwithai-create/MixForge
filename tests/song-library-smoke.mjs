@@ -31,3 +31,10 @@ assert.equal(lib.mixforgeStoragePath('https://evil.example.com/storage/v1/object
 assert.equal(lib.mixforgeStoragePath('https://xbzypzgnwgrmmvtrmdzl.supabase.co/storage/v1/object/sign/audio/uploads/x.wav'), null);
 assert.equal(typeof lib.copyFromMixForge, 'function');
 console.log('song library copy smoke ok');
+
+// Older stem sets: a retry reuses only the empty song made for the same set, never one from another set that day.
+const libraryPage = readFileSync(new URL('../js/app-library-page.js', import.meta.url), 'utf8');
+assert.match(libraryPage, /MixForge stems · \$\{when\} · \$\{set\.id\.slice\(0, 8\)\}/, 'new older-set songs carry the set id');
+assert.match(libraryPage, /setsThatDay === 1 \?/, 'a date-only leftover is reused only when that date has one set');
+assert.match(libraryPage, /reservedSongs\.has\(s\.id\)/, 'a song being filled is never picked by a second Add');
+console.log('song library reuse smoke ok');

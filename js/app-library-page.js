@@ -182,7 +182,22 @@
     return data;
   }
 
-  function renderOlderSet(set) {
+  // Songs an Add is filling right now, so a second Add never picks the same one.
+  const reservedSongs = new Set();
+
+  // The empty song an earlier try left for this exact stem set, if any.
+  // New songs carry the set's short id in the title. An older empty song titled by date alone is
+  // only reused when that date has a single stem set, so two same-day sets never share a song.
+  function leftoverSong(set, when, setsThatDay) {
+    const exact = `MixForge stems · ${when} · ${set.id.slice(0, 8)}`;
+    const legacy = `MixForge stems · ${when}`;
+    const empty = (s) => !(s.assets || []).length && !reservedSongs.has(s.id);
+    return songs.find((s) => s.title === exact && empty(s))
+      || (setsThatDay === 1 ? songs.find((s) => s.title === legacy && empty(s)) : null)
+      || null;
+  }
+
+  function renderOlderSet(set, setsThatDay = 1) {
     const when = dateLabel(set.createdAt) || 'Unknown date';
     const details = el('details', { class: 'library-song' });
     const summary = el('summary');
@@ -197,13 +212,21 @@
     const note = el('div', { class: 'status' });
     add.addEventListener('click', async () => {
       add.disabled = true;
+      let songId = null;
       try {
         note.className = 'status busy';
         note.textContent = 'Adding to your song library…';
-        // Reuse an empty song left by an earlier try with the same name, so a retry doesn't make a second one.
-        const title = `MixForge stems · ${when}`;
-        const leftover = songs.find((s) => s.title === title && !(s.assets || []).length);
-        const songId = leftover ? leftover.id : (await library.call('create-song', { title, room: 'mix' })).song.id;
+        // Reuse the empty song an earlier try left for this same set, so a retry doesn't make a second one.
+        const leftover = leftoverSong(set, when, setsThatDay);
+        if (leftover) {
+          songId = leftover.id;
+        } else {
+          const title = `MixForge stems · ${when} · ${set.id.slice(0, 8)}`;
+          const created = (await library.call('create-song', { title, room: 'mix' })).song;
+          songId = created.id;
+          songs.push({ id: created.id, title: created.title || title, assets: [] });
+        }
+        reservedSongs.add(songId);
         let done = 0;
         for (const file of ordered) {
           note.textContent = `Copying the ${file.stem} stem (${++done} of ${ordered.length})…`;
@@ -217,6 +240,8 @@
         note.className = 'status error';
         note.textContent = `Not added: ${error.message}`;
         add.disabled = false;
+      } finally {
+        if (songId) reservedSongs.delete(songId);
       }
     });
     const actions = el('div', { class: 'actions' });
@@ -289,7 +314,12 @@
       if (!sets.length && !uploads.length) return;
       $('olderPanel').classList.remove('hidden');
       const list = $('olderList');
-      list.replaceChildren(...sets.map(renderOlderSet));
+      const perDay = new Map();
+      for (const set of sets) {
+        const when = dateLabel(set.createdAt) || 'Unknown date';
+        perDay.set(when, (perDay.get(when) || 0) + 1);
+      }
+      list.replaceChildren(...sets.map((set) => renderOlderSet(set, perDay.get(dateLabel(set.createdAt) || 'Unknown date'))));
       if (uploads.length) {
         const details = el('details', { class: 'library-song' });
         const summary = el('summary');
