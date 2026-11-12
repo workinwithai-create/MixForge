@@ -74,23 +74,69 @@
     if (!response.ok) {
       const error = new Error(data.error || `Song library request failed (${response.status}).`);
       error.status = response.status;
+      error.data = data;
       throw error;
     }
     return data;
   }
 
+  // One song by id, with every tool's files on it (for "?song=<id>" handoffs).
+  async function getSong(songId) {
+    return (await call('get', { songId })).song;
+  }
+
+  function newRequestId() {
+    return globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : null;
+  }
+
+  // A file that is already on the song (same source) comes back as that asset instead of an error.
+  async function ticketOrExisting(body) {
+    try {
+      return await call('upload', body);
+    } catch (error) {
+      if (error.status === 409 && error.data?.duplicate) return { duplicate: true, asset: error.data.asset };
+      throw error;
+    }
+  }
+
+  async function confirmOrExisting(body) {
+    try {
+      return (await call('confirm', body)).asset;
+    } catch (error) {
+      if (error.status === 409 && error.data?.duplicate) return error.data.asset;
+      throw error;
+    }
+  }
+
   // Upload one file to a song: ticket, straight-to-storage PUT, then index it on the song.
-  async function saveFile(songId, { kind, blob, stem = null, label = '', durationSec = null }) {
+  // One requestId per file, reused on every retry, so a dropped connection never makes a second copy.
+  // A source ("mixforge:separated/<job>/vocals.wav") stops the same file being imported into the song twice.
+  async function saveFile(songId, { kind, blob, stem = null, label = '', durationSec = null, source = undefined }) {
     const mimeType = wavMime(blob.type, blob.name);
-    const ticket = await call('upload', { songId, kind, stem, label, mimeType, size: blob.size, room: 'mix' });
-    const put = await fetch(ticket.uploadUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': mimeType, 'x-upsert': 'false' },
-      body: blob,
-    });
-    if (!put.ok) throw new Error(`Saving ${label || stem || kind} failed (${put.status}).`);
-    const confirmed = await call('confirm', { songId, kind, stem, label, path: ticket.path, room: 'mix', durationSec });
-    return confirmed.asset;
+    const requestId = newRequestId() || undefined;
+    const base = { songId, kind, stem, label, room: 'mix', ...(source ? { source } : {}) };
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const ticket = await ticketOrExisting({ ...base, mimeType, size: blob.size, ...(requestId ? { requestId } : {}) });
+        if (ticket.duplicate) return ticket.asset;
+        if (!ticket.alreadyUploaded) {
+          const put = await fetch(ticket.uploadUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': mimeType, 'x-upsert': requestId ? 'true' : 'false' },
+            body: blob,
+          });
+          if (!put.ok) throw Object.assign(new Error(`Saving ${label || stem || kind} failed (${put.status}).`), { status: put.status, retry: put.status >= 500 });
+        }
+        return await confirmOrExisting({ ...base, path: ticket.path, durationSec });
+      } catch (error) {
+        lastError = error;
+        const retryable = requestId && (error.retry || error.name === 'TypeError' || error.status >= 500);
+        if (!retryable) throw error;
+        await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+      }
+    }
+    throw lastError;
   }
 
   // Copy a stem that already sits in MixForge's storage straight into a library song, server to server.
@@ -109,8 +155,12 @@
     }
   }
 
+  // The copy is keyed by the MixForge storage path, so the same stem never lands on one song twice.
   async function copyFromMixForge(songId, { path, kind = 'stem', stem = null, label = '', size = 0, durationSec = null }) {
-    const ticket = await call('upload', { songId, kind, stem, label, mimeType: 'audio/wav', size: Number(size) || 1, room: 'mix' });
+    const source = `mixforge:${path}`;
+    const base = { songId, kind, stem, label, room: 'mix', source };
+    const ticket = await ticketOrExisting({ ...base, mimeType: 'audio/wav', size: Number(size) || 1 });
+    if (ticket.duplicate) return ticket.asset;
     const response = await fetch(MIXFORGE_FUNCTIONS, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${MIXFORGE_KEY}`, apikey: MIXFORGE_KEY },
@@ -122,9 +172,8 @@
       error.status = response.status;
       throw error;
     }
-    const confirmed = await call('confirm', { songId, kind, stem, label, path: ticket.path, room: 'mix', durationSec });
-    return confirmed.asset;
+    return confirmOrExisting({ ...base, path: ticket.path, durationSec });
   }
 
-  globalThis.MixForgeSongLibrary = { call, saveFile, copyFromMixForge, mixforgeStoragePath, titleFromFileName, formatBytes, wavMime };
+  globalThis.MixForgeSongLibrary = { call, getSong, saveFile, copyFromMixForge, mixforgeStoragePath, titleFromFileName, formatBytes, wavMime };
 })();

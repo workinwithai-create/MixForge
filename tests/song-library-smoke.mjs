@@ -38,3 +38,63 @@ assert.match(libraryPage, /MixForge stems · \$\{when\} · \$\{set\.id\.slice\(0
 assert.match(libraryPage, /setsThatDay === 1 \?/, 'a date-only leftover is reused only when that date has one set');
 assert.match(libraryPage, /reservedSongs\.has\(s\.id\)/, 'a song being filled is never picked by a second Add');
 console.log('song library reuse smoke ok');
+
+// Song handoff: "?song=<id>&asset=<id>" opens a library song, and stems saved after it join that song.
+const handoff = readFileSync(new URL('../js/app-song-handoff.js', import.meta.url), 'utf8');
+assert.match(handoff, /library\.getSong\(/, 'handoff opens the song by id');
+assert.match(handoff, /state\.librarySong = /, 'handoff remembers the song for later saves');
+assert.match(handoff, /loadFile\(file\)/, 'handoff loads the chosen file into MixForge');
+assert.ok(html.indexOf('app-song-handoff.js') > html.indexOf('app-library-save.js'), 'handoff loads after the save wrapper');
+const saver = readFileSync(new URL('../js/app-library-save.js', import.meta.url), 'utf8');
+assert.match(saver, /songId: handed/, 'stems saved after a handoff go to the handed-over song');
+assert.match(saver, /!run\.handedOver/, 'a handed-over song is not given a second copy of its own mix');
+assert.match(libraryPage, /Open in MixForge/, 'library rows open the file in MixForge on the same song');
+assert.match(libraryPage, /cursor: nextCursor/, 'library pages through songs');
+console.log('song handoff smoke ok');
+
+// Retry-safe saves: one requestId per file, reused on every attempt; the same source is imported once.
+{
+  const calls = [];
+  let putTries = 0;
+  globalThis.fetch = async (url, init = {}) => {
+    const u = String(url);
+    if (u.includes('/api/product-token')) return new Response(JSON.stringify({ accessToken: 't', expiresAt: Math.floor(Date.now() / 1000) + 3600 }), { status: 200 });
+    if (u.includes('/api/studio/library')) {
+      const body = JSON.parse(init.body);
+      calls.push(body);
+      if (body.action === 'upload') return new Response(JSON.stringify({ path: 'u/s/stem/vocals-x.wav', uploadUrl: 'https://upload.test/x' }), { status: 200 });
+      if (body.action === 'confirm') return new Response(JSON.stringify({ asset: { id: 'a1' } }), { status: 201 });
+    }
+    if (u === 'https://upload.test/x') {
+      putTries += 1;
+      if (putTries === 1) return new Response('busy', { status: 503 });
+      return new Response('{}', { status: 200 });
+    }
+    throw new Error(`unexpected fetch ${u}`);
+  };
+  const realTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn) => realTimeout(fn, 0);
+  const asset = await lib.saveFile('0b7c2a4e-1f3d-4c55-9a8e-2d6f7a1b3c4d', { kind: 'stem', stem: 'vocals', blob: new Blob(['x'], { type: 'audio/wav' }), label: 'vocals', source: 'mixforge:separated/68ad3a8e-06cc-4aaf-b258-b88f12aec2bb/vocals.wav' });
+  globalThis.setTimeout = realTimeout;
+  assert.equal(asset.id, 'a1');
+  const uploads = calls.filter((c) => c.action === 'upload');
+  assert.equal(uploads.length, 2, 'a failed upload asks again');
+  assert.equal(uploads[0].requestId, uploads[1].requestId, 'the retry reuses the same requestId, so it lands on the same path');
+  assert.equal(calls.filter((c) => c.action === 'confirm').length, 1, 'only one confirm, so one asset record');
+  assert.equal(uploads[0].source, 'mixforge:separated/68ad3a8e-06cc-4aaf-b258-b88f12aec2bb/vocals.wav');
+
+  // Already on the song: the Hub answers 409 duplicate and nothing is uploaded again.
+  calls.length = 0;
+  globalThis.fetch = async (url, init = {}) => {
+    const u = String(url);
+    if (u.includes('/api/studio/library')) {
+      calls.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ duplicate: true, asset: { id: 'existing' } }), { status: 409 });
+    }
+    throw new Error(`unexpected fetch ${u}`);
+  };
+  const again = await lib.copyFromMixForge('0b7c2a4e-1f3d-4c55-9a8e-2d6f7a1b3c4d', { path: 'separated/68ad3a8e-06cc-4aaf-b258-b88f12aec2bb/vocals.wav', stem: 'vocals', label: 'vocals' });
+  assert.equal(again.id, 'existing');
+  assert.equal(calls.length, 1, 'a duplicate import stops before any copy or confirm');
+  console.log('song library retry smoke ok');
+}
