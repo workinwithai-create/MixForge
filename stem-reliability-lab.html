@@ -13,7 +13,7 @@
     .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.card{background:linear-gradient(160deg,#141a25,#0f131b);border:1px solid var(--line);border-radius:16px;padding:20px}.wide{grid-column:1/-1}
     h2{font-size:18px;margin:0 0 14px}.inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.file{display:block;border:1px dashed #3a465c;border-radius:12px;padding:14px;background:#0c1119}.file strong{display:block;margin-bottom:5px}.file span{color:var(--muted);font-size:12px;display:block;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file input{width:100%;color:var(--muted);font-size:12px}
     .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px}button{border:0;border-radius:999px;padding:11px 17px;font-weight:800;cursor:pointer;background:var(--lime);color:#10160a}button.secondary{background:#232c3b;color:var(--ink)}button:disabled{opacity:.45;cursor:not-allowed}.status{color:var(--muted);font-size:13px}
-    .metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.metric{background:#0b1018;border:1px solid var(--line);border-radius:12px;padding:14px}.metric b{display:block;font-size:24px;letter-spacing:-.04em}.metric span{color:var(--muted);font-size:12px}.verdict{font-size:14px;font-weight:800}.good{color:var(--lime)}.review{color:var(--amber)}.weak{color:var(--red)}
+    .metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}.metric{background:#0b1018;border:1px solid var(--line);border-radius:12px;padding:14px}.metric b{display:block;font-size:24px;letter-spacing:-.04em}.metric span{color:var(--muted);font-size:12px}.verdict{font-size:14px;font-weight:800}.good{color:var(--lime)}.review{color:var(--amber)}.weak{color:var(--red)}
     table{width:100%;border-collapse:collapse;margin-top:16px}th,td{text-align:left;border-bottom:1px solid var(--line);padding:10px 6px}th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}.flag{font-size:12px;color:var(--amber)}
     .note{color:var(--muted);font-size:13px}.hidden{display:none}.limit{padding:14px;border-radius:12px;background:#16130d;border:1px solid #554324;color:#e9d6ad}.footer{margin-top:24px;color:var(--muted);font-size:12px}
     @media(max-width:760px){main{padding-top:28px}.hero,.grid{grid-template-columns:1fr}.inputs{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}h1{font-size:48px}.research{margin-top:8px}}
@@ -23,7 +23,7 @@
 <main>
   <header class="hero">
     <div><div class="eyebrow">MixForge research lab · local only</div><h1>Can your stems rebuild the song?</h1><p class="lede">Load a mix and its separated stems. This browser-only audit measures reconstruction error, likely cross-stem leakage, and suspiciously empty outputs—then lets you hear what the separator left behind.</p></div>
-    <p class="research">Product experiment inspired by <a href="https://arxiv.org/abs/2611.09358" target="_blank" rel="noreferrer">GTCRN-SS</a> and its explicit residual-allocation approach. This is an evaluator, not an implementation of that model.</p>
+    <p class="research">Product experiment inspired by <a href="https://arxiv.org/abs/2611.09358" target="_blank" rel="noreferrer">GTCRN-SS</a> and <a href="https://arxiv.org/abs/2611.16933" target="_blank" rel="noreferrer">Kezek</a>: reliable separation should account for the complete input. This is an evaluator, not an implementation of either model.</p>
   </header>
 
   <section class="grid">
@@ -36,7 +36,8 @@
     <div class="card wide hidden" id="results">
       <h2>2 · Reliability readout</h2>
       <div class="metrics">
-        <div class="metric"><b id="residualDb">—</b><span>residual / mix energy</span></div>
+        <div class="metric"><b id="residualDb">—</b><span>gain-fitted residual</span></div>
+        <div class="metric"><b id="exactSumDb">—</b><span>exact-sum residual</span></div>
         <div class="metric"><b id="coverage">—</b><span>amplitude coverage</span></div>
         <div class="metric"><b id="correlation">—</b><span>max stem correlation</span></div>
         <div class="metric"><b id="gain">—</b><span>fitted stem-sum gain</span></div>
@@ -48,7 +49,7 @@
 
     <div class="card">
       <h2>What the numbers mean</h2>
-      <p class="note"><strong>Residual dB</strong> is the energy left after a least-squares gain fit of the stem sum to the mix. More negative is better. <strong>Correlation</strong> is a warning for duplicated content across stems, not proof of a semantic error.</p>
+      <p class="note"><strong>Exact-sum residual</strong> compares the unscaled stem sum with the mix; it catches missing energy and hidden level changes. <strong>Gain-fitted residual</strong> removes one global level mismatch before measuring what remains. More negative is better. <strong>Correlation</strong> warns about duplicated content across stems, not proof of a semantic error.</p>
       <p class="note">A strong reconstruction still does not prove that “vocals” contains only vocals. Pair this audit with listening and labelled test clips.</p>
     </div>
     <div class="card">
@@ -78,11 +79,13 @@ document.querySelector('#analyze').addEventListener('click',async()=>{
     if(length<sampleRate) throw new Error('Use files with at least one second of overlapping audio.');
     const stride=Math.max(1,Math.floor(length/1500000));let mixEnergy=0,sumEnergy=0,dot=0;const rawSum=new Float32Array(length);
     for(let i=0;i<length;i++){let s=0;for(const id of stemIds)s+=tracks[id][i];rawSum[i]=s;if(i%stride===0){mixEnergy+=tracks.mix[i]**2;sumEnergy+=s**2;dot+=tracks.mix[i]*s;}}
+    let exactResidualEnergy=0;for(let i=0;i<length;i+=stride)exactResidualEnergy+=(tracks.mix[i]-rawSum[i])**2;
+    const exactRatio=exactResidualEnergy/Math.max(mixEnergy,1e-12),exactSumDb=db(exactRatio);
     const fittedGain=Math.max(.25,Math.min(4,dot/Math.max(sumEnergy,1e-12))),fittedSum=new Float32Array(length),residual=new Float32Array(length);let residualEnergy=0;
     for(let i=0;i<length;i++){fittedSum[i]=rawSum[i]*fittedGain;residual[i]=tracks.mix[i]-fittedSum[i];if(i%stride===0)residualEnergy+=residual[i]**2;}
     const ratio=residualEnergy/Math.max(mixEnergy,1e-12),resDb=db(ratio),coverage=1-Math.sqrt(ratio);let maxCorrelation=0;
     for(let a=0;a<stemIds.length;a++)for(let b=a+1;b<stemIds.length;b++){let xy=0,xx=0,yy=0;for(let i=0;i<length;i+=stride){const x=tracks[stemIds[a]][i],y=tracks[stemIds[b]][i];xy+=x*y;xx+=x*x;yy+=y*y;}maxCorrelation=Math.max(maxCorrelation,Math.abs(xy)/Math.sqrt(Math.max(xx*yy,1e-12)));}
-    document.querySelector('#residualDb').textContent=`${resDb.toFixed(1)} dB`;document.querySelector('#coverage').textContent=pct(coverage);document.querySelector('#correlation').textContent=stemIds.length>1?maxCorrelation.toFixed(2):'n/a';document.querySelector('#gain').textContent=`${fittedGain.toFixed(2)}×`;
+    document.querySelector('#residualDb').textContent=`${resDb.toFixed(1)} dB`;document.querySelector('#exactSumDb').textContent=`${exactSumDb.toFixed(1)} dB`;document.querySelector('#coverage').textContent=pct(coverage);document.querySelector('#correlation').textContent=stemIds.length>1?maxCorrelation.toFixed(2):'n/a';document.querySelector('#gain').textContent=`${fittedGain.toFixed(2)}×`;
     const weakStem=[];const rows=document.querySelector('#stemRows');rows.innerHTML='';for(const id of stemIds){let energy=0;for(let i=0;i<length;i+=stride)energy+=tracks[id][i]**2;const relative=db(energy/Math.max(mixEnergy,1e-12));if(relative<-36)weakStem.push(id);rows.insertAdjacentHTML('beforeend',`<tr><td>${id[0].toUpperCase()+id.slice(1)}</td><td>${relative.toFixed(1)} dB</td><td>${relative<-36?'<span class="flag">Near-empty — verify</span>':'Detected'}</td></tr>`);}
     const verdict=document.querySelector('#verdict');let label,klass;if(resDb<=-20&&maxCorrelation<.65&&!weakStem.length){label='Strong reconstruction: ready for a focused listening check.';klass='good';}else if(resDb<=-12){label='Review recommended: usable reconstruction, but inspect the flagged risks.';klass='review';}else{label='Weak reconstruction: check alignment, missing stems, or separator output.';klass='weak';}verdict.className=`verdict ${klass}`;verdict.textContent=label;
     analyzed={sampleRate,length,mix:tracks.mix.subarray(0,length),sum:fittedSum,residual};document.querySelector('#results').classList.remove('hidden');status.textContent=`Analyzed ${(length/sampleRate).toFixed(1)} seconds locally.`;document.querySelector('#results').scrollIntoView({behavior:'smooth',block:'start'});
