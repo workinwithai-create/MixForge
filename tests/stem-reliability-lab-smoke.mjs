@@ -14,6 +14,12 @@ assert.match(html, /nothing is uploaded/i);
 assert.match(html, /does not prove/i);
 assert.match(html, /https:\/\/arxiv\.org\/abs\/2611\.09358/);
 assert.match(html, /https:\/\/arxiv\.org\/abs\/2611\.16933/);
+assert.match(html, /https:\/\/github\.com\/rapidly-labs\/rapidly-sdk/);
+assert.match(html, /96 ms stated latency/i);
+assert.match(html, /WebAssembly is not yet available/i);
+assert.match(html, /\['guitar','Guitar stem','Optional'\]/);
+assert.match(html, /\['piano','Piano stem','Optional'\]/);
+assert.match(html, /\['residualBus','Residual bus','Optional'\]/);
 assert.doesNotMatch(html, /fetch\s*\(/);
 assert.doesNotMatch(html, /XMLHttpRequest|WebSocket/);
 
