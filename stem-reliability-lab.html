@@ -23,7 +23,7 @@
 <main>
   <header class="hero">
     <div><div class="eyebrow">MixForge research lab · local only</div><h1>Can your stems rebuild the song?</h1><p class="lede">Load a mix and its separated stems. This browser-only audit measures reconstruction error, likely cross-stem leakage, and suspiciously empty outputs—then lets you hear what the separator left behind.</p></div>
-    <p class="research">Product experiment inspired by <a href="https://arxiv.org/abs/2611.09358" target="_blank" rel="noreferrer">GTCRN-SS</a> and <a href="https://arxiv.org/abs/2611.16933" target="_blank" rel="noreferrer">Kezek</a>: reliable separation should account for the complete input. This is an evaluator, not an implementation of either model.</p>
+    <p class="research">Product experiment inspired by <a href="https://arxiv.org/abs/2611.09358" target="_blank" rel="noreferrer">GTCRN-SS</a> and <a href="https://arxiv.org/abs/2611.16933" target="_blank" rel="noreferrer">Kezek</a>: reliable separation should account for the complete input. It now accepts the six output buses documented by <a href="https://github.com/rapidly-labs/rapidly-sdk" target="_blank" rel="noreferrer">Rapidly SDK</a>. This audits exported files; it does not run any of those models.</p>
   </header>
 
   <section class="grid">
@@ -53,6 +53,11 @@
       <p class="note">A strong reconstruction still does not prove that “vocals” contains only vocals. Pair this audit with listening and labelled test clips.</p>
     </div>
     <div class="card">
+      <h2>Live-separation candidate</h2>
+      <div class="limit"><strong>Rapidly music model:</strong> vocals, bass, guitar, drums, piano, and residual; 96 ms stated latency; 1.47 MB; CPU-only. WebAssembly is not yet available.</div>
+      <p class="note">Export those six buses from a native test host, load them here, and compare exact reconstruction before considering a MixForge adapter. Demo output is audibly watermarked without a commercial key.</p>
+    </div>
+    <div class="card">
       <h2>Guardrails</h2>
       <div class="limit">Analysis is capped at the first 90 seconds and downmixed to mono. Files are decoded and analyzed in this tab; nothing is uploaded.</div>
       <p class="note">Offset starts, different edits, lossy encoding, clipping, or missing stems can dominate the residual. A genuinely silent instrument stem may also be correct.</p>
@@ -61,7 +66,7 @@
   <p class="footer">Experimental quality-control tool. Thresholds are product heuristics, not research benchmarks.</p>
 </main>
 <script>
-const slots=[['mix','Original mix','Required'],['vocals','Vocals stem','Optional'],['drums','Drums stem','Optional'],['bass','Bass stem','Optional'],['other','Other / music stem','Optional']];
+const slots=[['mix','Original mix','Required'],['vocals','Vocals stem','Optional'],['drums','Drums stem','Optional'],['bass','Bass stem','Optional'],['guitar','Guitar stem','Optional'],['piano','Piano stem','Optional'],['residualBus','Residual bus','Optional'],['other','Other / music stem','Optional']];
 const files=new Map(); let audioContext; let playback; let analyzed;
 const inputs=document.querySelector('#inputs');
 slots.forEach(([id,label,help])=>{const box=document.createElement('label');box.className='file';box.innerHTML=`<strong>${label}</strong><input id="${id}" type="file" accept="audio/*"><span>${help} · audio stays on this device</span>`;inputs.append(box);box.querySelector('input').addEventListener('change',e=>{if(e.target.files[0]) files.set(id,e.target.files[0]); else files.delete(id);box.querySelector('span').textContent=e.target.files[0]?.name||`${help} · audio stays on this device`;refreshReady();});});
