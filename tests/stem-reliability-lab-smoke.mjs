@@ -20,6 +20,11 @@ assert.match(html, /WebAssembly is not yet available/i);
 assert.match(html, /\['guitar','Guitar stem','Optional'\]/);
 assert.match(html, /\['piano','Piano stem','Optional'\]/);
 assert.match(html, /\['residualBus','Residual bus','Optional'\]/);
+assert.match(html, /lossy input detected/i);
+assert.match(html, /stemdeckapp\/stemdeck\/releases\/tag\/v0\.21\.0/);
+assert.match(html, /playback===source/);
+assert.match(html, /source\.onended=null/);
+assert.doesNotMatch(html, /playback\.onended=\(\)=>playback=null/);
 assert.doesNotMatch(html, /fetch\s*\(/);
 assert.doesNotMatch(html, /XMLHttpRequest|WebSocket/);
 
