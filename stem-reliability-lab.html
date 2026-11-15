@@ -30,6 +30,7 @@
     <div class="card wide">
       <h2>1 · Choose the original mix and available stems</h2>
       <div class="inputs" id="inputs"></div>
+      <div class="limit hidden" id="lossyWarning">Lossy input detected. Use WAV, AIFF, or FLAC for exact-sum comparisons; MP3, AAC, Ogg, and Opus encoding can create a residual even when the separator returned complete stems.</div>
       <div class="actions"><button id="analyze" disabled>Audit reconstruction</button><span class="status" id="status">Choose a mix and at least one stem.</span></div>
     </div>
 
@@ -61,6 +62,7 @@
       <h2>Guardrails</h2>
       <div class="limit">Analysis is capped at the first 90 seconds and downmixed to mono. Files are decoded and analyzed in this tab; nothing is uploaded.</div>
       <p class="note">Offset starts, different edits, lossy encoding, clipping, or missing stems can dominate the residual. A genuinely silent instrument stem may also be correct.</p>
+      <p class="note"><a href="https://github.com/stemdeckapp/stemdeck/releases/tag/v0.21.0" target="_blank" rel="noreferrer">StemDeck 0.21</a> defaults new stems to 128 kbps MP3. Choose WAV in Settings → Library → Stem files before using an exact-sum audit.</p>
     </div>
   </section>
   <p class="footer">Experimental quality-control tool. Thresholds are product heuristics, not research benchmarks.</p>
@@ -69,8 +71,9 @@
 const slots=[['mix','Original mix','Required'],['vocals','Vocals stem','Optional'],['drums','Drums stem','Optional'],['bass','Bass stem','Optional'],['guitar','Guitar stem','Optional'],['piano','Piano stem','Optional'],['residualBus','Residual bus','Optional'],['other','Other / music stem','Optional']];
 const files=new Map(); let audioContext; let playback; let analyzed;
 const inputs=document.querySelector('#inputs');
-slots.forEach(([id,label,help])=>{const box=document.createElement('label');box.className='file';box.innerHTML=`<strong>${label}</strong><input id="${id}" type="file" accept="audio/*"><span>${help} · audio stays on this device</span>`;inputs.append(box);box.querySelector('input').addEventListener('change',e=>{if(e.target.files[0]) files.set(id,e.target.files[0]); else files.delete(id);box.querySelector('span').textContent=e.target.files[0]?.name||`${help} · audio stays on this device`;refreshReady();});});
+slots.forEach(([id,label,help])=>{const box=document.createElement('label');box.className='file';box.innerHTML=`<strong>${label}</strong><input id="${id}" type="file" accept="audio/*"><span>${help} · audio stays on this device</span>`;inputs.append(box);box.querySelector('input').addEventListener('change',e=>{if(e.target.files[0]) files.set(id,e.target.files[0]); else files.delete(id);box.querySelector('span').textContent=e.target.files[0]?.name||`${help} · audio stays on this device`;refreshReady();updateFormatWarning();});});
 function refreshReady(){const ready=files.has('mix')&&[...files.keys()].some(k=>k!=='mix');document.querySelector('#analyze').disabled=!ready;document.querySelector('#status').textContent=ready?'Ready for a local audit.':'Choose a mix and at least one stem.';}
+function updateFormatWarning(){const lossy=[...files.values()].some(file=>/\.(mp3|m4a|aac|ogg|opus|webm)$/i.test(file.name));document.querySelector('#lossyWarning').classList.toggle('hidden',!lossy);}
 function mono(buffer,maxFrames){const n=Math.min(buffer.length,maxFrames),out=new Float32Array(n);for(let c=0;c<buffer.numberOfChannels;c++){const channel=buffer.getChannelData(c);for(let i=0;i<n;i++)out[i]+=channel[i]/buffer.numberOfChannels;}return out;}
 const db=x=>10*Math.log10(Math.max(x,1e-12)); const pct=x=>`${Math.round(Math.max(0,Math.min(1,x))*100)}%`;
 document.querySelector('#analyze').addEventListener('click',async()=>{
@@ -96,8 +99,8 @@ document.querySelector('#analyze').addEventListener('click',async()=>{
     analyzed={sampleRate,length,mix:tracks.mix.subarray(0,length),sum:fittedSum,residual};document.querySelector('#results').classList.remove('hidden');status.textContent=`Analyzed ${(length/sampleRate).toFixed(1)} seconds locally.`;document.querySelector('#results').scrollIntoView({behavior:'smooth',block:'start'});
   }catch(error){status.textContent=error.message||'Could not decode these files.';}finally{button.disabled=false;}
 });
-function stop(){if(playback){try{playback.stop()}catch{}playback=null;}}
-document.querySelector('#stop').addEventListener('click',stop);document.querySelectorAll('[data-play]').forEach(button=>button.addEventListener('click',()=>{if(!analyzed)return;stop();const data=analyzed[button.dataset.play],buffer=audioContext.createBuffer(1,data.length,analyzed.sampleRate);buffer.copyToChannel(data,0);playback=audioContext.createBufferSource();playback.buffer=buffer;playback.connect(audioContext.destination);playback.start();playback.onended=()=>playback=null;}));
+function stop(){const source=playback;if(!source)return;playback=null;source.onended=null;try{source.stop()}catch{}}
+document.querySelector('#stop').addEventListener('click',stop);document.querySelectorAll('[data-play]').forEach(button=>button.addEventListener('click',()=>{if(!analyzed)return;stop();const data=analyzed[button.dataset.play],buffer=audioContext.createBuffer(1,data.length,analyzed.sampleRate);buffer.copyToChannel(data,0);const source=audioContext.createBufferSource();source.buffer=buffer;source.connect(audioContext.destination);playback=source;source.onended=()=>{if(playback===source)playback=null;};source.start();}));
 </script>
 </body>
 </html>
