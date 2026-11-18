@@ -25,6 +25,11 @@ assert.match(html, /stemdeckapp\/stemdeck\/releases\/tag\/v0\.21\.0/);
 assert.match(html, /playback===source/);
 assert.match(html, /source\.onended=null/);
 assert.doesNotMatch(html, /playback\.onended=\(\)=>playback=null/);
+assert.match(html, /durationMismatches/);
+assert.match(html, /missing tail samples are scored as silence/i);
+assert.match(html, /i<track\.length\?track\[i\]:0/);
+assert.match(html, /!durationMismatches\.length/);
+assert.doesNotMatch(html, /length=Math\.min\(\.\.\.Object\.values\(tracks\)/);
 assert.doesNotMatch(html, /fetch\s*\(/);
 assert.doesNotMatch(html, /XMLHttpRequest|WebSocket/);
 
