@@ -44,6 +44,7 @@
         <div class="metric"><b id="gain">—</b><span>fitted stem-sum gain</span></div>
       </div>
       <p class="verdict" id="verdict"></p>
+      <div class="limit hidden" id="durationWarning"></div>
       <table><thead><tr><th>Stem</th><th>Level vs mix</th><th>Signal</th></tr></thead><tbody id="stemRows"></tbody></table>
       <div class="actions"><button class="secondary" data-play="mix">Play original</button><button class="secondary" data-play="sum">Play fitted sum</button><button class="secondary" data-play="residual">Play residual</button><button class="secondary" id="stop">Stop</button></div>
     </div>
@@ -83,19 +84,21 @@ document.querySelector('#analyze').addEventListener('click',async()=>{
     for(const [id,file] of files) decoded[id]=await audioContext.decodeAudioData(await file.arrayBuffer());
     const sampleRate=decoded.mix.sampleRate,maxFrames=sampleRate*90; const tracks={};
     for(const [id,buffer] of Object.entries(decoded)) tracks[id]=mono(buffer,maxFrames);
-    const stemIds=Object.keys(tracks).filter(k=>k!=='mix'),length=Math.min(...Object.values(tracks).map(x=>x.length));
-    if(length<sampleRate) throw new Error('Use files with at least one second of overlapping audio.');
+    const stemIds=Object.keys(tracks).filter(k=>k!=='mix'),length=tracks.mix.length;
+    if(length<sampleRate) throw new Error('Use a mix with at least one second of audio.');
+    const durationTolerance=Math.round(sampleRate*.01),durationMismatches=stemIds.filter(id=>Math.abs(tracks[id].length-length)>durationTolerance);
     const stride=Math.max(1,Math.floor(length/1500000));let mixEnergy=0,sumEnergy=0,dot=0;const rawSum=new Float32Array(length);
-    for(let i=0;i<length;i++){let s=0;for(const id of stemIds)s+=tracks[id][i];rawSum[i]=s;if(i%stride===0){mixEnergy+=tracks.mix[i]**2;sumEnergy+=s**2;dot+=tracks.mix[i]*s;}}
+    for(let i=0;i<length;i++){let s=0;for(const id of stemIds){const track=tracks[id];s+=i<track.length?track[i]:0;}rawSum[i]=s;if(i%stride===0){mixEnergy+=tracks.mix[i]**2;sumEnergy+=s**2;dot+=tracks.mix[i]*s;}}
     let exactResidualEnergy=0;for(let i=0;i<length;i+=stride)exactResidualEnergy+=(tracks.mix[i]-rawSum[i])**2;
     const exactRatio=exactResidualEnergy/Math.max(mixEnergy,1e-12),exactSumDb=db(exactRatio);
     const fittedGain=Math.max(.25,Math.min(4,dot/Math.max(sumEnergy,1e-12))),fittedSum=new Float32Array(length),residual=new Float32Array(length);let residualEnergy=0;
     for(let i=0;i<length;i++){fittedSum[i]=rawSum[i]*fittedGain;residual[i]=tracks.mix[i]-fittedSum[i];if(i%stride===0)residualEnergy+=residual[i]**2;}
     const ratio=residualEnergy/Math.max(mixEnergy,1e-12),resDb=db(ratio),coverage=1-Math.sqrt(ratio);let maxCorrelation=0;
-    for(let a=0;a<stemIds.length;a++)for(let b=a+1;b<stemIds.length;b++){let xy=0,xx=0,yy=0;for(let i=0;i<length;i+=stride){const x=tracks[stemIds[a]][i],y=tracks[stemIds[b]][i];xy+=x*y;xx+=x*x;yy+=y*y;}maxCorrelation=Math.max(maxCorrelation,Math.abs(xy)/Math.sqrt(Math.max(xx*yy,1e-12)));}
+    for(let a=0;a<stemIds.length;a++)for(let b=a+1;b<stemIds.length;b++){let xy=0,xx=0,yy=0;const trackA=tracks[stemIds[a]],trackB=tracks[stemIds[b]];for(let i=0;i<length;i+=stride){const x=i<trackA.length?trackA[i]:0,y=i<trackB.length?trackB[i]:0;xy+=x*y;xx+=x*x;yy+=y*y;}maxCorrelation=Math.max(maxCorrelation,Math.abs(xy)/Math.sqrt(Math.max(xx*yy,1e-12)));}
     document.querySelector('#residualDb').textContent=`${resDb.toFixed(1)} dB`;document.querySelector('#exactSumDb').textContent=`${exactSumDb.toFixed(1)} dB`;document.querySelector('#coverage').textContent=pct(coverage);document.querySelector('#correlation').textContent=stemIds.length>1?maxCorrelation.toFixed(2):'n/a';document.querySelector('#gain').textContent=`${fittedGain.toFixed(2)}×`;
-    const weakStem=[];const rows=document.querySelector('#stemRows');rows.innerHTML='';for(const id of stemIds){let energy=0;for(let i=0;i<length;i+=stride)energy+=tracks[id][i]**2;const relative=db(energy/Math.max(mixEnergy,1e-12));if(relative<-36)weakStem.push(id);rows.insertAdjacentHTML('beforeend',`<tr><td>${id[0].toUpperCase()+id.slice(1)}</td><td>${relative.toFixed(1)} dB</td><td>${relative<-36?'<span class="flag">Near-empty — verify</span>':'Detected'}</td></tr>`);}
-    const verdict=document.querySelector('#verdict');let label,klass;if(resDb<=-20&&maxCorrelation<.65&&!weakStem.length){label='Strong reconstruction: ready for a focused listening check.';klass='good';}else if(resDb<=-12){label='Review recommended: usable reconstruction, but inspect the flagged risks.';klass='review';}else{label='Weak reconstruction: check alignment, missing stems, or separator output.';klass='weak';}verdict.className=`verdict ${klass}`;verdict.textContent=label;
+    const durationWarning=document.querySelector('#durationWarning');durationWarning.classList.toggle('hidden',!durationMismatches.length);durationWarning.textContent=durationMismatches.length?`Duration mismatch: ${durationMismatches.join(', ')} does not match the original mix. Missing tail samples are scored as silence.`:'';
+    const weakStem=[];const rows=document.querySelector('#stemRows');rows.innerHTML='';for(const id of stemIds){let energy=0;const track=tracks[id];for(let i=0;i<Math.min(length,track.length);i+=stride)energy+=track[i]**2;const relative=db(energy/Math.max(mixEnergy,1e-12)),durationOff=durationMismatches.includes(id);if(relative<-36)weakStem.push(id);const signal=durationOff?'<span class="flag">Duration mismatch — verify</span>':relative<-36?'<span class="flag">Near-empty — verify</span>':'Detected';rows.insertAdjacentHTML('beforeend',`<tr><td>${id[0].toUpperCase()+id.slice(1)}</td><td>${relative.toFixed(1)} dB</td><td>${signal}</td></tr>`);}
+    const verdict=document.querySelector('#verdict');let label,klass;if(resDb<=-20&&maxCorrelation<.65&&!weakStem.length&&!durationMismatches.length){label='Strong reconstruction: ready for a focused listening check.';klass='good';}else if(resDb<=-12){label='Review recommended: usable reconstruction, but inspect the flagged risks.';klass='review';}else{label='Weak reconstruction: check alignment, missing stems, or separator output.';klass='weak';}verdict.className=`verdict ${klass}`;verdict.textContent=label;
     analyzed={sampleRate,length,mix:tracks.mix.subarray(0,length),sum:fittedSum,residual};document.querySelector('#results').classList.remove('hidden');status.textContent=`Analyzed ${(length/sampleRate).toFixed(1)} seconds locally.`;document.querySelector('#results').scrollIntoView({behavior:'smooth',block:'start'});
   }catch(error){status.textContent=error.message||'Could not decode these files.';}finally{button.disabled=false;}
 });
