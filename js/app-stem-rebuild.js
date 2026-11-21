@@ -180,7 +180,8 @@
     if (!lab) return;
     try {
       const report = lab.auditStems({ sampleRate: parts[0].buffer.sampleRate, stems: stemInputs() });
-      stemCheck = { report, receipt: lab.toReceipt(report, { sourceFiles: checkSources() }) };
+      // Only the numbers are kept; the audio used for the check is dropped.
+      stemCheck = { report: { ...report, audio: null }, receipt: lab.toReceipt(report, { sourceFiles: checkSources() }) };
       showCheck(report);
       originalMix = core.pickOriginalMix(song.assets);
       if (originalMix) compareBtn.classList.remove('hidden');

@@ -7,7 +7,7 @@ LANDR, eMastered, BandLab Mastering, CloudBounce, and RoEx win on making a file 
 1. Audit a stereo mix. Measurements are ground truth for clip %, LUFS, sample peak, correlation, and DC.
 2. Optional Gemini listening pass hears a compact mix excerpt (not a vocal performance take). Performance / pitch / timing lives in [AuraMix](https://auramix.workinwithai.com).
 3. Choose **Quick Master** (stereo release master + Original vs Master A/B) or **Forensic Fix** (timeline + opt-in stems + targeted repair). Quick Master skips Isolate / Confirm / Repair.
-4. Separate only the stems needed (Demucs via RunPod: vocals / bass / drums / other). Guitars and keys are not confirmable stems — they share residual other.
+4. Separate only the stems needed (Demucs via RunPod: vocals / bass / drums / other). Guitars and keys are not confirmable stems — they share residual other. A song opened from the library with its stems already saved is never split again.
 5. Measure and repair affected stems conservatively.
 6. Rebuild the original mix with the corrected stem deltas.
 7. Master the corrected mix conservatively. Reference-bounded tonal language is used only when a reference file is loaded.
@@ -15,6 +15,19 @@ LANDR, eMastered, BandLab Mastering, CloudBounce, and RoEx win on making a file 
 9. Export a 24-bit or 16-bit WAV. Stale masters cannot export. Clipping or true-peak over ceiling blocks export unless you explicitly override.
 
 Thesis: evidence-first, conservative repairs, show measured change (loudness, peak, remaining risks). MixForge is mix repair + release master; dedicated vocal production lives in AuraMix.
+
+## Songs and stems
+
+A song lives in the shared WorkinWithAI song library with its mix, stems and masters attached. MixForge works on that song and saves back to it, so a track is uploaded once and split once.
+
+1. **Save.** After a separation, "Save mix + stems to my song library" keeps the original mix and every stem on one song (`library.html` lists them).
+2. **Open.** `/?song=<id>&asset=<id>` opens one file of a song; stems saved afterwards join the same song.
+3. **Put back together.** `/?song=<id>&rebuild=stems` loads the song's stems into a small mixer: a level, Mute and Solo per stem, and Play together. Solo is for listening only.
+4. **Stem check.** As soon as the stems load they are checked against each other (same length, none near-empty, no two carrying the same part). If the song still has its original mix, "Compare with the original mix" says whether the stems add back up to it, and "Hear what the stems leave out" plays the leftover. It runs in the browser on the first 90 seconds; nothing is uploaded. A good result does not prove a stem holds only its own part.
+5. **Mix and master.** The saved stems go straight to the stem stage (no upload, no separation job), the sequential mix is built, the release master is rendered, and the master is saved to the same song. It is saved only if it passes the same hard checks as Download release WAV (no clipping, peak under the ceiling).
+6. **Receipts.** Every stage of the mix shows a correction receipt: the measured problem, the exact settings proposed, before/after measurements, both attempts, and an accepted / reduced / held / rejected verdict. "Download the receipt for this run" gives one JSON file with the stems and levels, the stem check, those corrections, the master's measurements and whether it was saved. Names and numbers only, no audio.
+
+`stem-reliability-lab.html` is the same stem check as a standalone page for comparing separators: load any mix and its stems from disk (up to six buses plus residual) and download an audit report. Both use `js/app-stem-reliability-core.js`.
 
 ## Competitor benchmarking
 

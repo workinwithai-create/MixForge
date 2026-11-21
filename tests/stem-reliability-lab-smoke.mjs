@@ -30,8 +30,9 @@ assert.match(html, /December 11, 2026/);
 assert.match(html, /ultimatevocalremovergui\/issues\/2399/);
 
 // It uses the shared module, loaded before the page script, and does not keep a second copy of the maths.
-assert.ok(html.indexOf('<script src="/js/app-stem-reliability-core.js"></script>') > 0);
-assert.ok(html.indexOf('<script src="/js/app-stem-reliability-core.js"></script>') < html.indexOf('lab.auditStems('));
+const coreTag = html.match(/<script src="\/js\/app-stem-reliability-core\.js\?v=\d+\.\d+\.\d+"><\/script>/);
+assert.ok(coreTag, 'the lab loads the shared module with a version, so a release refreshes it');
+assert.ok(coreTag.index < html.indexOf('lab.auditStems('));
 assert.match(html, /lab\.auditStems\(/);
 assert.match(html, /lab\.toReceipt\(report/);
 assert.match(html, /lab\.isLossy\(file\.name,file\.type\)/);
