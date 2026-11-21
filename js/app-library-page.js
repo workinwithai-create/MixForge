@@ -140,6 +140,16 @@
     const audioAssets = sortAssets(song.assets.filter((a) => a.kind !== 'video' && a.kind !== 'lyrics'));
     if (!audioAssets.length) body.append(el('p', { class: 'library-empty' }, 'No audio saved to this song yet. Save stems from MixForge after a separation and they show up here.'));
     for (const asset of audioAssets) body.append(renderAsset(song, asset));
+    // Two or more stems: put the song back together in MixForge (set levels, hear them, mix, save as the song's mix).
+    const stemCount = new Set(song.assets.filter((a) => a.kind === 'stem' && a.playable).map((a) => a.stem || a.label)).size;
+    if (stemCount >= 2) {
+      const row = el('div', { class: 'actions library-rebuild-row' });
+      row.append(el('a', { class: 'primary library-rebuild', href: `/?song=${encodeURIComponent(song.id)}&rebuild=stems` }, 'Put back together in MixForge'));
+      row.append(el('small', {}, song.assets.some((a) => a.kind === 'mix')
+        ? 'Mix the stems at your own levels into a new full version.'
+        : 'This song has stems but no full mix yet. Rebuild one from them.'));
+      body.append(row);
+    }
     details.append(body);
     return details;
   }
