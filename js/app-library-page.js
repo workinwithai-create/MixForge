@@ -146,8 +146,8 @@
       const row = el('div', { class: 'actions library-rebuild-row' });
       row.append(el('a', { class: 'primary library-rebuild', href: `/?song=${encodeURIComponent(song.id)}&rebuild=stems` }, 'Put back together in MixForge'));
       row.append(el('small', {}, song.assets.some((a) => a.kind === 'mix')
-        ? 'Mix the stems at your own levels into a new full version.'
-        : 'This song has stems but no full mix yet. Rebuild one from them.'));
+        ? 'Mix and master the stems in MixForge. No splitting needed.'
+        : 'Stems but no full mix yet. MixForge mixes and masters them, no splitting needed.'));
       body.append(row);
     }
     details.append(body);
@@ -172,6 +172,9 @@
 
   function signInNeeded(error) {
     if (error.status !== 401 && error.status !== 402) return false;
+    // Come back to this page (and this song) on the address it was opened from.
+    const link = $('librarySignInLink');
+    if (link && typeof library.signInUrl === 'function') link.href = library.signInUrl();
     $('librarySignIn').classList.remove('hidden');
     if (error.status === 402) {
       $('librarySignInTitle').textContent = 'Your song library comes with MixForge or the Forge Pass';

@@ -12,27 +12,28 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="/styles.css?v=2.8.0">
-  <link rel="stylesheet" href="/forensics.css?v=2.8.0">
-  <link rel="stylesheet" href="/transport.css?v=2.8.0">
-  <link rel="stylesheet" href="/signal-integrity.css?v=2.8.0">
-  <link rel="stylesheet" href="/vocal-cleanup.css?v=2.8.0">
-  <link rel="stylesheet" href="/timeline.css?v=2.8.0">
-  <link rel="stylesheet" href="/targeted-repair.css?v=2.8.0">
-  <link rel="stylesheet" href="/musician-ux.css?v=2.8.0">
-  <link rel="stylesheet" href="/license.css?v=2.8.0">
-  <link rel="stylesheet" href="/library.css?v=2.8.0">
+  <link rel="stylesheet" href="/styles.css?v=2.9.0">
+  <link rel="stylesheet" href="/forensics.css?v=2.9.0">
+  <link rel="stylesheet" href="/transport.css?v=2.9.0">
+  <link rel="stylesheet" href="/signal-integrity.css?v=2.9.0">
+  <link rel="stylesheet" href="/vocal-cleanup.css?v=2.9.0">
+  <link rel="stylesheet" href="/timeline.css?v=2.9.0">
+  <link rel="stylesheet" href="/targeted-repair.css?v=2.9.0">
+  <link rel="stylesheet" href="/critic-gate.css?v=2.9.0">
+  <link rel="stylesheet" href="/musician-ux.css?v=2.9.0">
+  <link rel="stylesheet" href="/license.css?v=2.9.0">
+  <link rel="stylesheet" href="/library.css?v=2.9.0">
 </head>
 <body>
   <main class="shell">
     <header class="hero">
       <div class="eyebrow">Workin' With AI · The Forge Stack</div>
-      <h1>MixForge <span>2.8.0</span></h1>
-      <p>Fix mix problems, then master for release. Start with Quick Master for a fast Original vs Master A/B — or open Forensic Fix when you need timeline evidence and honest stem investigation. Gemini may listen to a compact mix excerpt; it does not judge vocal performance.</p>
+      <h1>MixForge <span>2.9.0</span></h1>
+      <p>Fix mix problems, then master for release. Drop in one finished mix, or bring your stems and let MixForge mix them first. Start with Quick Master for a fast Original vs Master A/B — or open Forensic Fix when you need timeline evidence and honest stem investigation. Gemini may listen to a compact mix excerpt; it does not judge vocal performance.</p>
       <div class="pipeline" aria-label="MixForge pipeline"><span>Observe</span><b>→</b><span>Locate</span><b>→</b><span>Isolate</span><b>→</b><span>Confirm</span><b>→</b><span>Repair</span><b>→</b><span>Verify</span></div>
       <p class="pipeline-note" id="pipelineNote">Quick Master skips Isolate / Confirm / Repair: Observe → Locate → Master → Verify. Gemini listens to the mix/master, not vocal performance (AuraMix).</p>
       <div class="hero-modes" id="heroModeRow"><span>Quick Master</span><b>or</b><span>Forensic Fix</span><i>Mix repair + release master · vocals live in <a href="https://auramix.workinwithai.com" target="_blank" rel="noopener noreferrer">AuraMix</a></i></div>
-      <p class="library-entry"><a class="library-link" href="/library.html">My song library →</a> play your saved mixes and stems</p>
+      <p class="library-entry"><a class="library-link" href="/library.html">My song library →</a> play your saved mixes and stems, or put a song back together from its stems and master it without splitting it again</p>
     </header>
     <aside class="license-bar" id="licenseBar" data-state="checking" aria-live="polite">
       <div class="license-copy">
@@ -46,9 +47,14 @@
     </aside>
     <aside class="mobile-onboard" id="mobileOnboard" hidden aria-live="polite"></aside>
     <section class="panel" id="loadPanel">
-      <div class="panel-title"><span>1</span><div><h2>Load your mix</h2><p>WAV is best. The first scan proves what it can from stereo only. Source attribution stays a hypothesis until you opt into stems.</p></div></div>
+      <div class="panel-title"><span>1</span><div><h2>Load your mix, or your stems</h2><p>One finished mix: WAV is best. The scan proves what it can from stereo, and splits the song into its four parts only if it needs stem work. Or bring the stems from your DAW and MixForge mixes them before it masters.</p></div></div>
       <button class="dropzone" id="dropzone" type="button"><strong>Choose a mix or drop it here</strong><small id="fileMeta">No file loaded</small></button>
       <input id="fileInput" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.aif,.aiff,.caf,.flac,.ogg" hidden>
+      <div class="stems-door" id="stemsDoor">
+        <button class="secondary" id="stemFilesBtn" type="button">Or bring your stems from your DAW</button>
+        <small>Choose two or more stems, each exported from the very start of the song (for example Vocals, Drums, Bass, Guitars, Keys), or drop them all on the box above. MixForge sets levels, mixes and rides the vocal, then masters. Nothing is uploaded and nothing is split.</small>
+        <input id="stemFilesInput" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.aif,.aiff,.caf,.flac,.ogg" multiple hidden>
+      </div>
       <label class="field-label" for="notes">Mix notes <em>optional</em></label>
       <textarea id="notes" placeholder="Example: the vocal feels buried in the chorus, the low end is cloudy, and the cymbals feel sharp."></textarea>
       <div class="controls-grid">
@@ -84,41 +90,44 @@
       <p class="export-license-hint" id="exportLicenseHint">Release WAV download needs a MixForge or Forge Pass license.</p>
       <div class="status" id="exportStatus" aria-live="polite"></div>
     </section>
-    <footer>MixForge 2.8.0 · Quick Master or Forensic Fix · license required to master or export · stereo audit stays free · © 2026 Workin' With AI</footer>
+    <footer>MixForge 2.9.0 · Quick Master or Forensic Fix · license required to master or export · stereo audit stays free · © 2026 Workin' With AI</footer>
   </main>
-  <script src="/js/app-init.js?v=2.8.0" defer></script>
-  <script src="/js/app-metrics.js?v=2.8.0" defer></script>
-  <script src="/js/app-listening-clip.js?v=2.8.0" defer></script>
-  <script src="/js/app-audit-request.js?v=2.8.0" defer></script>
-  <script src="/js/app-audit.js?v=2.8.0" defer></script>
+  <script src="/js/app-init.js?v=2.9.0" defer></script>
+  <script src="/js/app-metrics.js?v=2.9.0" defer></script>
+  <script src="/js/app-listening-clip.js?v=2.9.0" defer></script>
+  <script src="/js/app-audit-request.js?v=2.9.0" defer></script>
+  <script src="/js/app-audit.js?v=2.9.0" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js" defer></script>
-  <script src="/js/app-upload.js?v=2.8.0" defer></script>
-  <script src="/js/app-stems.js?v=2.8.0" defer></script>
-  <script src="/js/app-master.js?v=2.8.0" defer></script>
-  <script src="/js/app-transport.js?v=2.8.0" defer></script>
-  <script src="/js/app-forensics.js?v=2.8.0" defer></script>
-  <script src="/js/app-sequential-mixing.js?v=2.8.0" defer></script>
-  <script src="/js/app-separation-provenance.js?v=2.8.0" defer></script>
-  <script src="/js/app-forensics-guard.js?v=2.8.0" defer></script>
-  <script src="/js/app-mastering-grade.js?v=2.8.0" defer></script>
-  <script src="/js/app-multiband.js?v=2.8.0" defer></script>
-  <script src="/js/app-export.js?v=2.8.0" defer></script>
-  <script src="/js/app-signal-integrity.js?v=2.8.0" defer></script>
-  <script src="/js/app-critical-listening.js?v=2.8.0" defer></script>
-  <script src="/js/app-vocal-cleanup.js?v=2.8.0" defer></script>
-  <script src="/js/app-vocal-cleanup-guard.js?v=2.8.0" defer></script>
-  <script src="/js/app-timeline-analysis.js?v=2.8.0" defer></script>
-  <script src="/js/app-timeline-ui.js?v=2.8.0" defer></script>
-  <script src="/js/app-targeted-repair.js?v=2.8.0" defer></script>
-  <script src="/js/app-targeted-repair-guard.js?v=2.8.0" defer></script>
-  <script src="/js/app-mobile-onboard.js?v=2.8.0" defer></script>
-  <script src="/js/app-musician-ux.js?v=2.8.0" defer></script>
-  <script src="/js/app-hub-entitlement.js?v=2.8.0" defer></script>
-  <script src="/js/app-paid-backend-token.js?v=2.8.0" defer></script>
-  <script src="/js/app-song-library.js?v=2.8.0" defer></script>
-  <script src="/js/app-library-save.js?v=2.8.0" defer></script>
-  <script src="/js/app-song-handoff.js?v=2.8.0" defer></script>
-  <script src="/js/app-stem-rebuild-core.js?v=2.8.0" defer></script>
-  <script src="/js/app-stem-rebuild.js?v=2.8.0" defer></script>
+  <script src="/js/app-upload.js?v=2.9.0" defer></script>
+  <script src="/js/app-stems.js?v=2.9.0" defer></script>
+  <script src="/js/app-master.js?v=2.9.0" defer></script>
+  <script src="/js/app-transport.js?v=2.9.0" defer></script>
+  <script src="/js/app-forensics.js?v=2.9.0" defer></script>
+  <script src="/js/app-auto-mix-core.js?v=2.9.0" defer></script>
+  <script src="/js/app-sequential-mixing.js?v=2.9.0" defer></script>
+  <script src="/js/app-critic-gate.js?v=2.9.0" defer></script>
+  <script src="/js/app-separation-provenance.js?v=2.9.0" defer></script>
+  <script src="/js/app-forensics-guard.js?v=2.9.0" defer></script>
+  <script src="/js/app-mastering-grade.js?v=2.9.0" defer></script>
+  <script src="/js/app-multiband.js?v=2.9.0" defer></script>
+  <script src="/js/app-export.js?v=2.9.0" defer></script>
+  <script src="/js/app-signal-integrity.js?v=2.9.0" defer></script>
+  <script src="/js/app-critical-listening.js?v=2.9.0" defer></script>
+  <script src="/js/app-vocal-cleanup.js?v=2.9.0" defer></script>
+  <script src="/js/app-vocal-cleanup-guard.js?v=2.9.0" defer></script>
+  <script src="/js/app-timeline-analysis.js?v=2.9.0" defer></script>
+  <script src="/js/app-timeline-ui.js?v=2.9.0" defer></script>
+  <script src="/js/app-targeted-repair.js?v=2.9.0" defer></script>
+  <script src="/js/app-targeted-repair-guard.js?v=2.9.0" defer></script>
+  <script src="/js/app-mobile-onboard.js?v=2.9.0" defer></script>
+  <script src="/js/app-musician-ux.js?v=2.9.0" defer></script>
+  <script src="/js/app-hub-entitlement.js?v=2.9.0" defer></script>
+  <script src="/js/app-paid-backend-token.js?v=2.9.0" defer></script>
+  <script src="/js/app-song-library.js?v=2.9.0" defer></script>
+  <script src="/js/app-library-save.js?v=2.9.0" defer></script>
+  <script src="/js/app-song-handoff.js?v=2.9.0" defer></script>
+  <script src="/js/app-stem-rebuild-core.js?v=2.9.0" defer></script>
+  <script src="/js/app-stem-reliability-core.js?v=2.9.0" defer></script>
+  <script src="/js/app-stem-rebuild.js?v=2.9.0" defer></script>
 </body>
 </html>

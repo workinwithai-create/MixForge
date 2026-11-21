@@ -1,0 +1,54 @@
+.critic-gate {
+  margin-top: 1rem;
+}
+.critic-gate-actions {
+  align-items: center;
+  margin: .75rem 0;
+}
+.critic-copy-status {
+  color: var(--muted, #9ca3af);
+  font-size: .85rem;
+}
+.critic-gate-grid {
+  display: grid;
+  gap: .75rem;
+}
+.critic-receipt {
+  border: 1px solid rgba(255,255,255,.12);
+  border-left: 4px solid #67e8f9;
+  border-radius: 12px;
+  padding: .9rem;
+  background: rgba(255,255,255,.025);
+}
+.critic-receipt.accepted-reduced {
+  border-left-color: #fbbf24;
+}
+.critic-receipt.rejected {
+  border-left-color: #fb7185;
+}
+.critic-receipt.held {
+  border-left-color: #94a3b8;
+}
+.critic-receipt-top {
+  display: flex;
+  gap: .75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+.critic-receipt-top h4 {
+  margin: 0;
+}
+.critic-verdict {
+  text-transform: capitalize;
+}
+.critic-change-list {
+  margin: .6rem 0;
+  padding-left: 1.2rem;
+}
+.critic-change-list li {
+  margin: .3rem 0;
+}
+.critic-measurements {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted, #b6bdc9);
+}
