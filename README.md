@@ -29,6 +29,17 @@ A song lives in the shared WorkinWithAI song library with its mix, stems and mas
 
 `stem-reliability-lab.html` is the same stem check as a standalone page for comparing separators: load any mix and its stems from disk (up to six buses plus residual) and download an audit report. Both use `js/app-stem-reliability-core.js`.
 
+## Testing a preview while signed in
+
+Sign-in is a cookie on `.workinwithai.com`. A Vercel preview address ends in `vercel.app`, so the browser never sends that cookie from it and the Hub does not accept it as a place to return to. That is why Sign in on a `vercel.app` preview lands on the live site: such a preview can only test the free, signed-out parts.
+
+To test a branch signed in, serve it from an address on the same domain. `mix.workinwithai.com` is already attached to the Vercel project and already allowed everywhere the live address is (Hub sign-in return, entitlements, product token, checkout, song library, and the `separate-stem` and `stem-library` functions), so nothing needs redeploying:
+
+1. DNS for `workinwithai.com`: a `CNAME` record for `mix` pointing to `cname.vercel-dns.com` (once).
+2. Vercel → mix-forge → Settings → Domains → `mix.workinwithai.com` → Edit → set **Git Branch** to the branch under test.
+
+Open `https://mix.workinwithai.com`, sign in, and you stay on that address. Every sign-in link in the app returns to the address it was opened from when that address is on `workinwithai.com`, and to the live site otherwise. The version in the page header tells you which build you are looking at. The address is public once it has a DNS record (Vercel's own login only guards `vercel.app` previews), and whatever branch it points at runs with the signed-in member's session, so point it only at branches you trust.
+
 ## Competitor benchmarking
 
 `tools/master-diff.mjs` compares an original mix with a master returned by any service (LANDR, eMastered, Ozone, MixForge itself) and reports the loudness target, true-peak ceiling, effective EQ curve, per-band compression, stereo width and gain reduction. It measures audio only. See `docs/competitor-benchmarking.md`.

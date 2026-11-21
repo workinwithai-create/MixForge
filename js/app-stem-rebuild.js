@@ -542,7 +542,16 @@
       say(`${parts.length} stem${parts.length === 1 ? '' : 's'} ready (${minutes.toFixed(1)} min). Set the levels, press Play together, then Mix and master. No splitting needed.`, 'ok');
     } catch (error) {
       console.error('[MixForge] rebuild open failed', error);
-      if (error.status === 401 || error.status === 402) say(error.message, 'error');
+      if (error.status === 401 || error.status === 402) {
+        say(error.message, 'error');
+        // Signed out: sign in and come straight back to this same song.
+        if (error.status === 401 && typeof library.signInUrl === 'function') {
+          const signIn = make('a', { class: 'primary library-rebuild', id: 'rebuildSignInLink', href: library.signInUrl() }, 'Sign in and come back to this song');
+          const row = make('div', { class: 'actions library-rebuild-row' });
+          row.append(signIn);
+          panel.append(row);
+        }
+      }
       else if (error.status === 404) say('That song is not in your library. It may belong to another account. Nothing was changed.', 'error');
       else say(`Could not open the stems: ${error.message}`, 'error');
     }

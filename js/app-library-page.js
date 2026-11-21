@@ -172,6 +172,9 @@
 
   function signInNeeded(error) {
     if (error.status !== 401 && error.status !== 402) return false;
+    // Come back to this page (and this song) on the address it was opened from.
+    const link = $('librarySignInLink');
+    if (link && typeof library.signInUrl === 'function') link.href = library.signInUrl();
     $('librarySignIn').classList.remove('hidden');
     if (error.status === 402) {
       $('librarySignInTitle').textContent = 'Your song library comes with MixForge or the Forge Pass';
