@@ -13,6 +13,8 @@
   const songId = (params.get('song') || '').trim();
   const assetId = (params.get('asset') || '').trim();
   if (!UUID.test(songId)) return;
+  // "&rebuild=stems" puts the song back together from its stems instead (app-stem-rebuild.js).
+  if (params.get('rebuild') === 'stems') return;
 
   const banner = document.createElement('aside');
   banner.className = 'license-bar song-handoff';
