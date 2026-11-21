@@ -75,6 +75,50 @@ const invalid = structuredClone(accepted);
 invalid.proposedChanges[0].proposed = 'not-a-number';
 assert.equal(context.mfCriticGateValidateReceipt(invalid).valid, false);
 
+// Automation gets a receipt like any other stage: every ride with its place and size, what was out of
+// place before and after, and the strength it was kept at.
+const rideStage = {
+  index: 5, stem: 'vocals', kind: 'ride', role: 'automation — level rides on the lead vocal',
+  source: { state: 'high', label: 'High confidence', score: 92, bleed: 0 },
+  proposed: {
+    heard: 'Measured above the bass, the vocal usually sits 1.9 dB under the band. Past a 2–3 dB tolerance, it dropped up to 4.0 dB further under it for 2.7 s in total.',
+    listenFor: 'The phrases that dropped back should sit where the others do.',
+    operations: [], trimDb: 0, wet: 1,
+    rides: [{ startSec: 7.7, endSec: 71.2, gainDb: 3 }, { startSec: 95.7, endSec: 99.2, gainDb: -2 }],
+    usualMarginDb: -1.9,
+    outOfPlaceBefore: { dipSec: 2.7, worstDipDb: 4, hotSec: 2.7, worstHotDb: 4, strayDbSec: 21.6 },
+    outOfPlaceAfter: { dipSec: 2.7, worstDipDb: 1, hotSec: 2.7, worstHotDb: 2, strayDbSec: 8.1 },
+  },
+  applied: { kind: 'ride', factor: 0.5 },
+  backedOff: true,
+  attempts: [{ factor: 1, problems: ['peaks rose 1.4 dB'] }, { factor: 0.5, problems: [] }],
+  before: { lufs: -12, peakDb: -2, correlation: 0.8 },
+  after: { lufs: -11.9, peakDb: -1.6, correlation: 0.8 },
+  marginBefore: 3.1, marginAfter: 3.2,
+  delta: { lufs: 0.1, correlation: 0, margin: 0.1, mud: 0 },
+};
+const rideReceipt = context.mfCriticGateBuildReceipt(rideStage, { anchor: 'vocals' });
+assert.equal(rideReceipt.id, 'stage-5-vocals');
+assert.equal(rideReceipt.verdict.status, 'accepted-reduced');
+assert.equal(rideReceipt.proposedChanges.length, 2, 'one change per ride, and no blend line');
+assert.equal(rideReceipt.proposedChanges[0].label, 'Lift the lead');
+assert.equal(rideReceipt.proposedChanges[0].parameter, 'ride 0:07–1:11');
+assert.equal(rideReceipt.proposedChanges[0].proposed, 3);
+assert.equal(rideReceipt.proposedChanges[1].label, 'Ease the lead back');
+assert.equal(rideReceipt.proposedChanges[1].proposed, -2);
+assert.equal(rideReceipt.automation.usualLeadOverBandDb, -1.9);
+assert.equal(rideReceipt.automation.outOfPlaceBefore.worstDipDb, 4);
+assert.equal(rideReceipt.automation.outOfPlaceAfter.worstDipDb, 1);
+assert.equal(rideReceipt.automation.ridesProposed, 2);
+assert.equal(rideReceipt.automation.appliedStrength, 0.5);
+assert.equal(context.mfCriticGateValidateReceipt(rideReceipt).valid, true);
+assert.equal(accepted.automation, null, 'ordinary stages carry no automation block');
+// A long song's receipt lists the first twelve rides and says how many there were.
+const many = context.mfCriticGateBuildReceipt({ ...rideStage, proposed: { ...rideStage.proposed, rides: Array.from({ length: 30 }, (_, i) => ({ startSec: i * 5, endSec: i * 5 + 2, gainDb: 1.5 })) } }, { anchor: 'vocals' });
+assert.equal(many.proposedChanges.length, 12);
+assert.equal(many.automation.ridesProposed, 30);
+assert.equal(many.automation.ridesListed, 12);
+
 // Receipts follow the current mix: rendering a run stores it, and clearing forgets it.
 context.mfCriticGateRender([base, { ...base, index: 3, stem: 'bass' }], { plan: { anchor: 'vocals' } });
 assert.equal(context.mixForgeCriticGate.receipts.length, 2);

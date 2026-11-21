@@ -66,7 +66,20 @@
         unit: 'dB',
       });
     }
-    if (changes.length && finite(proposal.wet)) {
+    // Automation: each level ride is a change of its own, with where it happens and by how much.
+    const isRide = stage?.kind === 'ride';
+    const clock = (sec) => Math.floor(sec / 60) + ':' + String(Math.floor(sec % 60)).padStart(2, '0');
+    const rides = isRide && Array.isArray(proposal.rides) ? proposal.rides : [];
+    for (const ride of rides.slice(0, 12)) {
+      changes.push({
+        label: Number(ride.gainDb) > 0 ? 'Lift the lead' : 'Ease the lead back',
+        parameter: 'ride ' + clock(ride.startSec) + '–' + clock(ride.endSec),
+        before: 0,
+        proposed: rounded(ride.gainDb, 1),
+        unit: 'dB',
+      });
+    }
+    if (changes.length && finite(proposal.wet) && !isRide) {
       changes.push({
         label: 'Bounded blend',
         parameter: 'stage.wet',
@@ -125,6 +138,14 @@
           problems: [...(attempt.problems || [])],
         })),
       },
+      automation: isRide ? {
+        usualLeadOverBandDb: rounded(proposal.usualMarginDb, 1),
+        outOfPlaceBefore: proposal.outOfPlaceBefore || null,
+        outOfPlaceAfter: proposal.outOfPlaceAfter || null,
+        ridesProposed: rides.length,
+        ridesListed: Math.min(12, rides.length),
+        appliedStrength: stage.applied ? rounded(stage.applied.factor, 2) : null,
+      } : null,
       audit: {
         originalPreserved: true,
         rollbackPoint: 'untouched-original',
@@ -208,7 +229,7 @@
       const card = node('article', 'critic-receipt ' + receipt.verdict.status);
       const top = node('div', 'critic-receipt-top');
       top.append(
-        node('h4', '', 'Stage ' + receipt.id.split('-')[1] + ' · ' + receipt.target),
+        node('h4', '', 'Stage ' + receipt.id.split('-')[1] + ' · ' + (receipt.automation ? 'vocal level rides' : receipt.target)),
         node('span', 'badge critic-verdict', receipt.verdict.status.replace('-', ' '))
       );
       card.append(top);

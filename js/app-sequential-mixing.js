@@ -29,6 +29,9 @@
 //     but deliberately not processed on their own.
 //   * Every stage carries a plain-English heard / changed / why / listen-for note,
 //     a producer-style summary leads the log, and every stage can be auditioned.
+//   * After the stems are placed, a lead vocal gets level rides (automation): short,
+//     ramped fader moves that keep it near its own usual place against the band,
+//     planned by app-auto-mix-core.js and kept only if the mix does not measure worse.
 //
 // What does NOT change: panels, transport, mastering chain, export, guards, quotas.
 // The original audio is never replaced — every stage is a bounded delta on top of it.
@@ -533,7 +536,7 @@
     let anchorMetrics = null;
     let anchorBuffer = null;
     const baseline = state.mixMetrics || measureBuffer(state.original);
-    const keep = canSnapshot(seq.plan.stages.length);
+    const keep = canSnapshot(seq.plan.stages.length + 1);
 
     let working = cloneBuffer(state.original);
     let workingMetrics = baseline;
@@ -644,6 +647,17 @@
       await sleep(0);
     }
 
+    // Automation last: with every stem placed, ride the lead vocal's level against the finished mix.
+    const ride = rideStage({ working, workingMetrics, leadMargin, anchorStem, anchorBuffer, index: seq.stages.length + 1 });
+    if (ride) {
+      working = ride.mix;
+      workingMetrics = ride.stage.after;
+      leadMargin = ride.stage.marginAfter;
+      seq.stages.push(ride.stage);
+      if (keep) seq.snapshots[ride.stage.index] = cloneBuffer(working);
+      await sleep(0);
+    }
+
     if (typeof forensicState === 'object' && forensicState) {
       forensicState.reconstruction = {
         peakShift: workingMetrics.peakDb - baseline.peakDb,
@@ -670,19 +684,158 @@
     if (seq.snapshots[index]) return seq.snapshots[index];
     if (seq.audition.cache[index]) return seq.audition.cache[index];
     let working = cloneBuffer(state.original);
+    const placed = {};
     for (const stage of seq.stages) {
       if (stage.index > index) break;
-      if (stage.applied) working = (await applyStage(working, state.stemBuffers[stage.stem], stage.applied)).mix;
+      if (!stage.applied) continue;
+      if (stage.kind === 'ride') {
+        working = applyRideToMix(working, placed[stage.stem] || state.stemBuffers[stage.stem], stage.applied).mix;
+        continue;
+      }
+      const result = await applyStage(working, state.stemBuffers[stage.stem], stage.applied);
+      working = result.mix;
+      placed[stage.stem] = result.stem;
     }
     seq.audition.cache = { [index]: working };
     return working;
+  }
+
+  // ------------------------------------------------------------ level rides
+
+  function monoOf(buffer) {
+    const left = buffer.getChannelData(0);
+    if (buffer.numberOfChannels < 2) return left;
+    const right = buffer.getChannelData(1);
+    const out = new Float32Array(buffer.length);
+    for (let i = 0; i < out.length; i++) out[i] = (left[i] + right[i]) * 0.5;
+    return out;
+  }
+
+  // A ride changes only the lead's level over time: mix + (ridden lead − lead). Its tone is untouched.
+  function applyRideToMix(working, leadBuffer, applied) {
+    const auto = globalThis.MixForgeAutoMix;
+    const out = cloneBuffer(working);
+    const ridden = cloneBuffer(leadBuffer);
+    for (let c = 0; c < leadBuffer.numberOfChannels; c++) {
+      ridden.getChannelData(c).set(auto.applyRide(leadBuffer.getChannelData(c), applied.gainsDb, applied.hopSamples, applied.factor));
+    }
+    const length = Math.min(out.length, leadBuffer.length);
+    for (let c = 0; c < out.numberOfChannels; c++) {
+      const dest = out.getChannelData(c);
+      const raw = leadBuffer.getChannelData(Math.min(c, leadBuffer.numberOfChannels - 1));
+      const moved = ridden.getChannelData(Math.min(c, ridden.numberOfChannels - 1));
+      for (let i = 0; i < length; i++) dest[i] += moved[i] - raw[i];
+    }
+    return { mix: out, stem: ridden };
+  }
+
+  const clock = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+
+  // Only a lead vocal is ridden, only when its source can be trusted on its own, and the ride is kept
+  // only if the mix does not measure worse with it (full strength, then half, then not at all).
+  function rideStage({ working, workingMetrics, leadMargin, anchorStem, anchorBuffer, index }) {
+    const auto = globalThis.MixForgeAutoMix;
+    if (!auto || typeof auto.planRides !== 'function' || anchorStem !== 'vocals' || !anchorBuffer) return null;
+    if (state.mixOptions && state.mixOptions.rides === false) return null;
+    const source = seq.sources[anchorStem] || { state: 'high', label: 'High confidence', scale: 1, note: '' };
+    const strength = source.scale >= 0.65 ? source.scale : 0;
+    progress('Riding the vocal level against the band…');
+    const plan = auto.planRides({
+      lead: monoOf(anchorBuffer),
+      rest: monoOf(accompanimentOf(working, anchorBuffer)),
+      sampleRate: working.sampleRate,
+      strength,
+    });
+
+    const before = { metrics: workingMetrics, margin: leadMargin };
+    let after = before;
+    let applied = null;
+    let mix = working;
+    const attempts = [];
+    if (plan.rides.length) {
+      for (const factor of [1, 0.5]) {
+        const candidate = { kind: 'ride', factor, gainsDb: plan.gainsDb, hopSamples: plan.hopSamples };
+        const result = applyRideToMix(working, anchorBuffer, candidate);
+        const measured = { metrics: measureBuffer(result.mix), margin: leadMarginOf(result.mix, result.stem, bandsOf(result.stem)) };
+        const problems = regressions(before, measured, true);
+        attempts.push({ factor, problems });
+        if (!problems.length) {
+          applied = candidate;
+          mix = result.mix;
+          after = measured;
+          break;
+        }
+      }
+    }
+
+    const reverted = plan.rides.length > 0 && !applied;
+    const backedOff = Boolean(applied) && applied.factor < 1;
+    const scaleBy = applied ? applied.factor : 1;
+    const usual = plan.usualMarginDb;
+    const place = usual == null ? '' : `${Math.abs(usual).toFixed(1)} dB ${usual >= 0 ? 'over' : 'under'} the band`;
+    const listed = plan.rides.slice(0, 4).map((r) => `${signed(r.gainDb * scaleBy)} dB at ${clock(r.startSec)}–${clock(r.endSec)}`).join(', ');
+    const more = plan.rides.length > 4 ? `, and ${plan.rides.length - 4} more` : '';
+    const strays = [
+      plan.before.dipSec ? `dropped up to ${plan.before.worstDipDb.toFixed(1)} dB further under it for ${plan.before.dipSec.toFixed(1)} s in total` : null,
+      plan.before.hotSec ? `jumped up to ${plan.before.worstHotDb.toFixed(1)} dB further out for ${plan.before.hotSec.toFixed(1)} s in total` : null,
+    ].filter(Boolean).join(', and ');
+    const heard = !strength
+      ? `The vocal cannot be trusted on its own. ${source.note}`
+      : plan.rides.length
+        ? `Measured above the bass, the vocal usually sits ${place}. Past a 2–3 dB tolerance, it ${strays}.`
+        : plan.reason;
+    const changedText = !plan.rides.length
+      ? (strength ? 'nothing — no ride was needed' : 'nothing — its level was left exactly as it is')
+      : reverted
+        ? `nothing in the end — I tried ${plan.rides.length} level ride${plan.rides.length === 1 ? '' : 's'}, but the mix measured worse (${attempts[attempts.length - 1].problems.join('; ')}), so I undid them`
+        : `rode the vocal level in ${plan.rides.length} place${plan.rides.length === 1 ? '' : 's'} (${listed}${more})${backedOff ? ` — at half strength, because the full rides measured worse (${attempts[0].problems.join('; ')})` : ''}`;
+    const decision = {
+      operations: [],
+      trimDb: 0,
+      wet: 1,
+      heard,
+      changed: changedText,
+      why: !plan.rides.length || reverted
+        ? 'No change is a decision. A ride that is not needed, or that makes the mix measure worse, is not kept.'
+        : 'A ride moves the vocal only where it loses its place, so the rest of the performance keeps its dynamics. Compressing the whole vocal harder would flatten all of it.',
+      listenFor: applied
+        ? 'The phrases that dropped back should sit where the others do, without the vocal sounding squeezed.'
+        : 'Nothing should change at this stage.',
+    };
+    const stage = {
+      index,
+      stem: anchorStem,
+      kind: 'ride',
+      title: 'Vocal level rides',
+      role: 'automation — level rides on the lead vocal',
+      goal: 'Keep the lead near its usual place against the band, phrase by phrase.',
+      source,
+      proposed: { ...decision, rides: plan.rides, usualMarginDb: usual, outOfPlaceBefore: plan.before, outOfPlaceAfter: plan.after },
+      decision,
+      applied,
+      attempts,
+      reverted,
+      backedOff,
+      before: before.metrics,
+      after: after.metrics,
+      marginBefore: before.margin,
+      marginAfter: after.margin,
+      delta: {
+        lufs: after.metrics.lufs - before.metrics.lufs,
+        presenceGap: presenceGap(after.metrics) - presenceGap(before.metrics),
+        mud: mudGap(after.metrics) - mudGap(before.metrics),
+        correlation: after.metrics.correlation - before.metrics.correlation,
+        margin: before.margin != null && after.margin != null ? after.margin - before.margin : null,
+      },
+    };
+    return { mix, stage };
   }
 
   // ------------------------------------------------------ producer assessment
 
   function producerAssessment() {
     if (!seq.stages.length) return null;
-    const anchorStage = seq.stages.find((stage) => stage.stem === seq.plan.anchor);
+    const anchorStage = seq.stages.find((stage) => stage.stem === seq.plan.anchor && stage.kind !== 'ride');
     const anchorName = nameOf(seq.plan.anchor);
     const lines = [];
 
@@ -710,6 +863,12 @@
     for (const stage of supports) {
       if (stage.reverted) lines.push(`I tried a move on the ${nameOf(stage.stem)}, but it made the mix measurably worse, so I undid it.`);
       else if (stage.source.state === 'isolate-off') lines.push(`I left the ${nameOf(stage.stem)} alone: ${stage.source.note}`);
+    }
+
+    const rides = seq.stages.find((stage) => stage.kind === 'ride');
+    if (rides?.applied) {
+      const count = rides.proposed.rides.length;
+      lines.push(`Last, I rode the ${anchorName}'s level in ${count} place${count === 1 ? '' : 's'}, so the phrases that dropped back hold their place without squeezing the whole performance.`);
     }
 
     const startMargin = anchorStage?.marginAfter ?? null;
@@ -760,8 +919,15 @@
       row.append(el('span', '', `${stage.index}. ${capital(nameOf(stage.stem))} — ${stage.role}`), el('span', '', stage.goal));
       list.append(row);
     }
+    const willRide = seq.plan.anchor === 'vocals' && Boolean(globalThis.MixForgeAutoMix) && state.mixOptions?.rides !== false;
+    if (willRide) {
+      const rideRow = el('div', 'repair');
+      rideRow.append(el('span', '', `${seq.plan.stages.length + 1}. Vocal level rides — automation`),
+        el('span', '', 'After the stems are placed: lift the phrases that drop under the band and ease the ones that jump out, a few dB at most.'));
+      list.append(rideRow);
+    }
     const bus = el('div', 'repair');
-    bus.append(el('span', '', `${seq.plan.stages.length + 1}. Mix bus and release master`),
+    bus.append(el('span', '', `${seq.plan.stages.length + (willRide ? 2 : 1)}. Mix bus and release master`),
       el('span', '', 'Only after the stems are placed: cohesion, loudness and true-peak safety in the mastering step below.'));
     list.append(bus);
     block.append(list);
@@ -796,7 +962,7 @@
       const card = el('article', `finding ${stage.reverted ? 'medium' : 'low'}`);
       const top = el('div', 'finding-top');
       const badges = [stage.source.label, marginBadge(stage), `Δ loudness ${signed(stage.delta.lufs, 2)} LU`].filter(Boolean).join(' · ');
-      top.append(el('h3', '', `Stage ${stage.index} · ${capital(nameOf(stage.stem))}`), el('span', 'badge', badges));
+      top.append(el('h3', '', `Stage ${stage.index} · ${stage.title || capital(nameOf(stage.stem))}`), el('span', 'badge', badges));
       card.append(top);
       card.append(el('p', '', `What I heard: ${stage.decision.heard}`));
       card.append(el('p', '', `What I changed: ${stage.decision.changed}.`));
@@ -816,7 +982,7 @@
   function auditionTargets() {
     const targets = [{ key: 'original', label: 'Original', index: 0 }];
     for (const stage of seq.stages) {
-      targets.push({ key: `stage-${stage.index}`, label: `After ${stage.index} · ${capital(nameOf(stage.stem))}`, index: stage.index });
+      targets.push({ key: `stage-${stage.index}`, label: `After ${stage.index} · ${stage.title || capital(nameOf(stage.stem))}`, index: stage.index });
     }
     targets.push({ key: 'rebuilt', label: 'Rebuilt mix → mastering', index: null });
     return targets;
@@ -981,7 +1147,7 @@
     Object.keys(state.stemPlans || {}).forEach((stem, index) => {
       const card = cards[index];
       if (!card) return;
-      const stage = seq.stages.find((item) => item.stem === stem);
+      const stage = seq.stages.find((item) => item.stem === stem && item.kind !== 'ride');
       const text = stage
         ? `Sequential build, stage ${stage.index}: ${stage.decision.changed}. The list above is what was applied.`
         : seq.plan?.skipped?.some((item) => item.stem === stem)
