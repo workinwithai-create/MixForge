@@ -65,11 +65,12 @@
 
   // A stable key for one rebuild (which stem files, at which levels), so saving the same rebuild twice
   // attaches it once. Matches the Hub's source-key rule: "mixforge:rebuild/<hex>".
-  function rebuildSourceKey(parts) {
+  // kind "master" (with the loudness target as extra) keys a mastered result the same way.
+  function rebuildSourceKey(parts, { kind = 'rebuild', extra = '' } = {}) {
     const text = (parts || [])
       .map((p) => `${p.assetId}:${p.muted ? 'm' : (Math.round((Number(p.gainDb) || 0) * 10) / 10).toFixed(1)}`)
       .sort()
-      .join('|');
+      .join('|') + (extra ? `#${extra}` : '');
     let h1 = 0x811c9dc5;
     let h2 = 0x01000193;
     for (let i = 0; i < text.length; i++) {
@@ -77,7 +78,7 @@
       h1 = Math.imul(h1 ^ code, 0x01000193) >>> 0;
       h2 = Math.imul(h2 ^ code, 0x5bd1e995) >>> 0;
     }
-    return `mixforge:rebuild/${h1.toString(16).padStart(8, '0')}${h2.toString(16).padStart(8, '0')}`;
+    return `mixforge:${kind === 'master' ? 'master' : 'rebuild'}/${h1.toString(16).padStart(8, '0')}${h2.toString(16).padStart(8, '0')}`;
   }
 
   // Which of the stems a Forensic Fix asks for this rebuild already holds, so no new separation is needed.
