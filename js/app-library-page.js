@@ -9,7 +9,16 @@
   const KIND_ORDER = { mix: 0, master: 1, stem: 2, audio: 3, lyrics: 4, video: 5 };
   const STEM_ORDER = { vocals: 0, drums: 1, bass: 2, other: 3 };
   const ROOM_NAMES = { mix: 'MixForge', lrc: 'LRC Forge', ink: 'INK', aura: 'AuraMix', release: 'Release Forge', spark: 'LRC Forge' };
+  const OPENABLE = new Set(['mix', 'master', 'audio', 'stem']);
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const PAGE = 50;
+  // "?song=<id>" opens one song (a handoff from INK or another room) and older stems are added to it.
+  const focusId = (() => {
+    const id = (new URLSearchParams(location.search).get('song') || '').trim().toLowerCase();
+    return UUID.test(id) ? id : null;
+  })();
   let songs = [];
+  let nextCursor = null;
   let nowPlaying = null;
 
   function setStatus(message, kind = '') {
@@ -65,6 +74,11 @@
     const save = el('button', { class: 'secondary', type: 'button' }, 'Save');
     if (!asset.playable) { play.disabled = true; save.disabled = true; }
     actions.append(play, save);
+    // Open this exact file in MixForge, keeping the song: stems saved there join this song.
+    if (asset.playable && OPENABLE.has(asset.kind)) {
+      const open = el('a', { class: 'secondary library-open', href: `/?song=${encodeURIComponent(song.id)}&asset=${encodeURIComponent(asset.id)}` }, 'Open in MixForge');
+      actions.append(open);
+    }
     row.append(name, actions);
 
     play.addEventListener('click', async () => {
@@ -107,7 +121,8 @@
   }
 
   function renderSong(song) {
-    const details = el('details', { class: 'library-song' });
+    const details = el('details', { class: 'library-song', 'data-song-id': song.id });
+    if (song.id === focusId) { details.open = true; details.classList.add('library-focus'); }
     const summary = el('summary');
     const head = el('div');
     head.append(el('b', {}, song.title || 'Untitled song'));
@@ -118,6 +133,7 @@
       song.assets.some((a) => a.kind === 'mix') ? 'mix' : '',
     ].filter(Boolean);
     head.append(el('small', {}, parts.join(' · ') || 'No audio yet'));
+    head.append(el('small', { class: 'library-song-id' }, `Song ID ${song.id}`));
     summary.append(head, el('span', { class: 'library-chev', 'aria-hidden': 'true' }, '›'));
     details.append(summary);
     const body = el('div', { class: 'library-assets' });
@@ -129,36 +145,53 @@
   }
 
   function render() {
-    const query = $('librarySearch').value.trim().toLowerCase();
-    const visible = songs.filter((s) => !query || String(s.title || '').toLowerCase().includes(query));
     const list = $('libraryList');
-    list.replaceChildren(...visible.map(renderSong));
+    list.replaceChildren(...songs.map(renderSong));
     const withAudio = songs.filter((s) => s.assets.some((a) => a.kind !== 'video' && a.kind !== 'lyrics')).length;
-    $('libraryCount').textContent = songs.length ? `${songs.length} song${songs.length === 1 ? '' : 's'} · ${withAudio} with audio` : '';
-    if (!songs.length) list.append(el('p', { class: 'library-empty' }, 'No songs yet. Run a separation in MixForge and tap “Save mix + stems to my song library”.'));
-    else if (!visible.length) list.append(el('p', { class: 'library-empty' }, 'No song matches that search.'));
+    const query = $('librarySearch').value.trim();
+    $('libraryCount').textContent = songs.length ? `${songs.length}${nextCursor ? '+' : ''} song${songs.length === 1 ? '' : 's'} · ${withAudio} with audio` : '';
+    if (!songs.length) list.append(el('p', { class: 'library-empty' }, query ? 'No song matches that search.' : 'No songs yet. Run a separation in MixForge and tap “Save mix + stems to my song library”.'));
+    if (nextCursor) {
+      const more = el('button', { class: 'secondary', type: 'button', id: 'libraryMore' }, 'Show more songs');
+      more.addEventListener('click', () => { more.disabled = true; void load({ append: true }); });
+      list.append(more);
+    }
+    const focused = focusId && list.querySelector(`[data-song-id="${focusId}"]`);
+    if (focused && !render.scrolled) { render.scrolled = true; focused.scrollIntoView({ block: 'start' }); }
   }
 
-  async function load() {
+  function signInNeeded(error) {
+    if (error.status !== 401 && error.status !== 402) return false;
+    $('librarySignIn').classList.remove('hidden');
+    if (error.status === 402) {
+      $('librarySignInTitle').textContent = 'Your song library comes with MixForge or the Forge Pass';
+      $('librarySignInDetail').textContent = error.message;
+    }
+    setStatus('');
+    return true;
+  }
+
+  // Songs come a page at a time, newest change first. Search asks the Hub, so it finds songs past the first page.
+  let loadToken = 0;
+  async function load({ append = false } = {}) {
+    const token = ++loadToken;
     try {
-      const data = await library.call('list');
-      // Songs with audio first, newest first inside each group.
-      songs = (data.songs || []).sort((a, b) => {
-        const audio = (s) => (s.assets || []).some((x) => x.kind !== 'video' && x.kind !== 'lyrics') ? 0 : 1;
-        return audio(a) - audio(b) || String(b.updatedAt).localeCompare(String(a.updatedAt));
-      });
-      setStatus('');
+      const q = $('librarySearch').value.trim();
+      const data = await library.call('list', { limit: PAGE, ...(q ? { q } : {}), ...(append && nextCursor ? { cursor: nextCursor } : {}) });
+      if (token !== loadToken) return;
+      const page = data.songs || [];
+      songs = append ? [...songs, ...page.filter((s) => !songs.some((x) => x.id === s.id))] : page;
+      nextCursor = data.nextCursor || null;
+      // A handed-over song that is not on the first page is fetched by id and shown first.
+      if (focusId && !q && !songs.some((s) => s.id === focusId)) {
+        try { songs = [await library.getSong(focusId), ...songs]; } catch (error) {
+          if (error.status === 404) setStatus('That song is not in your library. It may belong to another account.', 'error');
+        }
+      }
+      if (!focusId || songs.some((s) => s.id === focusId)) setStatus('');
       render();
     } catch (error) {
-      if (error.status === 401 || error.status === 402) {
-        $('librarySignIn').classList.remove('hidden');
-        if (error.status === 402) {
-          $('librarySignInTitle').textContent = 'Your song library comes with MixForge or the Forge Pass';
-          $('librarySignInDetail').textContent = error.message;
-        }
-        setStatus('');
-        return;
-      }
+      if (signInNeeded(error)) return;
       setStatus(error.message, 'error');
     }
   }
@@ -182,7 +215,22 @@
     return data;
   }
 
-  function renderOlderSet(set) {
+  // Songs an Add is filling right now, so a second Add never picks the same one.
+  const reservedSongs = new Set();
+
+  // The empty song an earlier try left for this exact stem set, if any.
+  // New songs carry the set's short id in the title. An older empty song titled by date alone is
+  // only reused when that date has a single stem set, so two same-day sets never share a song.
+  function leftoverSong(set, when, setsThatDay) {
+    const exact = `MixForge stems · ${when} · ${set.id.slice(0, 8)}`;
+    const legacy = `MixForge stems · ${when}`;
+    const empty = (s) => !(s.assets || []).length && !reservedSongs.has(s.id);
+    return songs.find((s) => s.title === exact && empty(s))
+      || (setsThatDay === 1 ? songs.find((s) => s.title === legacy && empty(s)) : null)
+      || null;
+  }
+
+  function renderOlderSet(set, setsThatDay = 1) {
     const when = dateLabel(set.createdAt) || 'Unknown date';
     const details = el('details', { class: 'library-song' });
     const summary = el('summary');
@@ -193,17 +241,26 @@
     const body = el('div', { class: 'library-assets' });
     const ordered = [...set.stems].sort((a, b) => (STEM_ORDER[a.stem] ?? 9) - (STEM_ORDER[b.stem] ?? 9));
     for (const file of ordered) body.append(olderAssetRow(file, file.stem, `MixForge stems ${when} - ${file.stem}.wav`));
-    const add = el('button', { class: 'secondary', type: 'button' }, 'Add to my song library');
+    const add = el('button', { class: 'secondary', type: 'button' }, focusId ? 'Add these stems to the open song' : 'Add to my song library');
     const note = el('div', { class: 'status' });
     add.addEventListener('click', async () => {
       add.disabled = true;
+      let songId = null;
       try {
         note.className = 'status busy';
         note.textContent = 'Adding to your song library…';
-        // Reuse an empty song left by an earlier try with the same name, so a retry doesn't make a second one.
-        const title = `MixForge stems · ${when}`;
-        const leftover = songs.find((s) => s.title === title && !(s.assets || []).length);
-        const songId = leftover ? leftover.id : (await library.call('create-song', { title, room: 'mix' })).song.id;
+        // A song opened by id ("?song=<id>") takes the stems. Otherwise reuse the empty song an earlier try
+        // left for this same set, so a retry doesn't make a second one.
+        const leftover = focusId ? { id: focusId } : leftoverSong(set, when, setsThatDay);
+        if (leftover) {
+          songId = leftover.id;
+        } else {
+          const title = `MixForge stems · ${when} · ${set.id.slice(0, 8)}`;
+          const created = (await library.call('create-song', { title, room: 'mix' })).song;
+          songId = created.id;
+          songs.push({ id: created.id, title: created.title || title, assets: [] });
+        }
+        reservedSongs.add(songId);
         let done = 0;
         for (const file of ordered) {
           note.textContent = `Copying the ${file.stem} stem (${++done} of ${ordered.length})…`;
@@ -217,6 +274,8 @@
         note.className = 'status error';
         note.textContent = `Not added: ${error.message}`;
         add.disabled = false;
+      } finally {
+        if (songId) reservedSongs.delete(songId);
       }
     });
     const actions = el('div', { class: 'actions' });
@@ -289,7 +348,12 @@
       if (!sets.length && !uploads.length) return;
       $('olderPanel').classList.remove('hidden');
       const list = $('olderList');
-      list.replaceChildren(...sets.map(renderOlderSet));
+      const perDay = new Map();
+      for (const set of sets) {
+        const when = dateLabel(set.createdAt) || 'Unknown date';
+        perDay.set(when, (perDay.get(when) || 0) + 1);
+      }
+      list.replaceChildren(...sets.map((set) => renderOlderSet(set, perDay.get(dateLabel(set.createdAt) || 'Unknown date'))));
       if (uploads.length) {
         const details = el('details', { class: 'library-song' });
         const summary = el('summary');
@@ -308,7 +372,11 @@
     }
   }
 
-  $('librarySearch').addEventListener('input', render);
+  let searchTimer = null;
+  $('librarySearch').addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { void load(); }, 300);
+  });
   if (library) { void load(); void loadOlder(); }
   else setStatus('The song library did not load. Refresh the page.', 'error');
 })();

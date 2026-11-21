@@ -24,3 +24,7 @@
 .library-empty{color:var(--muted);font-size:.88rem;padding:6px 2px}
 @media(max-width:660px){.library-asset{grid-template-columns:1fr}.library-asset-actions button{flex:1 1 auto}}
 .library-entry{margin:14px 0 0!important;font-size:.9rem!important}
+.library-song-id{display:block;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.72rem!important;opacity:.7}
+.library-focus{outline:2px solid var(--accent,#f5b942);outline-offset:2px}
+.library-asset-actions .library-open{padding:8px 12px;font-size:.8rem;border-radius:999px;text-decoration:none;display:inline-flex;align-items:center}
+.song-handoff{margin-top:12px}

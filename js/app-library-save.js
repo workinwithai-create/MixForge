@@ -10,7 +10,9 @@
   const previousSeparate = separateRequiredStems;
   separateRequiredStems = async function separateAndRemember(stems, onProgress) {
     const outputs = await previousSeparate(stems, onProgress);
-    state.lastSeparation = { outputs: { ...(outputs || {}) }, stems: [...stems], at: Date.now(), songId: null, savedParts: [], savedSongId: null };
+    // A song handed over from another room ("?song=<id>") keeps its id: the stems join that song.
+    const handed = state.librarySong?.id || null;
+    state.lastSeparation = { outputs: { ...(outputs || {}) }, stems: [...stems], at: Date.now(), songId: handed, handedOver: Boolean(handed), savedParts: [], savedSongId: null };
     showSaveButton();
     return outputs;
   };
@@ -36,7 +38,8 @@
     if (!button) return;
     const saved = Boolean(state.lastSeparation?.savedSongId);
     button.disabled = saved;
-    button.textContent = saved ? 'Saved to your song library' : 'Save mix + stems to my song library';
+    const target = state.lastSeparation?.handedOver ? ` to “${state.librarySong?.title || 'this song'}”` : '';
+    button.textContent = saved ? 'Saved to your song library' : (target ? `Save stems${target}` : 'Save mix + stems to my song library');
   }
 
   async function saveToLibrary() {
@@ -47,7 +50,7 @@
     const say = (message, kind = 'busy') => setStatus('librarySaveStatus', message, kind);
     try {
       if (Date.now() - run.at > 55 * 60 * 1000) throw new Error('These stems are more than an hour old. Run the separation again, then save.');
-      const title = library.titleFromFileName(state.file?.name);
+      const title = run.handedOver ? (state.librarySong?.title || 'your song') : library.titleFromFileName(state.file?.name);
       // A retry after a dropped connection keeps filling the same song instead of making a second one.
       if (!run.songId) {
         say(`Creating “${title}” in your song library…`);
@@ -55,7 +58,8 @@
         run.savedParts = [];
       }
       const song = { id: run.songId };
-      if (state.file && !run.savedParts.includes('mix')) {
+      // A handed-over song already holds the audio it was opened from, so only the stems are added.
+      if (state.file && !run.handedOver && !run.savedParts.includes('mix')) {
         say(`Saving the original mix (${library.formatBytes(state.file.size)})…`);
         await library.saveFile(song.id, {
           kind: 'mix', blob: state.file, label: 'Original mix', durationSec: state.original?.duration || null,
@@ -83,7 +87,7 @@
           const blob = await response.blob();
           await library.saveFile(song.id, {
             kind: 'stem', stem, blob: new Blob([blob], { type: 'audio/wav' }), label: stem,
-            durationSec: state.original?.duration || null,
+            durationSec: state.original?.duration || null, source: path ? `mixforge:${path}` : undefined,
           });
         }
         run.savedParts.push(stem);
