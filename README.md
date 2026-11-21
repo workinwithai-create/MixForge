@@ -16,6 +16,20 @@ LANDR, eMastered, BandLab Mastering, CloudBounce, and RoEx win on making a file 
 
 Thesis: evidence-first, conservative repairs, show measured change (loudness, peak, remaining risks). MixForge is mix repair + release master; dedicated vocal production lives in AuraMix.
 
+## Two ways in, one mix stage
+
+1. **One finished mix.** Drop it in and scan it. Quick Master masters the stereo file. If the mix needs stem work, MixForge splits it once into all four parts (vocals, drums, bass, other), keeps all four, and mixes from those.
+2. **Your own stems from your DAW.** "Or bring your stems" in the load panel, or drop several files at once. Each file is read in the browser (nothing is uploaded, nothing is split), given one of the four mix groups from its name (you can change it), and mixed from there. Up to 24 files; export each one from the very start of the song.
+
+Either way the same mix stage runs before mastering, so the master has something that is ready for it:
+
+- **Levels.** A part that is clearly out of range is moved on its fader, where you can see, hear and undo it: a band part that is close to inaudible, or a vocal more than 6 LU under or over the band. At most 6 dB in total, with the reason in words. A fader you set yourself is never moved.
+- **EQ and dynamics.** Each group is placed against the ones already placed: the lead first, then what competes with it, then the low end, then the groove. A move that leaves the mix measuring worse is halved, then undone.
+- **Automation.** The lead vocal's level is ridden phrase by phrase: lifted where it drops under the band, eased where it jumps out, up to +3 / −2 dB, ramped. Kept only if the mix does not measure worse.
+- Every stage can be auditioned, and every move has a receipt.
+
+The level ranges and ride limits are product heuristics, written down in `js/app-auto-mix-core.js`. They fix what is measurably off; they are not a taste engine, and MixForge does not claim the result is how an engineer would have mixed it.
+
 ## Songs and stems
 
 A song lives in the shared WorkinWithAI song library with its mix, stems and masters attached. MixForge works on that song and saves back to it, so a track is uploaded once and split once.

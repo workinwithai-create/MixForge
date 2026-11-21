@@ -91,11 +91,17 @@
       else if (before > LEAD_HIGH_LU) deltaDb = -Math.min(MAX_LEVEL_MOVE_DB, before - LEAD_SETTLE_LU);
       deltaDb = one(deltaDb);
       if (Math.abs(deltaDb) >= 0.1) {
+        const after = before + deltaDb;
+        // The cap can stop short of the range. Say so, rather than let "raised" read as "fixed".
+        const capped = Math.abs(deltaDb) >= MAX_LEVEL_MOVE_DB && (after < LEAD_LOW_LU || after > LEAD_HIGH_LU);
+        const stillOff = capped
+          ? ` That is the most MixForge moves a fader on its own; it is still ${one(Math.abs(after))} LU ${after < 0 ? 'under' : 'over'} the band, so move it further yourself if that is not what you want.`
+          : '';
         moves.push({
-          role: 'vocals', deltaDb,
-          reason: deltaDb > 0
+          role: 'vocals', deltaDb, capped,
+          reason: (deltaDb > 0
             ? `The vocal sat ${one(-before)} LU under the band, where words get lost. Raised ${deltaDb} dB.`
-            : `The vocal sat ${one(before)} LU over the band, on top of the song rather than in it. Lowered ${Math.abs(deltaDb)} dB.`,
+            : `The vocal sat ${one(before)} LU over the band, on top of the song rather than in it. Lowered ${Math.abs(deltaDb)} dB.`) + stillOff,
         });
         level.vocals += deltaDb;
       }
@@ -122,7 +128,8 @@
   const MAX_RIDE_UP_DB = 3;
   const MAX_RIDE_DOWN_DB = 2;
   const MIN_ACTIVE_SEC = 4;      // with less lead than this there is no "usual place" to measure
-  const RIDE_AUDIBLE_DB = 0.5;
+  const MIN_RIDE_DB = 1;         // a phrase that is out of place by less than this is left alone
+  const RIDE_AUDIBLE_DB = 0.5;   // where a kept ride starts and ends, for the list
 
   const percentile = (values, p) => {
     if (!values.length) return 0;
@@ -255,6 +262,15 @@
     // word or a single hit, not the lead being out of place: it is dropped (and not counted) first.
     // Then the move ramps over about half a second and is held inside the caps.
     const lasting = smooth(need, 5, 1);
+    // A stretch that never strays by a whole dB is not worth a fader move: no ride, and not counted.
+    for (let h = 0; h < hops;) {
+      if (!lasting[h]) { h++; continue; }
+      let end = h;
+      let peak = 0;
+      while (end < hops && lasting[end] && Math.sign(lasting[end]) === Math.sign(lasting[h])) { peak = Math.max(peak, Math.abs(lasting[end])); end++; }
+      if (peak < MIN_RIDE_DB) for (let k = h; k < end; k++) lasting[k] = 0;
+      h = end;
+    }
     const eased = smooth(spread(lasting, 2), 1, 5);
     const gainsDb = new Float32Array(hops);
     for (let h = 0; h < hops; h++) gainsDb[h] = Math.max(-maxDown, Math.min(maxUp, eased[h]));
@@ -326,6 +342,6 @@
 
   globalThis.MixForgeAutoMix = {
     guessRole, planBalance, planRides, applyRide, ROLES,
-    LIMITS: { QUIET_PART_LU, QUIET_BASS_LU, LEAD_LOW_LU, LEAD_HIGH_LU, LEAD_SETTLE_LU, MAX_LEVEL_MOVE_DB, DIP_TOLERANCE_DB, PEAK_TOLERANCE_DB, MAX_RIDE_UP_DB, MAX_RIDE_DOWN_DB, MIN_ACTIVE_SEC },
+    LIMITS: { QUIET_PART_LU, QUIET_BASS_LU, LEAD_LOW_LU, LEAD_HIGH_LU, LEAD_SETTLE_LU, MAX_LEVEL_MOVE_DB, DIP_TOLERANCE_DB, PEAK_TOLERANCE_DB, MAX_RIDE_UP_DB, MAX_RIDE_DOWN_DB, MIN_RIDE_DB, MIN_ACTIVE_SEC },
   };
 })();

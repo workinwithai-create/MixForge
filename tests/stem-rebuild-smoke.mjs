@@ -121,6 +121,33 @@ assert.equal(core.coversStems([], ['vocals']), false);
   assert.equal(blocked.master.measured, null, 'missing measurements stay missing, never zero');
   assert.equal(core.buildRunReceipt({}).saved.toSong, false);
 }
+
+// A set of stem files is named after what their file names share.
+assert.equal(core.commonTitle(['MySong_Kick.wav', 'MySong_Bass.wav', 'MySong_Lead Vox.wav']), 'MySong');
+assert.equal(core.commonTitle(['01 Coal - Drums.wav', '01 Coal - Bass.wav']), 'Coal');
+assert.equal(core.commonTitle(['Ember Vox.wav', 'Ember Vocals BGV.wav']), 'Ember', 'half a shared word is not part of the name');
+assert.equal(core.commonTitle(['Kick.wav', 'Bass.wav']), 'Your stems');
+assert.equal(core.commonTitle(['a.wav']), 'Your stems');
+assert.equal(core.commonTitle([]), 'Your stems');
+
+// The run receipt also records the mix group of each stem, MixForge's own level fixes, and where the stems came from.
+{
+  const receipt = core.buildRunReceipt({
+    song: { id: null, title: 'Coal' },
+    sourceNote: 'your own stems, read in the browser; nothing uploaded and nothing split',
+    parts: [{ name: 'Lead Vox', role: 'vocals', assetId: null, gainDb: 6, muted: false }, { name: 'Kick', role: 'drums', assetId: null, gainDb: 0, muted: false }],
+    levels: { fixedByMixForge: [{ role: 'vocals', deltaDb: 6, reason: 'The vocal sat 25 LU under the band, where words get lost. Raised 6 dB.', files: ['Lead Vox'] }], vocalAgainstBandLu: { beforeLu: -25.04, afterLu: -19 } },
+  });
+  assert.equal(receipt.source, 'your own stems, read in the browser; nothing uploaded and nothing split');
+  assert.deepEqual(receipt.song, { id: null, title: 'Coal' });
+  assert.deepEqual(receipt.stems, [{ name: 'Lead Vox', group: 'vocals', assetId: null, levelDb: 6, muted: false }, { name: 'Kick', group: 'drums', assetId: null, levelDb: 0, muted: false }]);
+  assert.deepEqual(receipt.levels, {
+    fixedByMixForge: [{ group: 'vocals', changeDb: 6, reason: 'The vocal sat 25 LU under the band, where words get lost. Raised 6 dB.', files: ['Lead Vox'] }],
+    vocalAgainstBandLu: { before: -25, after: -19 },
+  });
+  assert.deepEqual(core.buildRunReceipt({ song: { id: 's' }, parts: [] }).levels, { fixedByMixForge: [], vocalAgainstBandLu: null }, 'no level fixes is recorded as none');
+  assert.equal(core.buildRunReceipt({ song: { id: 's' }, parts: [] }).source, 'stems saved in the song library; no new separation');
+}
 console.log('stem rebuild core smoke ok');
 
 // Wiring.
@@ -132,7 +159,8 @@ assert.ok(at('app-stem-rebuild.js?') > at('app-library-save.js'), 'rebuild wraps
 const handoff = readFileSync(new URL('../js/app-song-handoff.js', import.meta.url), 'utf8');
 assert.match(handoff, /params\.get\('rebuild'\) === 'stems'\) return/, 'a rebuild link does not also load one file');
 const page = readFileSync(new URL('../js/app-stem-rebuild.js', import.meta.url), 'utf8');
-assert.match(page, /params\.get\('rebuild'\) !== 'stems'/);
+assert.match(page, /const fromLibrary = Boolean\(library\) && params\.get\('rebuild'\) === 'stems' && UUID\.test\(songId\)/, 'a library song opens only from its own rebuild link');
+assert.match(page, /if \(!fromLibrary && !stemFilesBtn\) return;/, 'on a page with neither door the desk does nothing');
 assert.match(page, /kind: 'mix'[\s\S]*label: 'Rebuilt from stems'[\s\S]*source/, 'the rebuilt mix is saved to the same song as its mix, once');
 assert.match(page, /state\.librarySong = \{ id: song\.id/, 'later saves stay on the same song');
 assert.match(page, /return previousSeparate\(stems, onProgress\)/, 'files other than the rebuilt mix still go to a real separation');
@@ -153,10 +181,24 @@ const renderMixBody = page.slice(page.indexOf('function renderMix'), page.indexO
 assert.doesNotMatch(renderMixBody, /solo/, 'solo never changes the mix');
 assert.doesNotMatch(mixAndMasterBody, /\.solo\b/, 'solo never changes what is mastered or saved');
 assert.match(page, /const audibleGain = \(part\) => \(part\.muted \|\| \(anySolo\(\) && !part\.solo\) \? 0 : dbToGain\(part\.gainDb\)\)/);
-assert.match(mixAndMasterBody, /evaluateExportGate\(state\)[\s\S]*if \(!gate\.allow\) \{[\s\S]*return;[\s\S]*kind: 'master'/, 'a master that fails the hard checks is not saved to the song');
+assert.match(mixAndMasterBody, /evaluateExportGate\(state\)[\s\S]*if \(!gateResult\.allow\) \{[\s\S]*return;[\s\S]*library\.saveFile\(song\.id, \{\s*kind: 'master'/, 'a master that fails the hard checks is not saved to the song');
+assert.equal(mixAndMasterBody.split('library.saveFile(').length - 1 >= 1, true);
+assert.ok(mixAndMasterBody.indexOf('library.saveFile(song.id') > mixAndMasterBody.indexOf('if (!gateResult.allow)'), 'nothing is saved before the hard checks');
+assert.ok(mixAndMasterBody.indexOf('library.saveFile(song.id') > mixAndMasterBody.indexOf('if (!song) {'), 'stems that are not a library song are never saved to one');
 assert.match(mixAndMasterBody, /: \{ allow: false,/, 'with no release check available, nothing is saved');
 assert.match(mixAndMasterBody, /core\.buildRunReceipt\(/);
 assert.match(mixAndMasterBody, /mixForgeCriticGate\?\.receipts/, 'the run receipt carries the correction receipts');
+// The second door: your own stems, read in the browser.
+assert.match(html, /id="stemFilesBtn"/);
+assert.match(html, /<input id="stemFilesInput" type="file"[^>]* multiple hidden>/, 'the stems input takes several files');
+assert.ok(at('app-stem-rebuild.js?') > at('app-auto-mix-core.js'), 'level fixes and rides load before the desk');
+const openLocalBody = page.slice(page.indexOf('async function openLocal'), page.indexOf("playBtn.addEventListener('click'"));
+assert.ok(openLocalBody.length > 400, 'the desk opens stem files from disk');
+assert.doesNotMatch(openLocalBody, /fetch\(|library\.|uploadOriginal|callStemFunction|separateRequiredStems/, 'stems from disk are never uploaded, saved or split');
+assert.match(page, /event\.stopImmediatePropagation\(\);[\s\S]{0,120}void openLocal\(dropped\);/, 'several dropped files are stems and never reach the single-file loader');
+assert.match(page, /if \(!dropped \|\| dropped\.length < 2\) return;/, 'one dropped file is still a mix');
+assert.match(page, /if \(move && files\.some\(\(p\) => p\.touched\)\) \{ left\.push\(role\); continue; \}/, 'a group with a fader the member set is never moved by MixForge');
+assert.match(page, /const ownLevel = \(part\) => part\.gainDb - \(autoDelta\.get\(part\.key\) \|\| 0\);/, 'level fixes are planned from the member\'s own levels, so they never stack');
 const libraryPage = readFileSync(new URL('../js/app-library-page.js', import.meta.url), 'utf8');
 assert.match(libraryPage, /&rebuild=stems/, 'library songs with stems link to the rebuild');
 assert.match(libraryPage, /stemCount >= 2/);

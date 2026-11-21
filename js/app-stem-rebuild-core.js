@@ -103,7 +103,7 @@
   // One receipt for a whole "Mix and master" run: which stems at which levels, what the stem check found,
   // every correction the mix stage proposed with its verdict, what the master measured, and whether it was
   // saved to the song. Numbers and names only; no audio.
-  function buildRunReceipt({ song, parts, trimDb = 0, stemCheck = null, corrections = [], targetLufs = null, masterPlan = null, finalMetrics = null, truePeakDb = null, gate = null, saved = null, generatedAt = new Date().toISOString() } = {}) {
+  function buildRunReceipt({ song, parts, trimDb = 0, stemCheck = null, corrections = [], targetLufs = null, masterPlan = null, finalMetrics = null, truePeakDb = null, gate = null, saved = null, levels = null, sourceNote = undefined, generatedAt = new Date().toISOString() } = {}) {
     const ceiling = masterPlan ? (masterPlan.truePeakCeilingDb ?? masterPlan.ceilingDb ?? null) : null;
     return {
       schema: 'mixforge-run-receipt',
@@ -111,9 +111,14 @@
       generatedAt,
       privacy: 'Numbers and names only. No audio is included.',
       song: { id: song?.id || null, title: song?.title || null },
-      source: 'stems saved in the song library; no new separation',
-      stems: (parts || []).map((p) => ({ name: p.name, assetId: p.assetId || null, levelDb: num(p.gainDb, 1) ?? 0, muted: Boolean(p.muted) })),
+      source: sourceNote || 'stems saved in the song library; no new separation',
+      stems: (parts || []).map((p) => ({ name: p.name, ...(p.role ? { group: p.role } : {}), assetId: p.assetId || null, levelDb: num(p.gainDb, 1) ?? 0, muted: Boolean(p.muted) })),
       mixTrimDb: num(trimDb) ?? 0,
+      // Fader moves MixForge made on its own before mixing, each with its reason. Empty when it made none.
+      levels: {
+        fixedByMixForge: ((levels && levels.fixedByMixForge) || []).map((m) => ({ group: m.role, changeDb: num(m.deltaDb, 1), reason: m.reason || '', files: m.files || [] })),
+        vocalAgainstBandLu: levels && levels.vocalAgainstBandLu ? { before: num(levels.vocalAgainstBandLu.beforeLu, 1), after: num(levels.vocalAgainstBandLu.afterLu, 1) } : null,
+      },
       stemCheck,
       corrections: (corrections || []).map((c) => ({ ...c })),
       master: {
@@ -134,5 +139,23 @@
     };
   }
 
-  globalThis.MixForgeStemRebuildCore = { pickStems, missingStems, sumStems, rebuildSourceKey, coversStems, pickOriginalMix, buildRunReceipt, SAFE_PEAK, STEM_ORDER };
+  // A name for a set of stem files: what their file names start with in common ("MySong_Kick", "MySong_Bass"
+  // gives "MySong"), or "Your stems" when they share nothing useful.
+  function commonTitle(names) {
+    const list = (names || []).map((n) => String(n || '').replace(/\.[a-z0-9]{2,5}$/i, '')).filter(Boolean);
+    if (list.length < 2) return 'Your stems';
+    let prefix = list[0];
+    for (const name of list.slice(1)) {
+      let i = 0;
+      while (i < prefix.length && i < name.length && prefix[i].toLowerCase() === name[i].toLowerCase()) i++;
+      prefix = prefix.slice(0, i);
+    }
+    // Stop at the last separator so half a word is never left on the end, then tidy.
+    const cut = prefix.search(/[\s_.-]+[^\s_.-]*$/);
+    const whole = /[\s_.-]$/.test(prefix) ? prefix : (cut > 0 ? prefix.slice(0, cut) : '');
+    const title = whole.replace(/^[\s_.\-\d]+/, '').replace(/[\s_.-]+$/, '').replace(/[_]+/g, ' ').trim();
+    return title.length >= 3 ? title.slice(0, 80) : 'Your stems';
+  }
+
+  globalThis.MixForgeStemRebuildCore = { pickStems, missingStems, sumStems, rebuildSourceKey, coversStems, pickOriginalMix, buildRunReceipt, commonTitle, SAFE_PEAK, STEM_ORDER };
 })();

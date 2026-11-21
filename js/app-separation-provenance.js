@@ -24,7 +24,17 @@
     return 'demucs';
   }
 
+  // Stems the member brought (from the DAW, or saved on a library song) were not separated here,
+  // so they are never described as a separator's output.
+  function ownStems() {
+    const engine = String(separatorInfo()?.engine || '').toLowerCase();
+    return engine === 'your stems' || engine === 'song library' ? engine : null;
+  }
+
   function measuredHeading(stem) {
+    const own = ownStems();
+    if (own === 'your stems') return 'Measured on this group of your stems';
+    if (own === 'song library') return 'Measured on this stem saved on the song';
     const source = stemSource(stem);
     if (source === 'melband') return 'Measured conditions on this MelBand RoFormer vocal stem';
     return 'Measured conditions on this isolated Demucs bucket';
@@ -39,6 +49,18 @@
     const description = panel.querySelector('.panel-title p');
 
     if (!title || !description) return;
+
+    if (engine === 'your stems') {
+      title.textContent = 'Your stems in four mix groups, and what was measured';
+      description.textContent = 'These are the stems you brought, grouped as vocals, drums, bass and other. Nothing was separated. The fit score on each group is a heuristic read of how it sits against the mix, not a grade of your recording.';
+      return;
+    }
+
+    if (engine === 'song library') {
+      title.textContent = 'The stems saved on this song, and what was measured';
+      description.textContent = 'These stems were saved on the song earlier, so nothing was separated again. Stems that came from a split still share what the split shared: guitars and keys sit together in “other”.';
+      return;
+    }
 
     if (engine === 'hybrid') {
       title.textContent = 'Isolated source stems and measured conditions';

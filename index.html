@@ -29,7 +29,7 @@
     <header class="hero">
       <div class="eyebrow">Workin' With AI · The Forge Stack</div>
       <h1>MixForge <span>2.9.0</span></h1>
-      <p>Fix mix problems, then master for release. Start with Quick Master for a fast Original vs Master A/B — or open Forensic Fix when you need timeline evidence and honest stem investigation. Gemini may listen to a compact mix excerpt; it does not judge vocal performance.</p>
+      <p>Fix mix problems, then master for release. Drop in one finished mix, or bring your stems and let MixForge mix them first. Start with Quick Master for a fast Original vs Master A/B — or open Forensic Fix when you need timeline evidence and honest stem investigation. Gemini may listen to a compact mix excerpt; it does not judge vocal performance.</p>
       <div class="pipeline" aria-label="MixForge pipeline"><span>Observe</span><b>→</b><span>Locate</span><b>→</b><span>Isolate</span><b>→</b><span>Confirm</span><b>→</b><span>Repair</span><b>→</b><span>Verify</span></div>
       <p class="pipeline-note" id="pipelineNote">Quick Master skips Isolate / Confirm / Repair: Observe → Locate → Master → Verify. Gemini listens to the mix/master, not vocal performance (AuraMix).</p>
       <div class="hero-modes" id="heroModeRow"><span>Quick Master</span><b>or</b><span>Forensic Fix</span><i>Mix repair + release master · vocals live in <a href="https://auramix.workinwithai.com" target="_blank" rel="noopener noreferrer">AuraMix</a></i></div>
@@ -47,9 +47,14 @@
     </aside>
     <aside class="mobile-onboard" id="mobileOnboard" hidden aria-live="polite"></aside>
     <section class="panel" id="loadPanel">
-      <div class="panel-title"><span>1</span><div><h2>Load your mix</h2><p>WAV is best. The first scan proves what it can from stereo only. Source attribution stays a hypothesis until you opt into stems.</p></div></div>
+      <div class="panel-title"><span>1</span><div><h2>Load your mix, or your stems</h2><p>One finished mix: WAV is best. The scan proves what it can from stereo, and splits the song into its four parts only if it needs stem work. Or bring the stems from your DAW and MixForge mixes them before it masters.</p></div></div>
       <button class="dropzone" id="dropzone" type="button"><strong>Choose a mix or drop it here</strong><small id="fileMeta">No file loaded</small></button>
       <input id="fileInput" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.aif,.aiff,.caf,.flac,.ogg" hidden>
+      <div class="stems-door" id="stemsDoor">
+        <button class="secondary" id="stemFilesBtn" type="button">Or bring your stems from your DAW</button>
+        <small>Choose two or more stems, each exported from the very start of the song (for example Vocals, Drums, Bass, Guitars, Keys), or drop them all on the box above. MixForge sets levels, mixes and rides the vocal, then masters. Nothing is uploaded and nothing is split.</small>
+        <input id="stemFilesInput" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.aif,.aiff,.caf,.flac,.ogg" multiple hidden>
+      </div>
       <label class="field-label" for="notes">Mix notes <em>optional</em></label>
       <textarea id="notes" placeholder="Example: the vocal feels buried in the chorus, the low end is cloudy, and the cymbals feel sharp."></textarea>
       <div class="controls-grid">

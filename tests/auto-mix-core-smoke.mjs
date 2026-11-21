@@ -40,6 +40,11 @@ for (const [role, names] of Object.entries(roles)) {
   // A vocal that is extremely low is raised by the cap and no more.
   const veryLow = mix.planBalance({ buses: [{ role: 'vocals', lufs: -40 }, { role: 'drums', lufs: -18 }] });
   assert.equal(veryLow.moves[0].deltaDb, 6);
+  // ...and when the cap stops short of the range, the reason says it is still low instead of implying it is fixed.
+  assert.equal(veryLow.moves[0].capped, true);
+  assert.match(veryLow.moves[0].reason, /Raised 6 dB\. That is the most MixForge moves a fader on its own; it is still 16 LU under the band/);
+  assert.equal(buried.moves[0].capped, false);
+  assert.doesNotMatch(buried.moves[0].reason, /the most MixForge moves/);
   // A vocal sitting far on top is eased back to 4 LU over.
   const onTop = mix.planBalance({ buses: [{ role: 'vocals', lufs: -10 }, { role: 'drums', lufs: -19 }] });
   assert.equal(onTop.moves[0].deltaDb, -5);
@@ -131,6 +136,16 @@ for (let i = 0; i < N; i++) {
   assert.match(plan.reason, /already holds its place/);
   assert.ok(Math.max(...plan.gainsDb.map(Math.abs)) < 0.05);
   assert.deepEqual(plan.before, { dipSec: 0, worstDipDb: 0, hotSec: 0, worstHotDb: 0, strayDbSec: 0 }, 'word edges are not counted as the lead being out of place');
+}
+// A phrase that is out of place by less than a dB past the tolerance is not worth a fader move.
+{
+  const slight = new Float32Array(N);
+  const db = [0, 0, -2.7, 0, 0, 0]; // 0.7 dB past the 2 dB tolerance
+  for (let i = 0; i < N; i++) { const t = i / RATE, p = Math.floor(t / 4); slight[i] = (t - p * 4 < 3) ? 0.1 * Math.pow(10, db[p] / 20) * Math.sin(2 * Math.PI * 1000 * t) : 0; }
+  const plan = mix.planRides({ lead: slight, rest, sampleRate: RATE });
+  assert.deepEqual(plan.rides, []);
+  assert.ok(Math.max(...plan.gainsDb.map(Math.abs)) < 0.05, 'no gain at all, so the audio matches the empty list');
+  assert.equal(plan.before.dipSec, 0, 'and it is not counted as out of place');
 }
 // Too little lead to know where it usually sits: no rides.
 {

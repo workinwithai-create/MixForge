@@ -105,7 +105,10 @@ globalThis.$ = (id) => (id === 'loadPanel' ? loadPanel : null);
 globalThis.dbToGain = (db) => Math.pow(10, db / 20);
 globalThis.normalizeStemName = (s) => ({ guitars: 'other', keys: 'other' }[s] || s);
 let encoded = null;
-globalThis.encodeWav = async (buffer, bits) => { encoded = { buffer, bits }; return new Blob([new Uint8Array(44 + buffer.length * buffer.numberOfChannels * (bits / 8))]); };
+const encodes = [];
+globalThis.encodeWav = async (buffer, bits) => { encoded = { buffer, bits }; encodes.push(encoded); return new Blob([new Uint8Array(44 + buffer.length * buffer.numberOfChannels * (bits / 8))]); };
+// A stand-in loudness meter: the level of the first channel in dB. Enough to rank parts against each other.
+globalThis.measureLUFS = (buffer) => { const d = buffer.getChannelData(0); let sum = 0; for (let i = 0; i < d.length; i++) sum += d[i] * d[i]; return 10 * Math.log10(sum / d.length + 1e-12); };
 globalThis.loadFile = async (file) => { globalThis.state.file = file; globalThis.state.original = encoded?.buffer || null; globalThis.state.stemBuffers = {}; };
 let realSeparations = 0;
 globalThis.separateRequiredStems = async () => { realSeparations++; return { drums: 'https://separated.example/drums.wav' }; };
@@ -125,6 +128,7 @@ const hidden = (id) => /\bhidden\b/.test(byId(id).className);
 const runPage = () => new Function(readFileSync(new URL('../js/app-stem-rebuild.js', import.meta.url), 'utf8'))();
 new Function(readFileSync(new URL('../js/app-stem-rebuild-core.js', import.meta.url), 'utf8'))();
 new Function(readFileSync(new URL('../js/app-stem-reliability-core.js', import.meta.url), 'utf8'))();
+new Function(readFileSync(new URL('../js/app-auto-mix-core.js', import.meta.url), 'utf8'))();
 runPage();
 
 // 1. It opens the song and loads its three stems.
@@ -163,29 +167,33 @@ const expected = 0.2 * dbToGain(-6) + 0.1 + 0.05;
 assert.ok(Math.abs(encoded.buffer.getChannelData(0)[0] - expected) < 1e-6, 'the rebuilt mix follows the levels');
 // Bass is still soloed here: solo did not remove the other stems from the mix.
 assert.equal(bassSolo.checked, true);
-assert.deepEqual(Object.keys(state.libraryRebuild.stems), ['vocals', 'bass', 'other'], 'solo never changes which stems are mixed');
+assert.deepEqual(state.libraryRebuild.roles, ['vocals', 'bass', 'other'], 'solo never changes which stems are mixed');
 bassSolo.checked = false;
 await fire(bassSolo, 'change');
 assert.ok(hidden('rebuildSoloNote'));
 assert.equal(state.librarySong.id, song.id, 'later saves go to the same song');
-assert.equal(state.libraryRebuild.gains.vocals, -6);
-assert.match(byId('rebuildStatusLine').textContent, /rebuilt mix is loaded/);
+assert.deepEqual(state.libraryRebuild.roles, ['vocals', 'bass', 'other']);
+assert.ok(Math.abs(state.libraryRebuild.group('vocals').getChannelData(1)[3] - 0.2 * dbToGain(-6)) < 1e-6, 'each group is kept at the level it plays in this mix');
+assert.equal(state.libraryRebuild.group('bass').getChannelData(0)[0], Math.fround(0.1));
+assert.match(byId('rebuildStatusLine').textContent, /mix of these stems is loaded/);
 
 // 3. Forensic Fix on the rebuilt mix uses the saved stems, not a new separation.
 const requested = ['vocals', 'bass'];
-const outputs = await separateRequiredStems(requested, () => {});
+encodes.length = 0;
+const notes = [];
+const outputs = await separateRequiredStems(requested, (message) => notes.push(message));
 assert.equal(realSeparations, 0);
 assert.ok(outputs.vocals.startsWith('blob:') && outputs.bass.startsWith('blob:') && outputs.other.startsWith('blob:'));
 assert.deepEqual(requested, ['vocals', 'bass', 'other'], 'every saved stem goes to the stem stage');
 assert.equal(state._stemDecodesRemaining, 3, 'the decode hook lines the stems up with the rebuilt mix');
-// ...and each stem is set to its level in the rebuilt mix before MixForge measures it.
-state.stemBuffers = { vocals: stemBuffer(1), bass: stemBuffer(1) };
-await buildStemPlans();
-assert.equal(planBuilds, 1);
-assert.ok(Math.abs(state.stemBuffers.vocals.getChannelData(1)[3] - dbToGain(-6)) < 1e-6);
-assert.equal(state.stemBuffers.bass.getChannelData(0)[0], 1, 'a stem left at 0 dB is untouched');
-await buildStemPlans();
-assert.ok(Math.abs(state.stemBuffers.vocals.getChannelData(0)[0] - dbToGain(-6)) < 1e-6, 'levels are applied once, not on every rebuild');
+assert.match(notes[0], /Using the stems already saved on this song\. No new separation/);
+// ...and each one is handed over at its level in the rebuilt mix, so MixForge measures it where it actually plays.
+assert.equal(encodes.length, 3);
+assert.deepEqual(encodes.map((e) => e.bits), [24, 24, 24]);
+assert.ok(Math.abs(encodes[0].buffer.getChannelData(0)[0] - 0.2 * dbToGain(-6)) < 1e-6, 'vocals at -6 dB');
+assert.equal(encodes[1].buffer.getChannelData(0)[0], Math.fround(0.1), 'a stem left at 0 dB is untouched');
+assert.equal(encodes[0].buffer.length, state.original.length, 'the same length as the mix');
+assert.equal(planBuilds, 0, 'the desk no longer needs to change levels after the stems are decoded');
 
 // 4. Asking for a stem the song does not have never splits the song again: the list becomes the saved stems.
 const asked = ['drums', 'vocals'];
