@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Stem Reliability Lab · MixForge</title>
+  <style>
+    :root{color-scheme:dark;--bg:#090b10;--panel:#111620;--line:#263042;--ink:#f2f5fb;--muted:#9aa6ba;--lime:#bafc64;--cyan:#62dcff;--amber:#ffc76a;--red:#ff7c7c}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#172133 0,transparent 36rem),var(--bg);color:var(--ink);font:15px/1.5 Inter,ui-sans-serif,system-ui,sans-serif}
+    main{width:min(1040px,calc(100% - 32px));margin:auto;padding:48px 0 72px}a{color:var(--cyan)}
+    .eyebrow{color:var(--lime);font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}.hero{display:grid;grid-template-columns:1.6fr .8fr;gap:24px;align-items:end;margin-bottom:28px}
+    h1{font-size:clamp(38px,7vw,72px);line-height:.94;letter-spacing:-.055em;margin:10px 0 18px;max-width:760px}.lede{color:#c5ccda;font-size:18px;max-width:700px;margin:0}.research{border-left:2px solid var(--lime);padding:4px 0 4px 18px;color:var(--muted)}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.card{background:linear-gradient(160deg,#141a25,#0f131b);border:1px solid var(--line);border-radius:16px;padding:20px}.wide{grid-column:1/-1}
+    h2{font-size:18px;margin:0 0 14px}.inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.file{display:block;border:1px dashed #3a465c;border-radius:12px;padding:14px;background:#0c1119}.file strong{display:block;margin-bottom:5px}.file span{color:var(--muted);font-size:12px;display:block;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file input{width:100%;color:var(--muted);font-size:12px}
+    .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px}.profile{display:grid;gap:4px;color:var(--muted);font-size:12px}.profile input{min-width:250px;border:1px solid var(--line);border-radius:10px;padding:10px;background:#0b1018;color:var(--ink)}button{border:0;border-radius:999px;padding:11px 17px;font-weight:800;cursor:pointer;background:var(--lime);color:#10160a}button.secondary{background:#232c3b;color:var(--ink)}button:disabled{opacity:.45;cursor:not-allowed}.status{color:var(--muted);font-size:13px}
+    .metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}.metric{background:#0b1018;border:1px solid var(--line);border-radius:12px;padding:14px}.metric b{display:block;font-size:24px;letter-spacing:-.04em}.metric span{color:var(--muted);font-size:12px}.verdict{font-size:14px;font-weight:800}.good{color:var(--lime)}.review{color:var(--amber)}.weak{color:var(--red)}
+    table{width:100%;border-collapse:collapse;margin-top:16px}th,td{text-align:left;border-bottom:1px solid var(--line);padding:10px 6px}th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}.flag{font-size:12px;color:var(--amber)}
+    .note{color:var(--muted);font-size:13px}.hidden{display:none}.limit{padding:14px;border-radius:12px;background:#16130d;border:1px solid #554324;color:#e9d6ad}.footer{margin-top:24px;color:var(--muted);font-size:12px}
+    @media(max-width:760px){main{padding-top:28px}.hero,.grid{grid-template-columns:1fr}.inputs{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}h1{font-size:48px}.research{margin-top:8px}}
+  </style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <div><div class="eyebrow">MixForge research lab · local only</div><h1>Can your stems rebuild the song?</h1><p class="lede">Load a mix and its separated stems. This browser-only audit measures reconstruction error, likely cross-stem leakage, and suspiciously empty outputs—then lets you hear what the separator left behind.</p></div>
+    <p class="research">Product experiment inspired by <a href="https://arxiv.org/abs/2611.09358" target="_blank" rel="noreferrer">GTCRN-SS</a> and <a href="https://arxiv.org/abs/2611.16933" target="_blank" rel="noreferrer">Kezek</a>: reliable separation should account for the complete input. It now accepts the six output buses documented by <a href="https://github.com/rapidly-labs/rapidly-sdk" target="_blank" rel="noreferrer">Rapidly SDK</a>. This audits exported files; it does not run any of those models.</p>
+  </header>
+
+  <section class="grid">
+    <div class="card wide">
+      <h2>1 · Choose the original mix and available stems</h2>
+      <div class="inputs" id="inputs"></div>
+      <div class="limit hidden" id="lossyWarning">Lossy input detected. Use WAV, AIFF, or FLAC for exact-sum comparisons; MP3, AAC, Ogg, and Opus encoding can create a residual even when the separator returned complete stems.</div>
+      <div class="actions"><label class="profile">Separator / model used<input id="separatorProfile" placeholder="e.g. un/blend · htdemucs"></label><button id="analyze" disabled>Audit reconstruction</button><span class="status" id="status">Choose a mix and at least one stem.</span></div>
+    </div>
+
+    <div class="card wide hidden" id="results">
+      <h2>2 · Reliability readout</h2>
+      <div class="metrics">
+        <div class="metric"><b id="residualDb">—</b><span>gain-fitted residual</span></div>
+        <div class="metric"><b id="exactSumDb">—</b><span>exact-sum residual</span></div>
+        <div class="metric"><b id="coverage">—</b><span>amplitude coverage</span></div>
+        <div class="metric"><b id="correlation">—</b><span>max stem correlation</span></div>
+        <div class="metric"><b id="gain">—</b><span>fitted stem-sum gain</span></div>
+      </div>
+      <p class="verdict" id="verdict"></p>
+      <div class="limit hidden" id="durationWarning"></div>
+      <table><thead><tr><th>Stem</th><th>Level vs mix</th><th>Signal</th></tr></thead><tbody id="stemRows"></tbody></table>
+      <div class="actions"><button class="secondary" data-play="mix">Play original</button><button class="secondary" data-play="sum">Play fitted sum</button><button class="secondary" data-play="residual">Play residual</button><button class="secondary" id="stop">Stop</button><button class="secondary" id="downloadReport" disabled>Download audit report</button></div>
+    </div>
+
+    <div class="card">
+      <h2>What the numbers mean</h2>
+      <p class="note"><strong>Exact-sum residual</strong> compares the unscaled stem sum with the mix; it catches missing energy and hidden level changes. <strong>Least-squares gain fit</strong> removes one global level mismatch before measuring the remaining residual. More negative is better. <strong>Correlation</strong> warns about duplicated content across stems, not proof of a semantic error.</p>
+      <p class="note">A strong reconstruction still does not prove that “vocals” contains only vocals. Pair this audit with listening and labelled test clips.</p>
+    </div>
+    <div class="card">
+      <h2>Live-separation candidate</h2>
+      <div class="limit"><strong>Rapidly music model:</strong> vocals, bass, guitar, drums, piano, and residual; 96 ms stated latency; 1.47 MB; CPU-only. WebAssembly is not yet available.</div>
+      <p class="note">Export those six buses from a native test host, load them here, and compare exact reconstruction before considering a MixForge adapter. Demo output is audibly watermarked without a commercial key.</p>
+    </div>
+    <div class="card">
+      <h2>Browser-separation candidate</h2>
+      <div class="limit"><strong>un/blend:</strong> runs HTDemucs, RoFormer, and SCNet-family separation locally through ONNX Runtime Web, using WebGPU where supported and WASM otherwise.</div>
+      <p class="note"><a href="https://unblend.dev/" target="_blank" rel="noreferrer">Open un/blend</a>, export WAV stems, then load them here and name the exact model in the audit profile. Safari may kill long, memory-heavy jobs; Chromium is the safer first test.</p>
+      <p class="note">Treat model weights separately from the MIT application code: several listed weights have no explicit license or non-commercial terms.</p>
+    </div>
+    <div class="card">
+      <h2>Batch-separation candidate</h2>
+      <div class="limit"><strong>UVR6:</strong> Windows release announced for December 11, 2026, with an official command-line mode using the same models and settings as the GUI. macOS and Linux are planned to follow.</div>
+      <p class="note">When it ships, run a fixed song set through the CLI and save one local audit report per output. The JSON receipt makes model/settings comparisons repeatable without uploading audio.</p>
+      <p class="note"><a href="https://github.com/Anjok07/ultimatevocalremovergui/issues/2399" target="_blank" rel="noreferrer">Official UVR6 announcement</a></p>
+    </div>
+    <div class="card">
+      <h2>Guardrails</h2>
+      <div class="limit">Analysis is capped at the first 90 seconds and downmixed to mono. Files are decoded and analyzed in this tab; nothing is uploaded.</div>
+      <p class="note">Offset starts, different edits, lossy encoding, clipping, or missing stems can dominate the residual. A genuinely silent instrument stem may also be correct.</p>
+      <p class="note"><a href="https://github.com/stemdeckapp/stemdeck/releases/tag/v0.21.0" target="_blank" rel="noreferrer">StemDeck 0.21</a> defaults new stems to 128 kbps MP3. Choose WAV in Settings → Library → Stem files before using an exact-sum audit.</p>
+    </div>
+  </section>
+  <p class="footer">Experimental quality-control tool. Thresholds are product heuristics, not research benchmarks.</p>
+</main>
+<script>
+const slots=[['mix','Original mix','Required'],['vocals','Vocals stem','Optional'],['drums','Drums stem','Optional'],['bass','Bass stem','Optional'],['guitar','Guitar stem','Optional'],['piano','Piano stem','Optional'],['residualBus','Residual bus','Optional'],['other','Other / music stem','Optional']];
+const files=new Map(); let audioContext; let playback; let analyzed;
+const inputs=document.querySelector('#inputs');
+slots.forEach(([id,label,help])=>{const box=document.createElement('label');box.className='file';box.innerHTML=`<strong>${label}</strong><input id="${id}" type="file" accept="audio/*"><span>${help} · audio stays on this device</span>`;inputs.append(box);box.querySelector('input').addEventListener('change',e=>{if(e.target.files[0]) files.set(id,e.target.files[0]); else files.delete(id);box.querySelector('span').textContent=e.target.files[0]?.name||`${help} · audio stays on this device`;refreshReady();updateFormatWarning();});});
+function refreshReady(){const ready=files.has('mix')&&[...files.keys()].some(k=>k!=='mix');document.querySelector('#analyze').disabled=!ready;document.querySelector('#status').textContent=ready?'Ready for a local audit.':'Choose a mix and at least one stem.';}
+function updateFormatWarning(){const lossy=[...files.values()].some(file=>/\.(mp3|m4a|aac|ogg|opus|webm)$/i.test(file.name));document.querySelector('#lossyWarning').classList.toggle('hidden',!lossy);}
+function mono(buffer,maxFrames){const n=Math.min(buffer.length,maxFrames),out=new Float32Array(n);for(let c=0;c<buffer.numberOfChannels;c++){const channel=buffer.getChannelData(c);for(let i=0;i<n;i++)out[i]+=channel[i]/buffer.numberOfChannels;}return out;}
+const db=x=>10*Math.log10(Math.max(x,1e-12)); const pct=x=>`${Math.round(Math.max(0,Math.min(1,x))*100)}%`;
+document.querySelector('#analyze').addEventListener('click',async()=>{
+  const button=document.querySelector('#analyze'),status=document.querySelector('#status'),selectedFiles=new Map(files),fileInputs=[...document.querySelectorAll('input[type="file"]')];button.disabled=true;fileInputs.forEach(input=>input.disabled=true);status.textContent='Decoding audio…';
+  try{
+    audioContext ||= new AudioContext(); const decoded={};
+    for(const [id,file] of selectedFiles) decoded[id]=await audioContext.decodeAudioData(await file.arrayBuffer());
+    const sampleRate=decoded.mix.sampleRate,maxFrames=sampleRate*90; const tracks={};
+    for(const [id,buffer] of Object.entries(decoded)) tracks[id]=mono(buffer,maxFrames);
+    const stemIds=Object.keys(tracks).filter(k=>k!=='mix'),length=tracks.mix.length;
+    if(length<sampleRate) throw new Error('Use a mix with at least one second of audio.');
+    const durationToleranceSeconds=.01,durationMismatches=stemIds.filter(id=>Math.abs(decoded[id].duration-decoded.mix.duration)>durationToleranceSeconds);
+    const stride=Math.max(1,Math.floor(length/1500000));let mixEnergy=0,sumEnergy=0,dot=0;const rawSum=new Float32Array(length);
+    for(let i=0;i<length;i++){let s=0;for(const id of stemIds){const track=tracks[id];s+=i<track.length?track[i]:0;}rawSum[i]=s;if(i%stride===0){mixEnergy+=tracks.mix[i]**2;sumEnergy+=s**2;dot+=tracks.mix[i]*s;}}
+    let exactResidualEnergy=0;for(let i=0;i<length;i+=stride)exactResidualEnergy+=(tracks.mix[i]-rawSum[i])**2;
+    const exactRatio=exactResidualEnergy/Math.max(mixEnergy,1e-12),exactSumDb=db(exactRatio);
+    const fittedGain=Math.max(.25,Math.min(4,dot/Math.max(sumEnergy,1e-12))),fittedSum=new Float32Array(length),residual=new Float32Array(length);let residualEnergy=0;
+    for(let i=0;i<length;i++){fittedSum[i]=rawSum[i]*fittedGain;residual[i]=tracks.mix[i]-fittedSum[i];if(i%stride===0)residualEnergy+=residual[i]**2;}
+    const ratio=residualEnergy/Math.max(mixEnergy,1e-12),resDb=db(ratio),coverage=1-Math.sqrt(ratio);let maxCorrelation=0;
+    for(let a=0;a<stemIds.length;a++)for(let b=a+1;b<stemIds.length;b++){let xy=0,xx=0,yy=0;const trackA=tracks[stemIds[a]],trackB=tracks[stemIds[b]];for(let i=0;i<length;i+=stride){const x=i<trackA.length?trackA[i]:0,y=i<trackB.length?trackB[i]:0;xy+=x*y;xx+=x*x;yy+=y*y;}maxCorrelation=Math.max(maxCorrelation,Math.abs(xy)/Math.sqrt(Math.max(xx*yy,1e-12)));}
+    document.querySelector('#residualDb').textContent=`${resDb.toFixed(1)} dB`;document.querySelector('#exactSumDb').textContent=`${exactSumDb.toFixed(1)} dB`;document.querySelector('#coverage').textContent=pct(coverage);document.querySelector('#correlation').textContent=stemIds.length>1?maxCorrelation.toFixed(2):'n/a';document.querySelector('#gain').textContent=`${fittedGain.toFixed(2)}×`;
+    const durationWarning=document.querySelector('#durationWarning');durationWarning.classList.toggle('hidden',!durationMismatches.length);durationWarning.textContent=durationMismatches.length?`Duration mismatch: ${durationMismatches.join(', ')} does not match the original mix. Missing tail samples are scored as silence.`:'';
+    const weakStem=[],stemResults=[];const rows=document.querySelector('#stemRows');rows.innerHTML='';for(const id of stemIds){let energy=0;const track=tracks[id];for(let i=0;i<Math.min(length,track.length);i+=stride)energy+=track[i]**2;const relative=db(energy/Math.max(mixEnergy,1e-12)),durationOff=durationMismatches.includes(id),nearEmpty=relative<-36;if(nearEmpty)weakStem.push(id);stemResults.push({id,relativeLevelDb:Number(relative.toFixed(2)),nearEmpty,durationMismatch:durationOff,durationSeconds:Number((track.length/sampleRate).toFixed(3))});const signal=durationOff?'<span class="flag">Duration mismatch — verify</span>':nearEmpty?'<span class="flag">Near-empty — verify</span>':'Detected';rows.insertAdjacentHTML('beforeend',`<tr><td>${id[0].toUpperCase()+id.slice(1)}</td><td>${relative.toFixed(1)} dB</td><td>${signal}</td></tr>`);}
+    const verdict=document.querySelector('#verdict');let label,klass;if(resDb<=-20&&maxCorrelation<.65&&!weakStem.length&&!durationMismatches.length){label='Strong reconstruction: ready for a focused listening check.';klass='good';}else if(resDb<=-12){label='Review recommended: usable reconstruction, but inspect the flagged risks.';klass='review';}else{label='Weak reconstruction: check alignment, missing stems, or separator output.';klass='weak';}verdict.className=`verdict ${klass}`;verdict.textContent=label;
+    const report={schemaVersion:1,generatedAt:new Date().toISOString(),privacy:'Created locally; no audio uploaded.',separatorProfile:document.querySelector('#separatorProfile').value.trim()||'unspecified',sourceFiles:[...selectedFiles.entries()].map(([slot,file])=>({slot,name:file.name,type:file.type||null,sizeBytes:file.size})),analysis:{sampleRate,channelMode:'mono',windowSeconds:Number((length/sampleRate).toFixed(3)),maxWindowSeconds:90},metrics:{gainFittedResidualDb:Number(resDb.toFixed(2)),exactSumResidualDb:Number(exactSumDb.toFixed(2)),amplitudeCoverage:Number(coverage.toFixed(4)),maxStemCorrelation:stemIds.length>1?Number(maxCorrelation.toFixed(4)):null,fittedGain:Number(fittedGain.toFixed(4))},stems:stemResults,flags:{durationMismatches,nearEmptyStems:weakStem},verdict:{label,className:klass}};
+    analyzed={sampleRate,length,mix:tracks.mix.subarray(0,length),sum:fittedSum,residual,report};document.querySelector('#downloadReport').disabled=false;document.querySelector('#results').classList.remove('hidden');status.textContent=`Analyzed ${(length/sampleRate).toFixed(1)} seconds locally.`;document.querySelector('#results').scrollIntoView({behavior:'smooth',block:'start'});
+  }catch(error){status.textContent=error.message||'Could not decode these files.';}finally{button.disabled=false;fileInputs.forEach(input=>input.disabled=false);}
+});
+document.querySelector('#downloadReport').addEventListener('click',()=>{if(!analyzed?.report)return;const blob=new Blob([JSON.stringify(analyzed.report,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`mixforge-stem-audit-${new Date().toISOString().slice(0,10)}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),0);});
+function stop(){const source=playback;if(!source)return;playback=null;source.onended=null;try{source.stop()}catch{}}
+document.querySelector('#stop').addEventListener('click',stop);document.querySelectorAll('[data-play]').forEach(button=>button.addEventListener('click',()=>{if(!analyzed)return;stop();const data=analyzed[button.dataset.play],buffer=audioContext.createBuffer(1,data.length,analyzed.sampleRate);buffer.copyToChannel(data,0);const source=audioContext.createBufferSource();source.buffer=buffer;source.connect(audioContext.destination);playback=source;source.onended=()=>{if(playback===source)playback=null;};source.start();}));
+</script>
+</body>
+</html>
