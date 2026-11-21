@@ -64,6 +64,63 @@ assert.match(k1, HUB_SOURCE_RULE);
 assert.equal(core.coversStems(['vocals', 'bass'], ['vocals', 'bass', 'other']), true);
 assert.equal(core.coversStems(['vocals', 'drums'], ['vocals', 'bass', 'other']), false);
 assert.equal(core.coversStems([], ['vocals']), false);
+
+// The stem check compares against the song's own original mix: the oldest real mix, never a rebuild of these stems.
+{
+  const assets = [
+    { id: 's1', kind: 'stem', stem: 'vocals', playable: true, createdAt: '2026-11-01T00:00:00Z' },
+    { id: 'm2', kind: 'mix', label: 'Rebuilt from stems', playable: true, createdAt: '2026-10-01T00:00:00Z' },
+    { id: 'm3', kind: 'mix', label: 'Original mix', playable: true, createdAt: '2026-11-02T00:00:00Z' },
+    { id: 'm1', kind: 'mix', label: 'Original mix', playable: true, createdAt: '2026-11-01T00:00:00Z' },
+    { id: 'm0', kind: 'mix', label: 'Original mix', playable: false, createdAt: '2026-09-01T00:00:00Z' },
+    { id: 'm4', kind: 'mix', label: 'Mix', source: 'mixforge:rebuild/0011223344556677', playable: true, createdAt: '2026-08-01T00:00:00Z' },
+    { id: 'x1', kind: 'master', label: 'MixForge master', playable: true, createdAt: '2026-07-01T00:00:00Z' },
+    { id: 'a1', kind: 'audio', label: 'Upload', playable: true, createdAt: '2026-06-01T00:00:00Z' },
+  ];
+  assert.equal(core.pickOriginalMix(assets).id, 'm1', 'the oldest playable mix that is not a rebuild');
+  assert.equal(core.pickOriginalMix(assets.filter((a) => a.kind !== 'mix')).id, 'a1', 'uploaded audio stands in when there is no mix');
+  assert.equal(core.pickOriginalMix(assets.filter((a) => a.id === 'm2' || a.id === 'm4' || a.kind === 'stem' || a.kind === 'master')), null, 'a rebuild or a master is never the reference');
+  assert.equal(core.pickOriginalMix([]), null);
+}
+
+// One receipt for a Mix and master run: names and numbers only, and it says plainly whether the master was saved.
+{
+  const receipt = core.buildRunReceipt({
+    song: { id: 'song-1', title: 'Coal', assets: ['not copied'] },
+    parts: [{ name: 'vocals', assetId: 'a', gainDb: -6.04, muted: false }, { name: 'bass', assetId: 'b', gainDb: 0, muted: true }],
+    trimDb: -1.234,
+    stemCheck: { schemaVersion: 1, verdict: { className: 'good' } },
+    corrections: [{ id: 'stage-1-vocals', verdict: { status: 'accepted' } }],
+    targetLufs: -12,
+    masterPlan: { truePeakCeilingDb: -1, ceilingDb: -0.5 },
+    finalMetrics: { lufs: -12.04, peakDb: -1.31, lra: 6.2, crestDb: 9.87654, correlation: 0.81, clipPercent: 0, midBands: [1, 2, 3] },
+    truePeakDb: -1.02,
+    gate: { allow: true, verified: true, clipFail: false, tpFail: false, monoWarn: false },
+    saved: { toSong: true, kind: 'master', source: 'mixforge:master/0011223344556677' },
+    generatedAt: '2026-11-21T00:00:00.000Z',
+  });
+  assert.equal(receipt.schema, 'mixforge-run-receipt');
+  assert.equal(receipt.schemaVersion, 1);
+  assert.deepEqual(receipt.song, { id: 'song-1', title: 'Coal' });
+  assert.deepEqual(receipt.stems, [{ name: 'vocals', assetId: 'a', levelDb: -6, muted: false }, { name: 'bass', assetId: 'b', levelDb: 0, muted: true }]);
+  assert.equal(receipt.mixTrimDb, -1.23);
+  assert.equal(receipt.stemCheck.verdict.className, 'good');
+  assert.equal(receipt.corrections[0].verdict.status, 'accepted');
+  assert.deepEqual(receipt.master, {
+    targetLufs: -12, peakCeilingDb: -1,
+    measured: { lufs: -12.04, peakDb: -1.31, oversampledPeakDb: -1.02, loudnessRange: 6.2, crestDb: 9.88, monoCorrelation: 0.81, clipPercent: 0 },
+    hardChecks: { passed: true, verified: true, clipping: false, overCeiling: false, monoWarning: false },
+  });
+  assert.deepEqual(receipt.saved, { toSong: true, kind: 'master', source: 'mixforge:master/0011223344556677', reason: null });
+  assert.deepEqual(JSON.parse(JSON.stringify(receipt)), receipt, 'a receipt is plain data');
+  const blocked = core.buildRunReceipt({ song: { id: 's' }, parts: [], gate: { allow: false, clipFail: true }, saved: { toSong: false, kind: 'master', reason: 'Export blocked: clipping.' } });
+  assert.equal(blocked.saved.toSong, false);
+  assert.equal(blocked.saved.reason, 'Export blocked: clipping.');
+  assert.equal(blocked.master.hardChecks.passed, false);
+  assert.equal(blocked.master.hardChecks.clipping, true);
+  assert.equal(blocked.master.measured, null, 'missing measurements stay missing, never zero');
+  assert.equal(core.buildRunReceipt({}).saved.toSong, false);
+}
 console.log('stem rebuild core smoke ok');
 
 // Wiring.
@@ -86,6 +143,20 @@ assert.match(mixAndMasterBody, /renderReleaseMaster\(\)[\s\S]*kind: 'master'/, '
 assert.match(page, /state\.file !== run\.file/, 'saved stems are used only for the rebuilt mix itself');
 assert.doesNotMatch(page, /innerHTML/, 'the rebuild panel builds its rows without innerHTML');
 assert.doesNotMatch(page, /create-song/, 'rebuilding never makes a second song');
+// The stem check, solo and the run receipt.
+assert.ok(at('app-stem-rebuild.js?') > at('app-stem-reliability-core.js'), 'the stem check loads before the page module');
+assert.match(page, /lab\.auditStems\(\{ sampleRate: parts\[0\]\.buffer\.sampleRate, stems: stemInputs\(\) \}\)/, 'stems are checked against each other as soon as they load');
+assert.match(page, /core\.pickOriginalMix\(song\.assets\)/, 'the comparison uses the song\'s own original mix');
+const stemInputsBody = page.slice(page.indexOf('const stemInputs'), page.indexOf('const checkSources'));
+assert.doesNotMatch(stemInputsBody, /gainDb|muted|solo/, 'the check reads the stems as saved, not the slider levels');
+const renderMixBody = page.slice(page.indexOf('function renderMix'), page.indexOf('function stopLeftover'));
+assert.doesNotMatch(renderMixBody, /solo/, 'solo never changes the mix');
+assert.doesNotMatch(mixAndMasterBody, /\.solo\b/, 'solo never changes what is mastered or saved');
+assert.match(page, /const audibleGain = \(part\) => \(part\.muted \|\| \(anySolo\(\) && !part\.solo\) \? 0 : dbToGain\(part\.gainDb\)\)/);
+assert.match(mixAndMasterBody, /evaluateExportGate\(state\)[\s\S]*if \(!gate\.allow\) \{[\s\S]*return;[\s\S]*kind: 'master'/, 'a master that fails the hard checks is not saved to the song');
+assert.match(mixAndMasterBody, /: \{ allow: false,/, 'with no release check available, nothing is saved');
+assert.match(mixAndMasterBody, /core\.buildRunReceipt\(/);
+assert.match(mixAndMasterBody, /mixForgeCriticGate\?\.receipts/, 'the run receipt carries the correction receipts');
 const libraryPage = readFileSync(new URL('../js/app-library-page.js', import.meta.url), 'utf8');
 assert.match(libraryPage, /&rebuild=stems/, 'library songs with stems link to the rebuild');
 assert.match(libraryPage, /stemCount >= 2/);

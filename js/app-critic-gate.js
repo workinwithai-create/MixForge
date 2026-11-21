@@ -1,8 +1,10 @@
 'use strict';
 
-// MixForge Critic Gate research preview.
+// MixForge correction receipts (the "critic gate").
 // Turns the sequential engine's bounded correction attempts into inspectable,
 // copyable receipts. It never changes audio or overrides the engine's verdict.
+// Receipts always describe the mix that was just built: they are cleared whenever
+// the stem plans are rebuilt or a mix fails, so a stale run is never shown.
 (function installCriticGate() {
   const VERSION = 'mixagent-pattern-v1';
   const finite = (value) => value !== null && value !== '' && Number.isFinite(Number(value));
@@ -182,7 +184,7 @@
       else panel.append(root);
     }
     root.replaceChildren();
-    root.append(node('h3', '', 'Correction receipts · research preview'));
+    root.append(node('h3', '', 'Correction receipts'));
     root.append(node('p', 'stem-guidance',
       'Each proposed premaster move must name the problem, expose numeric settings, survive before/after measurements, and retain the untouched original as rollback. This view does not change audio.'));
 
@@ -240,18 +242,27 @@
       buildReceipt,
       validateReceipt,
       renderStages,
+      clear,
     };
     return render(receipts);
+  }
+
+  // Forget the last run: remove the panel and empty the receipts.
+  function clear() {
+    if (typeof document !== 'undefined') document.getElementById('criticGatePanel')?.remove();
+    globalThis.mixForgeCriticGate = { version: VERSION, receipts: [], buildReceipt, validateReceipt, renderStages, clear };
   }
 
   globalThis.mfCriticGateBuildReceipt = buildReceipt;
   globalThis.mfCriticGateValidateReceipt = validateReceipt;
   globalThis.mfCriticGateRender = renderStages;
+  globalThis.mfCriticGateClear = clear;
   globalThis.mixForgeCriticGate = {
     version: VERSION,
     receipts: [],
     buildReceipt,
     validateReceipt,
     renderStages,
+    clear,
   };
 })();

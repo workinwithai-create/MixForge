@@ -961,6 +961,8 @@
     seq.audition.cache = {};
     seq.audition.offset = 0;
     removeBlock('mixStageLog');
+    // Receipts belong to the mix that was built from the previous plans.
+    if (typeof mfCriticGateClear === 'function') mfCriticGateClear();
   };
 
   const baseRenderStemPlans = renderStemPlans;
@@ -997,6 +999,7 @@
       seq.stages = [];
       seq.snapshots = {};
       seq.assessment = null;
+      if (typeof mfCriticGateClear === 'function') mfCriticGateClear();
       if (typeof setStatus === 'function') {
         setStatus('rebuildStatus', `Sequential mix could not complete: ${error.message}`, 'error');
       }

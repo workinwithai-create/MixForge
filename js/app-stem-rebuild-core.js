@@ -88,5 +88,51 @@
     return wanted.length > 0 && wanted.every((n) => have.has(n));
   }
 
-  globalThis.MixForgeStemRebuildCore = { pickStems, missingStems, sumStems, rebuildSourceKey, coversStems, SAFE_PEAK, STEM_ORDER };
+  // The song's own full mix to check the stems against: the oldest playable mix (or uploaded audio)
+  // that is not itself a rebuild from these stems. Comparing stems with their own sum proves nothing.
+  function pickOriginalMix(assets) {
+    const isRebuild = (asset) => /^rebuilt from stems$/i.test(String(asset.label || '').trim())
+      || /^mixforge:(rebuild|master)\//.test(String(asset.source || asset.sourceKey || ''));
+    const usable = (assets || []).filter((a) => a && a.playable && (a.kind === 'mix' || a.kind === 'audio') && !isRebuild(a));
+    const oldestFirst = (a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+    return usable.filter((a) => a.kind === 'mix').sort(oldestFirst)[0] || usable.filter((a) => a.kind === 'audio').sort(oldestFirst)[0] || null;
+  }
+
+  const num = (value, digits = 2) => (value !== null && value !== '' && Number.isFinite(Number(value)) ? Number(Number(value).toFixed(digits)) : null);
+
+  // One receipt for a whole "Mix and master" run: which stems at which levels, what the stem check found,
+  // every correction the mix stage proposed with its verdict, what the master measured, and whether it was
+  // saved to the song. Numbers and names only; no audio.
+  function buildRunReceipt({ song, parts, trimDb = 0, stemCheck = null, corrections = [], targetLufs = null, masterPlan = null, finalMetrics = null, truePeakDb = null, gate = null, saved = null, generatedAt = new Date().toISOString() } = {}) {
+    const ceiling = masterPlan ? (masterPlan.truePeakCeilingDb ?? masterPlan.ceilingDb ?? null) : null;
+    return {
+      schema: 'mixforge-run-receipt',
+      schemaVersion: 1,
+      generatedAt,
+      privacy: 'Numbers and names only. No audio is included.',
+      song: { id: song?.id || null, title: song?.title || null },
+      source: 'stems saved in the song library; no new separation',
+      stems: (parts || []).map((p) => ({ name: p.name, assetId: p.assetId || null, levelDb: num(p.gainDb, 1) ?? 0, muted: Boolean(p.muted) })),
+      mixTrimDb: num(trimDb) ?? 0,
+      stemCheck,
+      corrections: (corrections || []).map((c) => ({ ...c })),
+      master: {
+        targetLufs: num(targetLufs, 1),
+        peakCeilingDb: num(ceiling, 1),
+        measured: finalMetrics ? {
+          lufs: num(finalMetrics.lufs),
+          peakDb: num(finalMetrics.peakDb),
+          oversampledPeakDb: num(truePeakDb),
+          loudnessRange: num(finalMetrics.lra),
+          crestDb: num(finalMetrics.crestDb),
+          monoCorrelation: num(finalMetrics.correlation),
+          clipPercent: num(finalMetrics.clipPercent, 4),
+        } : null,
+        hardChecks: gate ? { passed: Boolean(gate.allow), verified: Boolean(gate.verified), clipping: Boolean(gate.clipFail), overCeiling: Boolean(gate.tpFail), monoWarning: Boolean(gate.monoWarn) } : null,
+      },
+      saved: saved ? { toSong: Boolean(saved.toSong), kind: saved.kind || null, source: saved.source || null, reason: saved.reason || null } : { toSong: false, kind: null, source: null, reason: null },
+    };
+  }
+
+  globalThis.MixForgeStemRebuildCore = { pickStems, missingStems, sumStems, rebuildSourceKey, coversStems, pickOriginalMix, buildRunReceipt, SAFE_PEAK, STEM_ORDER };
 })();

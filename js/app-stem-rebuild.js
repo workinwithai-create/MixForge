@@ -3,10 +3,13 @@
 // Rebuild a song from the stems saved in the shared song library:
 //   https://mixforge.workinwithai.com/?song=<songId>&rebuild=stems
 // MixForge fetches the song's stems (short-lived signed links), lines them up, and shows a small stem mixer:
-// a level and mute per stem, and Play together. Then the member can
+// a level, mute and solo per stem, and Play together. A stem check says whether the stems line up, and, when the
+// song still has its original mix, whether they add back up to it (with what they leave out playable).
+// Then the member can
 //   - "Mix and master": the stems are already split, so MixForge skips separation entirely. It measures each
 //     stem, applies its stem repairs, rebuilds the mix, renders the release master, and saves that master
-//     to the same library song;
+//     to the same library song when it passes the same hard checks as Download release WAV. One receipt
+//     covers the run: stems and levels, the stem check, every correction with its verdict, and the master;
 //   - "Load as one mix only": the summed stems become the loaded mix for the normal Scan / Quick Master path;
 //     Forensic Fix on it reuses these stems and never splits the song again;
 //   - "Save rebuilt mix to this song": a 16-bit WAV of the plain sum is added to the same song as its mix.
@@ -14,6 +17,7 @@
 (() => {
   const library = globalThis.MixForgeSongLibrary;
   const core = globalThis.MixForgeStemRebuildCore;
+  const lab = globalThis.MixForgeStemReliability || null; // the stem check; the mixer works without it
   if (!library || !core || typeof loadFile !== 'function') return;
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const params = new URLSearchParams(location.search);
@@ -42,7 +46,18 @@
   titleRow.append(badge, titleCopy);
   const status = make('div', { class: 'status busy', id: 'rebuildStatusLine', 'aria-live': 'polite' }, 'Opening your song…');
   const rows = make('div', { class: 'rebuild-rows', id: 'rebuildRows' });
+  const soloNote = make('p', { class: 'rebuild-note hidden', id: 'rebuildSoloNote' }, 'Solo only changes what you hear. Mix and master still uses every stem that is not muted.');
   const note = make('p', { class: 'rebuild-note hidden', id: 'rebuildMissing' });
+  // Stem check: do the stems line up, and do they add back up to the song's original mix?
+  const check = make('div', { class: 'rebuild-check hidden', id: 'rebuildCheck' });
+  const checkLine = make('p', { class: 'rebuild-check-line', id: 'rebuildCheckLine', 'aria-live': 'polite' });
+  const checkNotes = make('ul', { class: 'rebuild-check-notes', id: 'rebuildCheckNotes' });
+  const checkActions = make('div', { class: 'actions rebuild-check-actions' });
+  const compareBtn = make('button', { class: 'secondary hidden', type: 'button', id: 'rebuildCompareBtn' }, 'Compare with the original mix');
+  const leftoverBtn = make('button', { class: 'secondary hidden', type: 'button', id: 'rebuildLeftoverBtn' }, '▶ Hear what the stems leave out');
+  checkActions.append(compareBtn, leftoverBtn);
+  const checkNumbers = make('details', { class: 'rebuild-check-numbers hidden', id: 'rebuildCheckNumbers' });
+  check.append(make('b', {}, 'Stem check'), checkLine, checkNotes, checkActions, checkNumbers);
   const actions = make('div', { class: 'actions rebuild-actions hidden', id: 'rebuildActions' });
   const playBtn = make('button', { class: 'secondary', type: 'button', id: 'rebuildPlayBtn' }, '▶ Play together');
   const masterBtn = make('button', { class: 'primary', type: 'button', id: 'rebuildMasterBtn' }, 'Mix and master');
@@ -51,7 +66,8 @@
   const libLink = make('a', { class: 'library-link', href: `/library.html?song=${encodeURIComponent(songId)}` }, 'Back to this song in my library');
   actions.append(playBtn, masterBtn, useBtn, saveBtn, libLink);
   const saveStatus = make('div', { class: 'status', id: 'rebuildSaveStatus', 'aria-live': 'polite' });
-  panel.append(titleRow, status, rows, note, actions, saveStatus);
+  const receiptBtn = make('button', { class: 'secondary hidden', type: 'button', id: 'rebuildReceiptBtn' }, 'Download the receipt for this run');
+  panel.append(titleRow, status, rows, soloNote, note, check, actions, saveStatus, receiptBtn);
   const loadPanel = $('loadPanel');
   (loadPanel?.parentNode || document.querySelector('main') || document.body).insertBefore(panel, loadPanel || null);
 
@@ -59,8 +75,20 @@
   const sayBelow = (message, kind = 'busy') => { saveStatus.textContent = message; saveStatus.className = `status ${kind}`.trim(); };
 
   let song = null;
-  let parts = []; // { name, asset, blob, buffer, gainDb, muted, gainNode }
+  let parts = []; // { name, asset, blob, buffer, gainDb, muted, solo, gainNode }
   let preview = null; // { sources: AudioBufferSourceNode[] }
+  let originalMix = null; // the song's own full mix, if it has one
+  let stemCheck = null; // { report, receipt } from the last stem check
+  let leftover = null; // { samples, sampleRate, source } what the stems leave out of the original mix
+  let lastReceipt = null; // the receipt of the last Mix and master run
+
+  // Solo is a listening tool: it never changes what is mixed, saved or mastered.
+  const anySolo = () => parts.some((p) => p.solo);
+  const audibleGain = (part) => (part.muted || (anySolo() && !part.solo) ? 0 : dbToGain(part.gainDb));
+  function syncAudible() {
+    for (const part of parts) if (part.gainNode) part.gainNode.gain.value = audibleGain(part);
+    soloNote.classList[anySolo() ? 'remove' : 'add']('hidden');
+  }
 
   // The Hub's "get" opens one song by id. A Hub without it still answers "list", so look the song up there.
   async function fetchSong(id) {
@@ -75,12 +103,14 @@
     return found;
   }
 
-  async function downloadStem(asset, label, index, total) {
+  // One of the song's files through its short-lived signed link, with progress.
+  async function downloadAsset(asset, what, onProgress) {
     const { playUrl } = await library.call('play', { songId: song.id, assetId: asset.id });
     const response = await fetch(playUrl);
-    if (!response.ok) throw new Error(`Could not read the ${label} stem (${response.status}).`);
+    if (!response.ok) throw new Error(`Could not read the ${what} (${response.status}).`);
+    const type = response.headers.get('content-type') || 'audio/wav';
     const size = Number(response.headers.get('content-length')) || Number(asset.size) || 0;
-    if (!response.body || !size) return new Blob([await response.arrayBuffer()], { type: 'audio/wav' });
+    if (!response.body || !size) return new Blob([await response.arrayBuffer()], { type });
     const reader = response.body.getReader();
     const chunks = [];
     let got = 0;
@@ -89,10 +119,13 @@
       if (done) break;
       chunks.push(value);
       got += value.length;
-      say(`Downloading the ${label} stem (${index} of ${total})… ${Math.min(100, Math.round(got / size * 100))}%`);
+      onProgress?.(Math.min(100, Math.round(got / size * 100)));
     }
-    return new Blob(chunks, { type: 'audio/wav' });
+    return new Blob(chunks, { type });
   }
+
+  const downloadStem = (asset, label, index, total) => downloadAsset(asset, `${label} stem`,
+    (percent) => say(`Downloading the ${label} stem (${index} of ${total})… ${percent}%`));
 
   async function resampleTo(buffer, rate) {
     if (buffer.sampleRate === rate) return buffer;
@@ -110,6 +143,106 @@
     return Array.from({ length: Math.min(2, buffer.numberOfChannels) }, (_, c) => buffer.getChannelData(c));
   }
 
+  // ---- Stem check. Always at the levels the stems were saved at, whatever the sliders say:
+  // the question is whether these files hold the whole song.
+  const stemInputs = () => parts.map((p) => ({ id: p.name, channels: channelsOf(p.buffer), durationSec: p.buffer.duration }));
+  const checkSources = (mixAsset = null) => [
+    ...(mixAsset ? [{ slot: 'mix', assetId: mixAsset.id, sizeBytes: Number(mixAsset.size) || null }] : []),
+    ...parts.map((p) => ({ slot: p.name, assetId: p.asset.id, sizeBytes: Number(p.asset.size) || null })),
+  ];
+
+  function showCheck(report, extraNotes = []) {
+    const words = lab.describe(report);
+    check.className = `rebuild-check ${words.tone}`;
+    checkLine.textContent = words.headline;
+    checkNotes.replaceChildren(...[...words.notes, ...extraNotes].map((text) => make('li', {}, text)));
+    const m = report.metrics;
+    const withMix = report.analysis.against === 'mix';
+    const lines = [];
+    if (withMix) {
+      lines.push(`Left over after the best level match: ${m.gainFittedResidualDb.toFixed(1)} dB against the song (more negative is better).`);
+      lines.push(`Left over at the saved levels: ${m.exactSumResidualDb.toFixed(1)} dB.`);
+      lines.push(`Level correction that fits best: ${m.fittedGain.toFixed(2)}×.`);
+    }
+    if (m.maxStemCorrelation != null) lines.push(`Most alike pair of stems: ${m.maxStemCorrelation.toFixed(2)} (0 means nothing shared, 1 means the same sound).`);
+    for (const stem of report.stems) {
+      lines.push(`${stem.id}: ${stem.relativeLevelDb.toFixed(1)} dB against ${withMix ? 'the original mix' : 'the stems together'}${stem.nearEmpty ? ', almost silent' : ''}${stem.durationMismatch ? ', different length' : ''}.`);
+    }
+    lines.push(`Checked the first ${report.analysis.windowSeconds.toFixed(0)} seconds in mono, in this browser. A good result does not prove a stem holds only its own part.`);
+    const list = make('ul');
+    list.append(...lines.map((text) => make('li', {}, text)));
+    checkNumbers.replaceChildren(make('summary', {}, 'The numbers'), list);
+    checkNumbers.classList.remove('hidden');
+  }
+
+  // The stems against each other, as soon as they are decoded. Nothing extra is downloaded.
+  function checkStemsAlone() {
+    if (!lab) return;
+    try {
+      const report = lab.auditStems({ sampleRate: parts[0].buffer.sampleRate, stems: stemInputs() });
+      stemCheck = { report, receipt: lab.toReceipt(report, { sourceFiles: checkSources() }) };
+      showCheck(report);
+      originalMix = core.pickOriginalMix(song.assets);
+      if (originalMix) compareBtn.classList.remove('hidden');
+    } catch (error) {
+      console.warn('[MixForge] stem check unavailable', error);
+    }
+  }
+
+  // The stems against the song's original mix. That mix is downloaded once, only when asked for.
+  async function compareWithOriginal() {
+    if (!lab || !originalMix) return;
+    if ((state._stemDecodesRemaining || 0) > 0) {
+      checkLine.textContent = 'MixForge is still loading stems below. Try the comparison again in a moment.';
+      return;
+    }
+    compareBtn.disabled = true;
+    stopLeftover();
+    try {
+      checkLine.textContent = 'Downloading the original mix…';
+      const blob = await downloadAsset(originalMix, 'original mix', (percent) => { checkLine.textContent = `Downloading the original mix… ${percent}%`; });
+      checkLine.textContent = 'Comparing the stems with the original mix…';
+      const ctx = await ensureAudioContext(false);
+      const rate = parts[0].buffer.sampleRate;
+      const mixBuffer = await resampleTo(await decodeAudioDataSafe(ctx, await blob.arrayBuffer()), rate);
+      const report = lab.auditStems({ sampleRate: rate, mix: { channels: channelsOf(mixBuffer), durationSec: mixBuffer.duration }, stems: stemInputs() });
+      stemCheck = { report, receipt: lab.toReceipt(report, { sourceFiles: checkSources(originalMix) }) };
+      const extra = [];
+      // MP3, AAC and similar encodings change the samples, so some leftover is expected even from complete stems.
+      if (lab.isLossy(originalMix.label || '', blob.type) || parts.some((p) => lab.isLossy(p.asset.label || '', p.blob.type))) {
+        extra.push('One of these files is MP3, AAC or similar. That encoding alone leaves something over, so judge by ear. WAV gives an exact comparison.');
+      }
+      showCheck(report, extra);
+      // Keep only what is needed to listen to the leftover; the decoded mix itself is dropped.
+      leftover = { samples: report.audio.residual, sampleRate: rate, source: null };
+      stemCheck.report = { ...report, audio: null };
+      leftoverBtn.classList.remove('hidden');
+      compareBtn.textContent = 'Compare again';
+    } catch (error) {
+      console.error('[MixForge] stem comparison failed', error);
+      checkLine.textContent = `Could not compare with the original mix: ${error.message}`;
+    } finally {
+      compareBtn.disabled = false;
+    }
+  }
+
+  async function playLeftover() {
+    if (!leftover) return;
+    if (leftover.source) { stopLeftover(); return; }
+    stopPreviewTogether();
+    if (typeof stopPreview === 'function') stopPreview();
+    const ctx = await ensureAudioContext(true);
+    const buffer = ctx.createBuffer(1, leftover.samples.length, leftover.sampleRate);
+    buffer.copyToChannel(leftover.samples, 0);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.onended = () => { if (leftover?.source === source) stopLeftover(); };
+    leftover.source = source;
+    source.start();
+    leftoverBtn.textContent = '■ Stop';
+  }
+
   // The current stem balance, summed into one AudioBuffer (turned down evenly only if it would clip).
   function renderMix() {
     const rate = parts[0].buffer.sampleRate;
@@ -121,6 +254,15 @@
     return { buffer: out, trimDb: sum.trimDb };
   }
 
+  function stopLeftover() {
+    if (!leftover?.source) return;
+    const source = leftover.source;
+    leftover.source = null;
+    source.onended = null;
+    try { source.stop(); } catch (_) {}
+    leftoverBtn.textContent = '▶ Hear what the stems leave out';
+  }
+
   function stopPreviewTogether() {
     if (!preview) return;
     for (const src of preview.sources) { try { src.stop(); } catch (_) {} }
@@ -130,6 +272,7 @@
 
   async function playTogether() {
     if (preview) { stopPreviewTogether(); return; }
+    stopLeftover();
     if (typeof stopPreview === 'function') stopPreview();
     const ctx = await ensureAudioContext(true);
     const when = ctx.currentTime + 0.08;
@@ -138,7 +281,7 @@
       const src = ctx.createBufferSource();
       src.buffer = part.buffer;
       const gain = ctx.createGain();
-      gain.gain.value = part.muted ? 0 : dbToGain(part.gainDb);
+      gain.gain.value = audibleGain(part);
       part.gainNode = gain;
       src.connect(gain).connect(ctx.destination);
       src.start(when);
@@ -157,20 +300,26 @@
       const name = make('b', {}, STEM_NAMES[part.name] || part.name);
       const slider = make('input', { type: 'range', min: '-24', max: '6', step: '0.5', value: '0', 'aria-label': `${part.name} level` });
       const value = make('span', { class: 'rebuild-db' }, '0.0 dB');
+      const toggles = make('div', { class: 'rebuild-toggles' });
       const muteLabel = make('label', { class: 'rebuild-mute' });
       const mute = make('input', { type: 'checkbox', 'aria-label': `Mute ${part.name}` });
       muteLabel.append(mute, document.createTextNode(' Mute'));
+      const soloLabel = make('label', { class: 'rebuild-mute rebuild-solo', title: 'Listen to this stem on its own. Solo does not change the mix.' });
+      const solo = make('input', { type: 'checkbox', 'aria-label': `Solo ${part.name}` });
+      soloLabel.append(solo, document.createTextNode(' Solo'));
+      toggles.append(muteLabel, soloLabel);
       const apply = () => {
         part.gainDb = Number(slider.value);
         part.muted = mute.checked;
         value.textContent = `${part.gainDb > 0 ? '+' : ''}${part.gainDb.toFixed(1)} dB`;
-        if (part.gainNode) part.gainNode.gain.value = part.muted ? 0 : dbToGain(part.gainDb);
+        syncAudible();
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save rebuilt mix to this song';
       };
       slider.addEventListener('input', apply);
       mute.addEventListener('change', apply);
-      row.append(name, slider, value, muteLabel);
+      solo.addEventListener('change', () => { part.solo = solo.checked; syncAudible(); });
+      row.append(name, slider, value, toggles);
       rows.append(row);
     }
   }
@@ -178,6 +327,7 @@
   // Sum the stems at their levels and make that the loaded mix. Returns the even turn-down in dB.
   async function loadRebuilt() {
     stopPreviewTogether();
+    stopLeftover();
     say('Putting the stems back together…');
     const { buffer, trimDb } = renderMix();
     const blob = await encodeWav(buffer, 24, (p) => say(`Preparing the rebuilt mix… ${p}%`));
@@ -239,6 +389,8 @@
     }
     masterBtn.disabled = true;
     useBtn.disabled = true;
+    lastReceipt = null;
+    receiptBtn.classList.add('hidden');
     try {
       const trimDb = await loadRebuilt();
       const run = state.libraryRebuild;
@@ -280,15 +432,38 @@
       reveal('verifyPanel');
       setStatus('masterStatus', 'Release master rendered from the saved stems and measured again after limiting.', 'ok');
 
+      const target = Number($('targetLufs')?.value || -12);
+      const source = core.rebuildSourceKey(parts.map((p) => ({ assetId: p.asset.id, gainDb: p.gainDb, muted: p.muted })), { kind: 'master', extra: String(target) });
+      // A master goes onto the song only if it passes the same hard checks as Download release WAV
+      // (no clipping, peak under the ceiling). If the check itself is missing, nothing is saved.
+      const gate = typeof evaluateExportGate === 'function'
+        ? evaluateExportGate(state)
+        : { allow: false, verified: false, message: 'MixForge could not run its release checks on this master.' };
+      const receiptFor = (saved) => core.buildRunReceipt({
+        song, trimDb, targetLufs: target, gate, saved,
+        parts: parts.map((p) => ({ name: p.name, assetId: p.asset.id, gainDb: p.gainDb, muted: p.muted })),
+        stemCheck: stemCheck?.receipt || null,
+        corrections: globalThis.mixForgeCriticGate?.receipts || [],
+        masterPlan: state.masterPlan, finalMetrics: state.finalMetrics,
+        truePeakDb: state.masterConstraint?.truePeakDb ?? null,
+      });
+      if (!gate.allow) {
+        lastReceipt = receiptFor({ toSong: false, kind: 'master', source, reason: gate.message });
+        receiptBtn.classList.remove('hidden');
+        say(`Mixed and mastered${trimNote(trimDb)}, but not saved to “${song.title || 'this song'}”: ${gate.message} Listen below and check the release verification.`, 'error');
+        $('verifyPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+
       // Save the master to the same song (16-bit keeps the upload small; Download release WAV still gives 24-bit).
       say(`Saving the master to “${song.title || 'this song'}”…`);
-      const target = Number($('targetLufs')?.value || -12);
       const blob = await encodeWav(state.master, 16, (p) => say(`Preparing the master WAV… ${p}%`));
-      const source = core.rebuildSourceKey(parts.map((p) => ({ assetId: p.asset.id, gainDb: p.gainDb, muted: p.muted })), { kind: 'master', extra: String(target) });
       await library.saveFile(song.id, {
         kind: 'master', blob: new File([blob], 'mixforge-master.wav', { type: 'audio/wav' }),
         label: 'MixForge master', durationSec: state.master.duration, source,
       });
+      lastReceipt = receiptFor({ toSong: true, kind: 'master', source });
+      receiptBtn.classList.remove('hidden');
       say(`Mixed and mastered${trimNote(trimDb)}, and saved to “${song.title || 'this song'}” as its release master. Listen below, or download the 24-bit WAV.`, 'ok');
       $('verifyPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (error) {
@@ -323,6 +498,16 @@
     }
   }
 
+  function downloadReceipt() {
+    if (!lastReceipt) return;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(lastReceipt, null, 2)], { type: 'application/json' }));
+    const link = make('a', { href: url, download: `mixforge-receipt-${String(song?.title || 'song').replace(/[^a-z0-9._-]+/gi, '_').slice(0, 60)}-${lastReceipt.generatedAt.slice(0, 10)}.json` });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   async function open() {
     try {
       song = await fetchSong(songId);
@@ -344,12 +529,13 @@
         const blob = await downloadStem(asset, name, i + 1, picked.length);
         say(`Decoding the ${name} stem (${i + 1} of ${picked.length})…`);
         const buffer = await decodeAudioDataSafe(ctx, await blob.arrayBuffer());
-        loaded.push({ name, asset, blob, buffer, gainDb: 0, muted: false, gainNode: null });
+        loaded.push({ name, asset, blob, buffer, gainDb: 0, muted: false, solo: false, gainNode: null });
       }
       const rate = loaded[0].buffer.sampleRate;
       for (const part of loaded) part.buffer = await resampleTo(part.buffer, rate);
       parts = loaded;
       renderRows();
+      checkStemsAlone();
       actions.classList.remove('hidden');
       const minutes = Math.max(...parts.map((p) => p.buffer.duration)) / 60;
       say(`${parts.length} stem${parts.length === 1 ? '' : 's'} ready (${minutes.toFixed(1)} min). Set the levels, press Play together, then Mix and master. No splitting needed.`, 'ok');
@@ -365,6 +551,9 @@
   masterBtn.addEventListener('click', () => { void mixAndMaster(); });
   useBtn.addEventListener('click', () => { void useInMixForge(); });
   saveBtn.addEventListener('click', () => { void saveToSong(); });
+  compareBtn.addEventListener('click', () => { void compareWithOriginal(); });
+  leftoverBtn.addEventListener('click', () => { void playLeftover().catch((error) => { checkLine.textContent = `Could not play: ${error.message}`; }); });
+  receiptBtn.addEventListener('click', downloadReceipt);
 
   // Forensic Fix on a rebuilt mix: hand over the stems this song already has. The song is never split again:
   // the stem list becomes exactly the saved stems (a scan asking for a stem the song lacks just works without it).

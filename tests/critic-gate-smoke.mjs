@@ -75,4 +75,23 @@ const invalid = structuredClone(accepted);
 invalid.proposedChanges[0].proposed = 'not-a-number';
 assert.equal(context.mfCriticGateValidateReceipt(invalid).valid, false);
 
+// Receipts follow the current mix: rendering a run stores it, and clearing forgets it.
+context.mfCriticGateRender([base, { ...base, index: 3, stem: 'bass' }], { plan: { anchor: 'vocals' } });
+assert.equal(context.mixForgeCriticGate.receipts.length, 2);
+assert.equal(context.mixForgeCriticGate.receipts[1].id, 'stage-3-bass');
+assert.equal(context.mixForgeCriticGate.receipts[0].validation.valid, true);
+context.mfCriticGateClear();
+assert.equal(context.mixForgeCriticGate.receipts.length, 0, 'a cleared run leaves no receipts behind');
+assert.equal(typeof context.mixForgeCriticGate.renderStages, 'function');
+
+// The mixing engine clears receipts wherever it clears its own stage log, and keeps the proposal for audit.
+const engine = fs.readFileSync(new URL('../js/app-sequential-mixing.js', import.meta.url), 'utf8');
+assert.match(engine, /removeBlock\('mixStageLog'\);[\s\S]{0,160}mfCriticGateClear\(\)/, 'new stem plans clear the old receipts');
+assert.match(engine, /seq\.lastError = error;[\s\S]{0,200}mfCriticGateClear\(\)/, 'a failed mix clears the receipts');
+assert.match(engine, /proposed: decision,/, 'the original proposal is kept next to the final decision');
+assert.match(engine, /mfCriticGateRender\(seq\.stages, \{ plan: seq\.plan/);
+const page = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+assert.ok(page.indexOf('app-critic-gate.js') > page.indexOf('app-sequential-mixing.js'), 'receipts load after the mixing engine');
+assert.ok(page.indexOf('app-critic-gate.js') < page.indexOf('app-separation-provenance.js'), 'receipts do not change the engine load order that follows');
+
 console.log('critic-gate-smoke: ok');
