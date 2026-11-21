@@ -7,7 +7,7 @@ LANDR, eMastered, BandLab Mastering, CloudBounce, and RoEx win on making a file 
 1. Audit a stereo mix. Measurements are ground truth for clip %, LUFS, sample peak, correlation, and DC.
 2. Optional Gemini listening pass hears a compact mix excerpt (not a vocal performance take). Performance / pitch / timing lives in [AuraMix](https://auramix.workinwithai.com).
 3. Choose **Quick Master** (stereo release master + Original vs Master A/B) or **Forensic Fix** (timeline + opt-in stems + targeted repair). Quick Master skips Isolate / Confirm / Repair.
-4. Separate only the stems needed (Demucs via RunPod: vocals / bass / drums / other). Guitars and keys are not confirmable stems — they share residual other. A song opened from the library with its stems already saved is never split again.
+4. When a mix needs stem work, split it once into all four parts (Demucs via RunPod: vocals / bass / drums / other) and keep all four. Guitars and keys are not confirmable stems — they share residual other. A song opened from the library with its stems already saved is never split again.
 5. Measure and repair affected stems conservatively.
 6. Rebuild the original mix with the corrected stem deltas.
 7. Master the corrected mix conservatively. Reference-bounded tonal language is used only when a reference file is loaded.
