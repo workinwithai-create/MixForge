@@ -1,0 +1,26 @@
+/* Steps layout (js/app-steps.js): one panel on screen at a time behind a step switch.
+   Every rule here is scoped to body.mf-steps-on, which the script adds, so without the script
+   (or with ?steps=0) the page is the stacked layout it always was. */
+.mf-steps{display:flex;gap:2px;padding:3px;margin:0 0 14px;border:1px solid var(--line);border-radius:999px;background:rgba(7,5,4,.88);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);position:sticky;top:calc(8px + env(safe-area-inset-top));z-index:6}
+.mf-steps button{flex:1 1 0;min-width:0;border:0;background:transparent;border-radius:999px;padding:7px 4px;min-height:38px;
+  font:400 .8125rem/1 var(--font-body,inherit);color:var(--muted);white-space:nowrap;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.mf-steps button:hover:not(:disabled){color:var(--text);filter:none;transform:none}
+.mf-steps button:disabled{opacity:.38;cursor:default}
+.mf-steps button[aria-pressed="true"]{background:var(--metal-copper,var(--copper));color:var(--on-metal,#111);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 0 14px -3px rgba(214,140,80,.7)}
+@media (min-width:400px){.mf-steps button{font-size:.875rem;padding:7px 10px}}
+@media (min-width:760px){.mf-steps button{min-height:42px;font-size:.9375rem}}
+
+.mf-steps-on .panel[data-step]{margin-top:0;scroll-margin-top:calc(64px + env(safe-area-inset-top))}
+.mf-steps-on .panel[data-step]:not(.mf-step-on){display:none}
+
+/* The long introduction belongs to the first step. Past it, keep the header to the studio mark and the app name. */
+.mf-steps-on .pipeline,.mf-steps-on .pipeline-note{display:none}
+.mf-steps-on:not([data-step="load"]) .hero>p:not(.library-entry),
+.mf-steps-on:not([data-step="load"]) .hero-modes,
+.mf-steps-on:not([data-step="load"]) .eyebrow,
+.mf-steps-on:not([data-step="load"]) .mobile-onboard{display:none}
+.mf-steps-on:not([data-step="load"]) .hero{padding-bottom:6px}
+.mf-steps-on:not([data-step="load"]) .hero h1{font-size:clamp(1.5rem,5vw,2.2rem);margin-bottom:6px}
+@media (max-width:480px){.mf-steps-on .path-grid{grid-template-columns:1fr}}
