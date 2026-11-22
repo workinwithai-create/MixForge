@@ -1,0 +1,6 @@
+/* Vocal tuning step (js/app-vocal-tune.js). Rows reuse the master-controls styles. */
+#vocalPanel .mf-controls{margin-top:0}
+.mf-ctl-select{grid-template-columns:minmax(0,.8fr) minmax(0,1.5fr)}
+#vocalPanel audio{display:block;width:100%;height:40px;margin-top:12px}
+#vocalPanel .mf-controls-note{margin:10px 2px 0}
+@media (max-width:480px){.mf-ctl-select{grid-template-columns:minmax(0,.8fr) minmax(0,1.5fr)}}

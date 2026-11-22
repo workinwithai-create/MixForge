@@ -14,6 +14,7 @@ const MF_STEPS = [
   { key: 'load', label: 'Load', panel: 'loadPanel' },
   { key: 'diagnose', label: 'Diagnose', panel: 'auditPanel' },
   { key: 'stems', label: 'Stems', panel: 'stemPanel' },
+  { key: 'vocals', label: 'Vocals', panel: 'vocalPanel' },
   { key: 'master', label: 'Master', panel: 'masterPanel' },
   { key: 'verify', label: 'Verify', panel: 'verifyPanel' },
 ];

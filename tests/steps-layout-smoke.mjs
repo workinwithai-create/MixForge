@@ -8,19 +8,20 @@ const sandbox = { module: { exports: {} } };
 vm.runInNewContext(source, sandbox); // no document here, so only the pure parts run
 const { MF_STEPS, mfStepsResolve } = sandbox.module.exports;
 
-assert.equal(MF_STEPS.map((s) => s.key).join(','), 'load,diagnose,stems,master,verify');
+assert.equal(MF_STEPS.map((s) => s.key).join(','), 'load,diagnose,stems,vocals,master,verify');
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 for (const step of MF_STEPS) assert.match(html, new RegExp(`id="${step.panel}"`), `${step.panel} must be in the page`);
 
-const none = { load: true, diagnose: false, stems: false, master: false, verify: false };
+const none = { load: true, diagnose: false, stems: false, vocals: false, master: false, verify: false };
 assert.equal(mfStepsResolve('load', none), 'load');
 assert.equal(mfStepsResolve('master', none), 'load', 'a step that is not reached cannot be shown');
 assert.equal(mfStepsResolve(null, none), 'load');
 
 // Quick Master path: stems are never opened.
-const quick = { load: true, diagnose: true, stems: false, master: true, verify: false };
+const quick = { load: true, diagnose: true, stems: false, vocals: false, master: true, verify: false };
 assert.equal(mfStepsResolve('master', quick), 'master');
 assert.equal(mfStepsResolve('stems', quick), 'diagnose', 'falls back to the step before');
+assert.equal(mfStepsResolve('vocals', quick), 'diagnose', 'no vocal stem on the Quick Master path');
 assert.equal(mfStepsResolve('verify', quick), 'master');
 
 // A new song hides everything after Load while the user sits on Verify.
