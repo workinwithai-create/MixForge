@@ -139,7 +139,7 @@ function buildPanel() {
 
 // ---------------------------------------------------------------- harness
 
-function makeContext({ stems, original, quality = {} }) {
+function makeContext({ stems, original, quality = {}, autoMix = false }) {
   const dom = buildPanel();
   const context = vm.createContext({
     console, Math, Number, Object, Array, Float32Array, Float64Array, Set, Error, Promise, String, JSON,
@@ -173,6 +173,8 @@ function makeContext({ stems, original, quality = {} }) {
   for (const [stem, buffer] of Object.entries(stems)) {
     context.state.stemPlans[stem] = { metrics: context.measureBuffer(buffer), quality: { score: quality[stem] ?? 90 }, wet: 0.3 };
   }
+  // The level-ride planner is optional: the engine rides the lead vocal only when it is loaded.
+  if (autoMix) vm.runInContext(fs.readFileSync(new URL('../js/app-auto-mix-core.js', import.meta.url), 'utf8'), context);
   vm.runInContext(fs.readFileSync(new URL('../js/app-sequential-mixing.js', import.meta.url), 'utf8'), context);
   return { context, dom };
 }
@@ -302,6 +304,124 @@ const sameSamples = (a, b) => a.channels.every((d, c) => d.every((x, i) => Math.
   await assert.rejects(context.rebuildCorrectedMix(), /timing/);
   assert.equal(context.fallbackCalls, 0);
   assert.equal(context.mixForgeSequential.stages.length, 0);
+}
+
+// ------------------------------------------------ 8. vocal level rides (automation)
+
+{
+  // A 16-second song: four 3-second vocal phrases over a steady band. The second phrase is sung 6 dB quieter.
+  const SEC = 16;
+  const LEN = RATE * SEC;
+  const longNoise = (seed) => { const r = rng(seed); return Float32Array.from({ length: LEN }, () => r()); };
+  const longBand = (seed, freq, q, gain) => filter(longNoise(seed), coefs('bandpass', freq, q, 0)).map((x) => x * gain);
+  const sum = (...parts) => Float32Array.from({ length: LEN }, (_, i) => parts.reduce((total, p) => total + p[i], 0));
+  const phraseDb = [0, -6, 0, 0];
+  const voice = sum(longBand(11, 2800, 1.2, 0.35), longBand(12, 300, 1.5, 0.12)).map((x, i) => {
+    const t = i / RATE, phrase = Math.floor(t / 4);
+    return t - phrase * 4 < 3 ? x * 10 ** (phraseDb[phrase] / 20) : 0;
+  });
+  const bed = sum(longBand(13, 3000, 1.0, 0.12), longBand(14, 600, 0.9, 0.2));
+  const low = Float32Array.from({ length: LEN }, (_, i) => 0.25 * Math.sin(2 * Math.PI * 70 * i / RATE));
+  const kit = Float32Array.from({ length: LEN }, (_, i) => { const t = (i % (RATE / 2)) / RATE; return 0.5 * Math.exp(-t * 30) * Math.sin(2 * Math.PI * 65 * t); });
+  const build = (options = {}) => {
+    const stems = { vocals: stereo(voice), other: stereo(bed), bass: stereo(low), drums: stereo(kit) };
+    const original = stereo(sum(voice, bed, low, kit));
+    return { stems, original, ...makeContext({ stems, original, autoMix: true, ...options }) };
+  };
+  const rmsOf = (data, from, to) => { let total = 0; for (let i = Math.round(from * RATE); i < Math.round(to * RATE); i++) total += data[i] * data[i]; return Math.sqrt(total / Math.round((to - from) * RATE)); };
+
+  // 8a. The dipped phrase is lifted; everything else is left alone.
+  {
+    const { context, dom, original } = build();
+    const untouched = original.channels.map((d) => Float32Array.from(d));
+    const seq = context.mixForgeSequential;
+    await context.buildStemPlans();
+    const out = await context.rebuildCorrectedMix();
+    assert.equal(seq.stages.length, seq.plan.stages.length + 1, 'the ride is one more stage after the stems are placed');
+    const ride = seq.stages[seq.stages.length - 1];
+    assert.equal(ride.kind, 'ride');
+    assert.equal(ride.stem, 'vocals');
+    assert.equal(ride.title, 'Vocal level rides');
+    assert.ok(ride.applied, `the ride is kept (${JSON.stringify(ride.attempts)})`);
+    assert.equal(ride.applied.factor, 1);
+    assert.equal(ride.proposed.rides.length, 1, `one phrase needs a ride (${JSON.stringify(ride.proposed.rides)})`);
+    const [lift] = ride.proposed.rides;
+    assert.ok(lift.gainDb > 2 && lift.gainDb <= 3, `a lift of a few dB, inside the cap (${lift.gainDb})`);
+    assert.ok(lift.startSec >= 3.5 && lift.startSec <= 4.6 && lift.endSec >= 6.4 && lift.endSec <= 7.6, `on the quiet phrase (${lift.startSec}–${lift.endSec})`);
+    assert.ok(ride.proposed.outOfPlaceAfter.worstDipDb < ride.proposed.outOfPlaceBefore.worstDipDb, 'the phrase is closer to its usual place');
+    assert.match(ride.decision.heard, /the vocal usually sits .* the band/);
+    assert.match(ride.decision.changed, /^rode the vocal level in 1 place \(\+\d\.\d dB at 0:0[34]–0:0[67]\)$/);
+    assert.match(seq.assessment.summary, /rode the vocal's level in 1 place/);
+
+    // The audio: inside the ride the change is the placed vocal times the ride gain; outside it nothing changed.
+    const before = await seq.renderStage(ride.index - 1);
+    const diff = Float32Array.from(out.channels[0], (x, i) => x - before.channels[0][i]);
+    assert.ok(rmsOf(diff, 0.5, 2.5) < 1e-6, 'a phrase that held its place is untouched');
+    assert.ok(rmsOf(diff, 8.5, 10.5) < 1e-6);
+    const expected = 10 ** (lift.gainDb / 20) - 1;
+    const actual = rmsOf(diff, 4.8, 6.2) / rmsOf(voice, 4.8, 6.2);
+    assert.ok(Math.abs(actual - expected) < 0.08, `the lift in the audio matches the receipt (${actual.toFixed(3)} vs ${expected.toFixed(3)})`);
+    assert.ok(untouched.every((d, c) => d.every((x, i) => x === original.channels[c][i])), 'original must remain immutable');
+
+    // It shows up where every other stage does: the log, the stage player, and a deterministic replay.
+    const headings = [...dom.panel.find('mixStageLog').walk()].filter((n) => n.tagName === 'h3').map((n) => n.textContent);
+    assert.ok(headings.includes(`Stage ${ride.index} · Vocal level rides`), headings.join(' | '));
+    const buttons = dom.panel.find('stageAudition').querySelectorAll('button').map((b) => b.textContent);
+    assert.ok(buttons.includes(`After ${ride.index} · Vocal level rides`), buttons.join(' | '));
+    seq.snapshots = {};
+    seq.audition.cache = {};
+    assert.ok(sameSamples(await seq.renderStage(seq.stages.length), out), 'replaying the kept decisions reproduces the ride exactly');
+  }
+
+  // 8b. Rides can be switched off: the mix is then exactly the static stages.
+  {
+    const { context } = build();
+    context.state.mixOptions = { rides: false };
+    const seq = context.mixForgeSequential;
+    await context.buildStemPlans();
+    await context.rebuildCorrectedMix();
+    assert.equal(seq.stages.length, seq.plan.stages.length);
+    assert.ok(!seq.stages.some((stage) => stage.kind === 'ride'));
+  }
+
+  // 8c. A vocal stem that cannot be trusted on its own is not ridden, and the stage says why.
+  {
+    const { context } = build({ quality: { vocals: 55 } });
+    const seq = context.mixForgeSequential;
+    await context.buildStemPlans();
+    const out = await context.rebuildCorrectedMix();
+    const ride = seq.stages[seq.stages.length - 1];
+    assert.equal(ride.kind, 'ride');
+    assert.equal(ride.applied, null);
+    assert.equal(ride.reverted, false);
+    assert.equal(ride.proposed.rides.length, 0);
+    assert.match(ride.decision.heard, /cannot be trusted on its own/);
+    assert.match(ride.decision.changed, /left exactly as it is/);
+    assert.ok(sameSamples(await seq.renderStage(ride.index - 1), out), 'no ride, no change');
+  }
+
+  // 8d. A ride that leaves the mix measuring worse is tried at half strength, then undone.
+  {
+    const { context } = build();
+    const seq = context.mixForgeSequential;
+    await context.buildStemPlans();
+    const realMeasure = context.measureBuffer;
+    let rideChecks = 0;
+    // The static stages measure normally. Every measurement the ride stage takes reports peaks 2 dB higher.
+    context.setStatus = (_id, message) => { if (/Riding the vocal/.test(message)) rideChecks = 1; };
+    context.measureBuffer = (buffer) => { const m = realMeasure(buffer); return rideChecks ? { ...m, peakDb: m.peakDb + 2 } : m; };
+    const out = await context.rebuildCorrectedMix();
+    const ride = seq.stages[seq.stages.length - 1];
+    assert.equal(ride.kind, 'ride');
+    assert.equal(ride.attempts.map((a) => a.factor).join(), '1,0.5', 'full strength, then half');
+    assert.ok(ride.attempts.every((a) => a.problems.some((p) => /peaks rose/.test(p))));
+    assert.equal(ride.applied, null);
+    assert.equal(ride.reverted, true);
+    assert.match(ride.decision.changed, /^nothing in the end — I tried 1 level ride, but the mix measured worse/);
+    assert.equal(ride.proposed.rides.length, 1, 'the proposal stays on record');
+    context.measureBuffer = realMeasure;
+    assert.ok(sameSamples(await seq.renderStage(ride.index - 1), out), 'an undone ride leaves the mix as the static stages built it');
+  }
 }
 
 console.log('sequential-mixing-smoke: ok');

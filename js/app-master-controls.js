@@ -74,11 +74,36 @@ function mfCtlApply(plan, user = {}) {
   return out;
 }
 
+// What counts as "the same song" for settings the musician chose. A plain loaded file is the song for as
+// long as it is loaded. Stems mixed in the stem mixer are re-summed into a fresh file on every Mix and
+// master run, so there the song is the library song (or the set of stem files), not the summed file;
+// otherwise a second run would throw the musician's settings away. Pure.
+function mfSongIdentity(appState) {
+  const run = appState?.libraryRebuild;
+  if (run?.file && appState.file === run.file) return `stems:${run.songId || 'local'}:${run.file.name}`;
+  return appState?.original || null;
+}
+
+// A short, stable description of the overrides, for the key a saved master is filed under. Empty when
+// nothing was moved, so an untouched run is filed exactly as before. Pure.
+function mfCtlRunKey(user = {}) {
+  const keys = Object.keys(user).filter((key) => user[key] === false || Number.isFinite(user[key])).sort();
+  return keys.length ? `|controls:${keys.map((key) => `${key}=${user[key] === false ? 'off' : Number(user[key]).toFixed(2)}`).join(',')}` : '';
+}
+
 const mfCtl = { song: null, user: {}, picks: null };
 function mfCtlUser() {
   // Overrides belong to one song. A new song starts from MixForge's picks again.
-  if (typeof state !== 'undefined' && mfCtl.song !== state.original) { mfCtl.song = state.original; mfCtl.user = {}; }
+  if (typeof state !== 'undefined') {
+    const song = mfSongIdentity(state);
+    if (mfCtl.song !== song) { mfCtl.song = song; mfCtl.user = {}; }
+  }
   return mfCtl.user;
+}
+// Anything that changes what a Mix and master run produces adds its part to the saved master's key here.
+if (typeof globalThis !== 'undefined') {
+  globalThis.mixForgeRunKeyParts = globalThis.mixForgeRunKeyParts || [];
+  globalThis.mixForgeRunKeyParts.push(() => mfCtlRunKey(mfCtlUser()));
 }
 
 if (typeof buildMasterPlan === 'function') {
@@ -224,4 +249,4 @@ if (typeof document !== 'undefined' && typeof $ === 'function' && $('targetLufs'
   });
 }
 
-if (typeof module !== 'undefined') module.exports = { MF_CTL_BANDS, mfCtlRead, mfCtlApply };
+if (typeof module !== 'undefined') module.exports = { MF_CTL_BANDS, mfCtlRead, mfCtlApply, mfSongIdentity, mfCtlRunKey };

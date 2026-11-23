@@ -6,7 +6,7 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../js/app-master-controls.js', import.meta.url), 'utf8');
 const sandbox = { module: { exports: {} } };
 vm.runInNewContext(source, sandbox); // no page and no app here, so only the pure parts run
-const { mfCtlRead, mfCtlApply } = sandbox.module.exports;
+const { mfCtlRead, mfCtlApply, mfSongIdentity, mfCtlRunKey } = sandbox.module.exports;
 
 const plan = () => ({
   eq: [
@@ -72,6 +72,44 @@ const dry = mfCtlApply(plan(), { dynamics: false });
 assert.equal(dry.compressor, null);
 assert.equal(dry.multiband, null);
 assert.equal(dry.dynamicsOff, true);
+
+// Song identity. A loaded file is the song. Stems in the stem mixer are re-summed into a new file on
+// every Mix and master run, so the identity there must not change from run to run.
+const bufferA = { id: 'a' }, bufferB = { id: 'b' };
+assert.equal(mfSongIdentity({ original: bufferA }), bufferA);
+assert.notEqual(mfSongIdentity({ original: bufferA }), mfSongIdentity({ original: bufferB }));
+const fileOne = { name: 'Demo - mixed from stems.wav' }, fileTwo = { name: 'Demo - mixed from stems.wav' };
+const runOne = { original: bufferA, file: fileOne, libraryRebuild: { file: fileOne, songId: null } };
+const runTwo = { original: bufferB, file: fileTwo, libraryRebuild: { file: fileTwo, songId: null } };
+assert.equal(mfSongIdentity(runOne), mfSongIdentity(runTwo), 'a second run on the same stems is the same song');
+assert.notEqual(mfSongIdentity({ ...runTwo, libraryRebuild: { file: fileTwo, songId: 'song_9' } }), mfSongIdentity(runTwo), 'a library song is not "local"');
+// A different file loaded afterwards is no longer the stem run, even though the run record is still there.
+assert.equal(mfSongIdentity({ original: bufferB, file: { name: 'other.wav' }, libraryRebuild: runOne.libraryRebuild }), bufferB);
+assert.equal(mfSongIdentity(undefined), null);
+
+// The saved-master key: empty when nothing moved, the same for the same settings, different otherwise.
+assert.equal(mfCtlRunKey({}), '');
+assert.equal(mfCtlRunKey({ air: 2, dynamics: false }), mfCtlRunKey({ dynamics: false, air: 2 }), 'order does not matter');
+assert.notEqual(mfCtlRunKey({ air: 2 }), mfCtlRunKey({ air: 2.5 }));
+assert.match(mfCtlRunKey({ ceiling: -1.5, dynamics: false }), /^\|controls:ceiling=-1\.50,dynamics=off$/);
+// The stem flow asks for those parts when it files a master, and reads the loudness from the plan.
+const stemFlow = readFileSync(new URL('../js/app-stem-rebuild.js', import.meta.url), 'utf8');
+assert.match(stemFlow, /mixForgeRunKeyParts/);
+assert.match(stemFlow, /state\.masterPlan\?\.targetLufs/);
+
+// The run receipt names the controls the musician moved.
+const rebuildCore = {};
+vm.runInNewContext(readFileSync(new URL('../js/app-stem-rebuild-core.js', import.meta.url), 'utf8'), { globalThis: rebuildCore, module: { exports: {} }, console });
+const coreApi = Object.values(rebuildCore).find((value) => value && typeof value.buildRunReceipt === 'function');
+if (coreApi) {
+  const movedPlan = mfCtlApply(plan(), { air: 3, ceiling: -1.5 });
+  const receipt = coreApi.buildRunReceipt({ song: { id: 's', title: 't' }, parts: [], masterPlan: movedPlan, targetLufs: -12 });
+  assert.equal(receipt.master.setByMusician.join(','), 'air,ceiling');
+  assert.equal(receipt.master.peakCeilingDb, -1.5);
+  assert.equal(coreApi.buildRunReceipt({ song: {}, parts: [], masterPlan: plan() }).master.setByMusician.length, 0);
+} else {
+  assert.match(readFileSync(new URL('../js/app-stem-rebuild-core.js', import.meta.url), 'utf8'), /setByMusician/);
+}
 
 // Wiring: outermost wrapper, so it must load after the multiband layer.
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');

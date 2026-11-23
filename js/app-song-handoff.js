@@ -59,7 +59,21 @@
       detail.textContent = `Song ID ${song.id}. Opened “${asset.label || asset.kind}”. Stems you save go to this song.`;
     } catch (error) {
       console.error('[MixForge] song handoff failed', error);
-      if (error.status === 401 || error.status === 402) say('Sign in to open this song', error.message);
+      if (error.status === 401 || error.status === 402) {
+        say('Sign in to open this song', error.message);
+        // Signed out: sign in and come straight back to this same song and file.
+        if (error.status === 401 && typeof library.signInUrl === 'function') {
+          const actions = document.createElement('div');
+          actions.className = 'license-actions';
+          const signIn = document.createElement('a');
+          signIn.className = 'primary license-btn';
+          signIn.id = 'songHandoffSignIn';
+          signIn.href = library.signInUrl();
+          signIn.textContent = 'Sign in';
+          actions.append(signIn);
+          banner.append(actions);
+        }
+      }
       else if (error.status === 404) say('That song is not in your library', 'It may belong to another account. Nothing was changed.');
       else say('Could not open that song', error.message);
       state.librarySong = null;

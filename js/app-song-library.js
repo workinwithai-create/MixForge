@@ -175,5 +175,22 @@
     return confirmOrExisting({ ...base, path: ticket.path, durationSec });
   }
 
-  globalThis.MixForgeSongLibrary = { call, getSong, saveFile, copyFromMixForge, mixforgeStoragePath, titleFromFileName, formatBytes, wavMime };
+  // The sign-in link for the page the member is on. Sign-in is a cookie that only exists on workinwithai.com
+  // addresses, and the Hub only returns to those, so:
+  //   - on the live site, or on a preview served from a workinwithai.com address (for example mix.workinwithai.com
+  //     pointed at a branch), sign-in comes back to this same address, path and song link included;
+  //   - anywhere else (a *.vercel.app preview cannot hold the session) it goes to the live site.
+  const LIVE_ORIGIN = 'https://mixforge.workinwithai.com';
+  function signInUrl(loc = globalThis.location) {
+    let back = `${LIVE_ORIGIN}/`;
+    try {
+      const host = String(loc?.hostname || '').toLowerCase();
+      const firstParty = loc?.protocol === 'https:' && (host === 'workinwithai.com' || host.endsWith('.workinwithai.com'));
+      const path = String(loc?.pathname || '/').startsWith('/') ? String(loc?.pathname || '/') : '/';
+      back = `${firstParty ? loc.origin : LIVE_ORIGIN}${path}${loc?.search || ''}`;
+    } catch (_) {}
+    return `https://workinwithai.com/login?next=${encodeURIComponent(back)}`;
+  }
+
+  globalThis.MixForgeSongLibrary = { call, getSong, saveFile, copyFromMixForge, mixforgeStoragePath, titleFromFileName, formatBytes, wavMime, signInUrl };
 })();
