@@ -6,7 +6,7 @@ import vm from 'node:vm';
 
 const load = (file) => { const sandbox = { module: { exports: {} }, console }; vm.runInNewContext(readFileSync(new URL(file, import.meta.url), 'utf8'), sandbox); return sandbox.module.exports; };
 const E = load('../js/app-pitch-engine.js').MFPitch;
-const { MF_TUNE_DEFAULTS, mfTuneActive, mfTuneHarmonyCurve, mfTuneVocal, mfTuneMix } = load('../js/app-vocal-tune.js');
+const { MF_TUNE_DEFAULTS, mfTuneActive, mfTuneRunKey, mfTuneHarmonyCurve, mfTuneVocal, mfTuneMix } = load('../js/app-vocal-tune.js');
 
 const sr = 44100;
 function tone(f, sec, amp = 0.3) {
@@ -83,6 +83,40 @@ assert.ok(untouched.every((v, i) => v === mix[i]));
 const withHarmony = mfTuneMix([mix], [a], thirdA.lead, thirdA.harmony, 0.5)[0];
 const added = Float32Array.from(withHarmony, (v, i) => v - mix[i]);
 assert.ok(Math.abs(rms(added) / rms(thirdA.harmony[0]) - 0.5) < 0.01, 'harmony goes in at the chosen level');
+
+// The mix stage works out "everything except the vocal" as mix minus vocal stem, and may change the vocal's
+// level (a +3 dB ride is a gain of 1.41). So it has to be given the song as if it had been sung in tune:
+// the tuned stem AND a mix whose vocal is the tuned one.
+const ride = 1.41;
+const tunedMix = mfTuneMix([mix], [sung], snapped.lead, null, 0)[0]; // mix - vocal as it was + tuned vocal
+let restError = 0; for (let i = 0; i < tunedMix.length; i++) restError = Math.max(restError, Math.abs(tunedMix[i] - snapped.lead[0][i] - band[i]));
+assert.ok(restError < 1e-6, `"everything except the vocal" is exactly the band (largest difference ${restError.toExponential(1)})`);
+const afterRide = Float32Array.from(tunedMix, (v, i) => v + (ride - 1) * snapped.lead[0][i]); // what the mix stage hands back
+let rideError = 0; for (let i = 0; i < afterRide.length; i++) rideError = Math.max(rideError, Math.abs(afterRide[i] - band[i] - ride * snapped.lead[0][i]));
+assert.ok(rideError < 1e-6, `after a level ride the mix is band + tuned vocal at the ridden level (largest difference ${rideError.toExponential(1)})`);
+// Had only the stem been swapped, "everything except the vocal" would carry a ghost of both vocals.
+let ghost = 0; for (let i = sr; i < 2 * sr; i++) ghost = Math.max(ghost, Math.abs(mix[i] - snapped.lead[0][i] - band[i]));
+assert.ok(ghost > 0.05, 'a tuned stem against the untuned mix is not consistent, which is why the mix is swapped too');
+// Harmony alone leaves the lead in the mix untouched.
+const harmonyOnly = mfTuneMix([mix], [a], [a], thirdA.harmony, 0.3)[0];
+assert.ok(harmonyOnly.some((v, i) => v !== mix[i]));
+
+// The key a saved master is filed under: empty when off, stable, and different for different settings.
+assert.equal(mfTuneRunKey(MF_TUNE_DEFAULTS), '');
+assert.equal(mfTuneRunKey({ snap: true, key: 'A', scale: 'minor', strength: 0.8 }), mfTuneRunKey({ strength: 0.8, scale: 'minor', key: 'A', snap: true }));
+assert.notEqual(mfTuneRunKey({ snap: true, key: 'A', scale: 'minor' }), mfTuneRunKey({ snap: true, key: 'C', scale: 'major' }));
+assert.notEqual(mfTuneRunKey({ harmony: 'third', key: 'A', scale: 'minor' }), mfTuneRunKey({ harmony: 'fifth', key: 'A', scale: 'minor' }));
+assert.match(mfTuneRunKey({ semitones: -2 }), /^\|vocal:shift=-2,tone=1\.00$/);
+
+// The page code swaps both the stem and the mix before the mix stage, and always puts both back.
+const pageCode = readFileSync(new URL('../js/app-vocal-tune.js', import.meta.url), 'utf8');
+const stageCall = pageCode.indexOf('base = await previousRebuild();\n      } finally');
+assert.ok(stageCall > 0);
+assert.ok(pageCode.indexOf('stems.vocals = bufferFrom(result.lead') < stageCall && pageCode.indexOf('state.original = tunedOriginal;') < stageCall, 'both swaps are in place before the mix stage runs');
+assert.match(pageCode, /finally \{\s*stems\.vocals = raw;\s*if \(state\.original === tunedOriginal\) state\.original = original;/, 'stem and mix are restored even if the rebuild throws');
+// The run receipt carries the tuning.
+const flow = readFileSync(new URL('../js/app-stem-rebuild.js', import.meta.url), 'utf8');
+assert.match(flow, /vocalTuning: typeof globalThis\.mixForgeVocalTuneApplied/);
 
 // Wiring: the tuning layer wraps the rebuild outside the vocal cleanup layer, and the engine loads first.
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');

@@ -2,16 +2,23 @@
 
 // Vocal tuning: snap to key, pitch shift and harmony, on the separated vocal.
 //
-// MixForge already pulls the vocal out as its own stem. This file tunes that stem with MixDoctor's
-// pitch engine (js/app-pitch-engine.js) and folds the change into the rebuilt mix the same way the
-// vocal cleanup layer does: the rebuilt mix gets (tuned vocal - vocal as it was), plus any harmony.
-// The band is never touched.
+// MixForge has the vocal as its own stem, either split out of a finished mix or brought in as stems.
+// This file tunes that stem with MixDoctor's pitch engine (js/app-pitch-engine.js) BEFORE the mix stage
+// runs, so every later step (stem repairs, vocal cleanup, sequential mixing, vocal level rides) works on
+// the tuned vocal. For the length of one rebuild the song the mix stage sees is the song as if it had
+// been sung in tune: the tuned vocal stands in for the vocal stem, and the loaded mix has its vocal
+// swapped for the tuned one (mix - vocal as it was + tuned vocal). Both are put back afterwards. Any
+// harmony is added to what the mix stage returns. The band is never touched.
+//
+// Both swaps matter. The mix stage works out "everything except the vocal" as mix minus vocal stem, so
+// a tuned stem against an untuned mix leaves a ghost vocal in "everything else" and its decisions go
+// wrong (the vocal level rides stop firing). And tuning after the mix stage would be wrong too: a level
+// ride of +3 dB would add 3 dB of the untuned vocal next to the tuned one.
 //
 // Everything is off until the musician switches something on. With nothing on, the rebuilt mix is
 // exactly what it was before this file existed.
 //
-// Loads after app-vocal-cleanup.js so it wraps rebuildCorrectedMix() outside the cleanup layer and can
-// tune the cleaned vocal.
+// Loads after app-vocal-cleanup.js so it wraps rebuildCorrectedMix() outside every other layer.
 
 const MF_TUNE_DEFAULTS = Object.freeze({
   snap: false, key: 'C', scale: 'major', strength: 0.8,
@@ -29,6 +36,21 @@ const MF_TUNE_PARENT_SCALE = { major_pent: 'major', minor_pent: 'minor' };
 
 function mfTuneActive(settings) {
   return Boolean(settings && (settings.snap || settings.semitones || settings.harmony));
+}
+
+// A short, stable description of the tuning, for the key a saved master is filed under. Empty when
+// nothing is switched on. Pure.
+function mfTuneRunKey(settings) {
+  if (!mfTuneActive(settings)) return '';
+  const s = { ...MF_TUNE_DEFAULTS, ...settings };
+  const needsKey = s.snap || s.harmony === 'third' || s.harmony === 'fifth';
+  return `|vocal:${[
+    s.snap ? `snap@${Number(s.strength).toFixed(2)}` : '',
+    needsKey ? `${s.key} ${s.scale}` : '',
+    s.semitones ? `shift=${s.semitones}` : '',
+    s.harmony ? `${s.harmony}@${Number(s.harmonyMix).toFixed(2)}` : '',
+    `tone=${Number(s.preserve).toFixed(2)}`,
+  ].filter(Boolean).join(',')}`;
 }
 
 function mfTuneMono(chs) {
@@ -142,9 +164,12 @@ if (typeof document !== 'undefined' && typeof state !== 'undefined' && typeof MF
   const breathe = () => new Promise((resolve) => setTimeout(resolve, 0));
 
   function current() {
-    // Settings belong to one song. A new song starts with everything off and its own key.
-    if (tune.song !== state.original) {
-      tune.song = state.original;
+    // Settings belong to one song. A new song starts with everything off and its own key. Stems in the
+    // stem mixer are re-summed into a new file on every Mix and master run, so there the song is the
+    // library song or stem set (mfSongIdentity, from the master controls), not the summed file.
+    const song = typeof mfSongIdentity === 'function' ? mfSongIdentity(state) : state.original;
+    if (tune.song !== song) {
+      tune.song = song;
       tune.settings = { ...MF_TUNE_DEFAULTS };
       tune.applied = null;
       tune.heard = null;
@@ -159,27 +184,51 @@ if (typeof document !== 'undefined' && typeof state !== 'undefined' && typeof MF
     return tune;
   }
 
-  // The vocal the mix will end up with before tuning: the cleaned one if cleanup is on, else the stem.
+  // The vocal stem as MixForge holds it.
   function sourceVocal() {
-    const raw = state.stemBuffers?.vocals;
-    const cleanup = state.vocalCleanup;
-    return (cleanup && cleanup.mode !== 'preserve' && cleanup.rendered) || raw || null;
+    return state.stemBuffers?.vocals || null;
   }
 
   const previousRebuild = rebuildCorrectedMix;
   rebuildCorrectedMix = async function rebuildCorrectedMixWithVocalTune() {
-    const base = await previousRebuild();
     const t = current();
-    const source = sourceVocal();
-    if (!source || !mfTuneActive(t.settings)) { t.applied = null; paint(); return base; }
+    const stems = state.stemBuffers;
+    const raw = stems?.vocals || null;
+    if (!raw || !mfTuneActive(t.settings)) {
+      const untouched = await previousRebuild();
+      t.applied = null;
+      paint();
+      return untouched;
+    }
     const settings = { ...t.settings };
     const show = async (label, fraction) => {
       if (typeof setStatus === 'function') setStatus('rebuildStatus', `${label}… ${Math.round(fraction * 100)}%`, 'busy');
       await breathe();
     };
-    const src = channelsOf(source);
-    const result = await mfTuneVocal(MFPitch, src, source.sampleRate, settings, show);
-    const mixed = bufferFrom(mfTuneMix(channelsOf(base), src, result.lead, result.harmony, settings.harmonyMix), base.sampleRate);
+    const src = channelsOf(raw);
+    const result = await mfTuneVocal(MFPitch, src, raw.sampleRate, settings, show);
+    let base;
+    if (result.lead === src) {
+      base = await previousRebuild(); // harmony only: the lead is as it was sung
+    } else {
+      // The mix stage runs on the song as if it had been sung in tune. Everything is put back whatever happens.
+      const original = state.original;
+      const tunedOriginal = bufferFrom(mfTuneMix(channelsOf(original), src, result.lead, null, 0), original.sampleRate);
+      // Still the same song to anything that keeps settings per song while the swap is in place.
+      (globalThis.mixForgeSongAliases = globalThis.mixForgeSongAliases || new WeakMap()).set(tunedOriginal, original);
+      stems.vocals = bufferFrom(result.lead, raw.sampleRate);
+      state.original = tunedOriginal;
+      try {
+        base = await previousRebuild();
+      } finally {
+        stems.vocals = raw;
+        if (state.original === tunedOriginal) state.original = original;
+      }
+    }
+    // The lead is already in place; add the harmony on top.
+    const mixed = result.harmony
+      ? bufferFrom(mfTuneMix(channelsOf(base), src, src, result.harmony, settings.harmonyMix), base.sampleRate)
+      : base;
     t.applied = { settings, stats: result.stats };
     if (typeof forensicState !== 'undefined' && typeof measureBuffer === 'function') {
       // Keep the whole-mix change figures describing the mix that is actually handed on.
@@ -192,6 +241,17 @@ if (typeof document !== 'undefined' && typeof state !== 'undefined' && typeof MF
     paint();
     return mixed;
   };
+
+  // For the Mix and master run: what tuning is in the mix (for its receipt), and its part of the key a
+  // saved master is filed under.
+  globalThis.mixForgeVocalTuneApplied = () => (tune.applied ? {
+    snapToKey: tune.applied.stats.snapped ? { key: tune.applied.settings.key, scale: tune.applied.settings.scale, strength: tune.applied.settings.strength,
+      shareOfVocalMoved: Number(tune.applied.stats.movedShare.toFixed(3)), averageCents: Number(tune.applied.stats.averageCents.toFixed(1)) } : null,
+    pitchShiftSemitones: tune.applied.stats.shifted || 0,
+    harmony: tune.applied.stats.harmony ? { kind: tune.applied.stats.harmony, level: tune.applied.settings.harmonyMix } : null,
+    keepNaturalTone: tune.applied.settings.preserve,
+  } : null);
+  (globalThis.mixForgeRunKeyParts = globalThis.mixForgeRunKeyParts || []).push(() => mfTuneRunKey(current().settings));
 
   function changed() {
     const t = current();
@@ -326,4 +386,4 @@ if (typeof document !== 'undefined' && typeof state !== 'undefined' && typeof MF
   }
 }
 
-if (typeof module !== 'undefined') module.exports = { MF_TUNE_DEFAULTS, mfTuneActive, mfTuneHarmonyCurve, mfTuneVocal, mfTuneMix };
+if (typeof module !== 'undefined') module.exports = { MF_TUNE_DEFAULTS, mfTuneActive, mfTuneRunKey, mfTuneHarmonyCurve, mfTuneVocal, mfTuneMix };
