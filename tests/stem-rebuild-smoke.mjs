@@ -107,7 +107,7 @@ assert.equal(core.coversStems([], ['vocals']), false);
   assert.equal(receipt.stemCheck.verdict.className, 'good');
   assert.equal(receipt.corrections[0].verdict.status, 'accepted');
   assert.deepEqual(receipt.master, {
-    targetLufs: -12, peakCeilingDb: -1,
+    targetLufs: -12, peakCeilingDb: -1, setByMusician: [],
     measured: { lufs: -12.04, peakDb: -1.31, oversampledPeakDb: -1.02, loudnessRange: 6.2, crestDb: 9.88, monoCorrelation: 0.81, clipPercent: 0 },
     hardChecks: { passed: true, verified: true, clipping: false, overCeiling: false, monoWarning: false },
   });

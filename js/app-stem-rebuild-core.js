@@ -124,6 +124,8 @@
       master: {
         targetLufs: num(targetLufs, 1),
         peakCeilingDb: num(ceiling, 1),
+        // Master controls the musician moved off MixForge's own pick for this run. Empty when none were.
+        setByMusician: Array.isArray(masterPlan?.userMoved) ? [...masterPlan.userMoved] : [],
         measured: finalMetrics ? {
           lufs: num(finalMetrics.lufs),
           peakDb: num(finalMetrics.peakDb),

@@ -617,9 +617,14 @@
       reveal('verifyPanel');
       setStatus('masterStatus', 'Release master rendered from the stems and measured again after limiting.', 'ok');
 
-      const target = Number($('targetLufs')?.value || -12);
+      // The loudness this master was really made for: the master plan's, which is the menu's unless the
+      // musician moved the loudness control.
+      const target = Number(state.masterPlan?.targetLufs ?? $('targetLufs')?.value ?? -12);
       const keyParts = parts.map((p) => ({ assetId: p.asset?.id || p.key, gainDb: p.gainDb, muted: p.muted }));
-      const source = core.rebuildSourceKey(keyParts, { kind: 'master', extra: String(target) });
+      // Controls the musician moved (master sliders, vocal tuning) change the master, so they are part of
+      // the key it is saved under; with nothing moved the key is the same as it always was.
+      const chosen = (globalThis.mixForgeRunKeyParts || []).map((part) => { try { return part() || ''; } catch { return ''; } }).join('');
+      const source = core.rebuildSourceKey(keyParts, { kind: 'master', extra: `${target}${chosen}` });
       // A master goes onto the song only if it passes the same hard checks as Download release WAV
       // (no clipping, peak under the ceiling). If the check itself is missing, nothing is saved.
       const gateResult = typeof evaluateExportGate === 'function'
