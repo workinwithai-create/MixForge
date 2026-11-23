@@ -14,6 +14,8 @@
 
 .mf-steps-on .panel[data-step]{margin-top:0;scroll-margin-top:calc(64px + env(safe-area-inset-top))}
 .mf-steps-on .panel[data-step]:not(.mf-step-on){display:none}
+/* A panel that sits with a step (the stem mixer, with Load) shows only on that step. */
+.mf-steps-on:not([data-step="load"]) [data-step-with="load"]{display:none}
 
 /* The long introduction belongs to the first step. Past it, keep the header to the studio mark and the app name. */
 .mf-steps-on .pipeline,.mf-steps-on .pipeline-note{display:none}

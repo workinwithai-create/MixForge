@@ -190,3 +190,31 @@ footer{color:var(--faint);font-size:.8125rem}
 /* Phone welcome card: the bold words in its steps were set to sit on their own line, which broke each sentence into pieces */
 .mobile-onboard li strong,.mobile-onboard p strong{display:inline;margin:0;color:var(--ink)}
 .mobile-onboard-actions a:not(.license-btn){color:var(--gold)}
+
+/* 2.9: stem mixer, stem check and correction receipts */
+.rebuild-check{background:var(--well);border-color:var(--line-soft);border-left:4px solid var(--copper)}
+.rebuild-check.good{border-left-color:var(--verdigris)}
+.rebuild-check.review{border-left-color:var(--gold)}
+.rebuild-check.weak{border-left-color:var(--ember)}
+.rebuild-check>b{font-family:var(--font-display);letter-spacing:.14em;color:var(--copper)}
+.rebuild-check-numbers summary{color:var(--gold)}
+.rebuild-role{min-height:36px;padding:6px 30px 6px 12px;font-size:.84rem;border-radius:999px;background-color:rgba(0,0,0,.35)}
+.rebuild-row b{font-weight:500}
+.rebuild-toggles{gap:12px}
+.rebuild-toggles label,.rebuild-option{display:inline-flex;align-items:center;gap:7px}
+.rebuild-toggles input[type=checkbox]{width:40px;height:24px}
+.rebuild-toggles input[type=checkbox]::before{left:6px}
+.rebuild-toggles input[type=checkbox]:checked::before{left:22px}
+.rebuild-solo{color:var(--gold)}
+.rebuild-levels button,.rebuild-check-actions button,.stems-door button{min-height:38px;padding:7px 14px;font-size:.68rem}
+.critic-receipt{border:1px solid var(--line-soft);border-left:4px solid var(--verdigris);background:var(--well)}
+.critic-receipt.accepted-reduced{border-left-color:var(--gold)}
+.critic-receipt.rejected{border-left-color:var(--ember)}
+.critic-receipt.held{border-left-color:var(--faint)}
+.critic-receipt-top h4{font-size:.92rem;letter-spacing:.07em}
+.critic-verdict{font-family:var(--font-display);letter-spacing:.1em;font-size:.72rem;color:var(--gold)}
+.critic-copy-status,.critic-measurements{color:var(--muted)}
+/* A long badge (for example the stem source line after Mix and master) ran off the side of a phone and made the whole page scroll sideways */
+.stem-head{flex-wrap:wrap}
+.badge{white-space:normal;max-width:100%;overflow-wrap:anywhere}
+.rebuild-role{background-image:linear-gradient(45deg,transparent 50%,var(--gold) 50%),linear-gradient(135deg,var(--gold) 50%,transparent 50%);background-position:calc(100% - 17px) 50%,calc(100% - 12px) 50%;background-size:5px 5px;background-repeat:no-repeat}

@@ -6,11 +6,15 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../js/app-steps.js', import.meta.url), 'utf8');
 const sandbox = { module: { exports: {} } };
 vm.runInNewContext(source, sandbox); // no document here, so only the pure parts run
-const { MF_STEPS, mfStepsResolve } = sandbox.module.exports;
+const { MF_STEPS, MF_STEP_COMPANIONS, mfStepsResolve } = sandbox.module.exports;
 
 assert.equal(MF_STEPS.map((s) => s.key).join(','), 'load,diagnose,stems,master,verify');
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 for (const step of MF_STEPS) assert.match(html, new RegExp(`id="${step.panel}"`), `${step.panel} must be in the page`);
+
+// The stem mixer sits with Load, and its id is the one the stem flow really creates.
+assert.equal(MF_STEP_COMPANIONS.rebuildPanel, 'load');
+assert.match(readFileSync(new URL('../js/app-stem-rebuild.js', import.meta.url), 'utf8'), /id: 'rebuildPanel'/);
 
 const none = { load: true, diagnose: false, stems: false, master: false, verify: false };
 assert.equal(mfStepsResolve('load', none), 'load');

@@ -18,6 +18,10 @@ const MF_STEPS = [
   { key: 'verify', label: 'Verify', panel: 'verifyPanel' },
 ];
 
+// Panels that belong with a step without being that step's own panel. The stem mixer ("Put your song
+// back together" / "Mix your stems") is another way to load a song, so it sits with Load.
+const MF_STEP_COMPANIONS = { rebuildPanel: 'load' };
+
 // Which step to show, given what is reached. Pure, so it can be tested without a page.
 //   wanted:  the step asked for (or null)
 //   reached: { load: true, diagnose: false, ... }
@@ -64,7 +68,14 @@ function mfStepsResolve(wanted, reached, steps = MF_STEPS) {
   document.body.classList.add('mf-steps-on');
 
   let current = null;
+  function tagCompanions() {
+    for (const [id, key] of Object.entries(MF_STEP_COMPANIONS)) {
+      const el = document.getElementById(id);
+      if (el && el.dataset.stepWith !== key) el.dataset.stepWith = key;
+    }
+  }
   function paint() {
+    tagCompanions();
     const reached = reachedMap();
     for (const step of steps) {
       const on = step.key === current;
@@ -88,8 +99,9 @@ function mfStepsResolve(wanted, reached, steps = MF_STEPS) {
   const nativeScroll = Element.prototype.scrollIntoView;
   Element.prototype.scrollIntoView = function mfStepsScrollIntoView(...args) {
     try {
-      const panel = this.closest?.('.panel[data-step]');
-      if (panel && document.body.classList.contains('mf-steps-on')) show(panel.dataset.step);
+      tagCompanions();
+      const home = this.closest?.('.panel[data-step], [data-step-with]');
+      if (home && document.body.classList.contains('mf-steps-on')) show(home.dataset.step || home.dataset.stepWith);
     } catch { /* never block the scroll itself */ }
     return nativeScroll.apply(this, args);
   };
@@ -102,8 +114,11 @@ function mfStepsResolve(wanted, reached, steps = MF_STEPS) {
     else paint();
   });
   for (const step of steps) observer.observe(panelOf(step), { attributes: true, attributeFilter: ['class'] });
+  // The stem mixer is added to the page only when stems are opened.
+  const main = panelOf(steps[0]).parentNode;
+  if (main) new MutationObserver(tagCompanions).observe(main, { childList: true });
 
   show(steps[0].key);
 })();
 
-if (typeof module !== 'undefined') module.exports = { MF_STEPS, mfStepsResolve };
+if (typeof module !== 'undefined') module.exports = { MF_STEPS, MF_STEP_COMPANIONS, mfStepsResolve };
