@@ -1,0 +1,220 @@
+/* Pipe Dreams Studio look for MixForge.
+   Loaded after every other stylesheet. It changes colours, lettering and the shape of controls only;
+   no script reads anything in this file. Remove the <link> to this file and MixForge looks as it did before.
+   Same theme as MixDoctor and the Backline drummer: black ground with an ember glow, polished copper and brass,
+   engraved capitals (Cinzel), Spectral for everything you read, thin copper hairlines, pills with a small lit dot.
+   Colour of a check: verdigris = fine, brass = look at it, ember = fix it. */
+:root{
+  --bg:#070504; --panel:#120c09; --panel2:#0e0907;
+  --line:rgba(208,135,74,.32); --line-soft:rgba(208,135,74,.17);
+  --text:#f6eadb; --ink:#f6eadb; --muted:#b7a28d; --faint:#7a6757;
+  --copper:#d68c50; --gold:#f0c27a; --on-metal:#1b0f08;
+  --teal:#80cab4; --verdigris:#80cab4; --green:#80cab4; --yellow:#f0c27a; --red:#ff704d; --ember:#ff704d;
+  --shadow:inset 0 1px 0 rgba(255,226,176,.08),0 22px 44px -30px #000;
+  --plate:linear-gradient(180deg,#17100c 0%,#0c0806 100%);
+  --well:rgba(0,0,0,.32);
+  --metal-gold:linear-gradient(180deg,#ffeac2 0%,#f0c27a 46%,#cf9550 100%);
+  --metal-copper:linear-gradient(180deg,#f8c39a 0%,#d98f54 46%,#bb6f3a 100%);
+  --lettering:linear-gradient(180deg,#ffe6b8 0%,#f0c27a 42%,#d0874a 80%,#a3501f 100%);
+  --lit:radial-gradient(circle at 35% 30%,#ffe6b8,#f0a45c 55%,#c96a2a);
+  --font-display:"Cinzel","Trajan Pro","Times New Roman",serif;
+  --font-body:"Spectral","Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  color-scheme:dark;
+}
+html{background:var(--bg)}
+body{background:var(--bg);color:var(--text);font-family:var(--font-body);font-variant-numeric:lining-nums;-webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:
+  radial-gradient(95% 44% at 50% -8%,rgba(208,135,74,.17),transparent 72%),
+  radial-gradient(70% 30% at 50% 110%,rgba(208,135,74,.09),transparent 72%)}
+button,select,input,textarea{font-family:var(--font-body)}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+/* this file gives buttons and links a display value, so keep the hidden attribute winning */
+[hidden]{display:none!important}
+a{color:var(--gold)}
+
+/* Header: emblem, engraved studio name, hairline */
+.pds-top{display:flex;align-items:center;gap:10px;padding-bottom:13px;margin-bottom:18px;border-bottom:1px solid;
+  border-image:linear-gradient(90deg,transparent,rgba(208,135,74,.6) 16%,rgba(240,194,122,.85) 50%,rgba(208,135,74,.6) 84%,transparent) 1}
+.pds-emblem{width:52px;height:52px;flex:none;border-radius:50%;mix-blend-mode:screen;box-shadow:0 0 18px 1px rgba(208,135,74,.26)}
+.pds-mark{margin:0;font:700 1rem/1.08 var(--font-display);letter-spacing:.05em;text-transform:uppercase;color:var(--gold);
+  background:var(--lettering);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.hero .pds-mark{max-width:none;font-size:1rem;line-height:1.08;color:var(--gold)}
+.pds-mark span{display:block;white-space:nowrap}
+.pds-mark .studio{font-size:.75em;letter-spacing:.46em;margin-top:2px}
+.hero{border-bottom:0;padding-bottom:18px;margin-bottom:10px}
+.eyebrow{color:var(--copper);font:600 .6875rem/1.2 var(--font-display);letter-spacing:.2em}
+.hero h1{font:700 clamp(2.1rem,7vw,3.4rem)/1 var(--font-display);letter-spacing:.05em;text-transform:uppercase;margin:0 0 12px;color:var(--gold);
+  background:var(--lettering);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.hero h1 span{font-size:.42em;letter-spacing:.12em;color:var(--copper);-webkit-text-fill-color:var(--copper);vertical-align:middle}
+.hero p{color:var(--muted);font-size:1rem;line-height:1.55}
+.pipeline span,.hero-modes span{border:1px solid var(--line);background:var(--well);padding:7px 12px;border-radius:999px;color:var(--ink);font:600 .6875rem/1 var(--font-display);letter-spacing:.14em;text-transform:uppercase}
+.hero-modes span{border-color:rgba(214,140,80,.62);background:rgba(214,140,80,.11)}
+.pipeline b{color:var(--gold)}
+.hero-modes b,.hero-modes i{color:var(--muted)}
+.library-link,.path-seat a,.hero-modes a{color:var(--gold)}
+
+/* Panels: the engraved plates everything sits on */
+.panel{background:var(--plate);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
+.panel-title>span{border-radius:50%;background:transparent;color:var(--gold);box-shadow:inset 0 0 0 1.5px var(--copper),0 0 14px -4px rgba(240,194,122,.7);font:600 .95rem/1 var(--font-display)}
+.panel-title h2,.mobile-onboard h2{font:600 .9375rem/1.25 var(--font-display);letter-spacing:.09em;text-transform:uppercase;color:var(--gold);
+  background:var(--lettering);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.panel-title p{color:var(--muted)}
+.panel h3,.panel h4{font-family:var(--font-display);letter-spacing:.07em;color:var(--gold)}
+.finding h3{color:var(--ink);letter-spacing:.05em}
+.stem-card h3{text-transform:uppercase;letter-spacing:.09em;font-size:.95rem}
+
+/* Wells: the darker boxes inside a plate */
+.metric,.repair,.forensic-setup,.forensic-block,.confirmation-list span,.vocal-cleanup-section,.timeline-marker,.targeted-repair-card,
+.targeted-repair-delta div,.library-asset,.rebuild-row,.stem-consent,.path-card,.native-preview{background:var(--well);border-color:var(--line-soft)}
+.score-row,.finding,.stem-card,.chain-item,.check,.source-card,.library-song,.targeted-repair-result{background:var(--well);border-color:var(--line-soft)}
+.finding{border-left:3px solid var(--copper)}
+.finding.high,.timeline-marker.high,.targeted-repair-card.blocked{border-left-color:var(--ember)}
+.finding.medium,.timeline-marker.medium,.targeted-repair-card.review{border-left-color:var(--gold)}
+.finding.low,.targeted-repair-card.safe{border-left-color:var(--verdigris)}
+.problem-timeline,.vocal-cleanup,.what-changed{border-color:rgba(128,202,180,.3);background:linear-gradient(180deg,rgba(128,202,180,.055),rgba(0,0,0,.3))}
+.master-timeline,.path-chooser,.mobile-onboard{border-color:rgba(214,140,80,.4);background:linear-gradient(180deg,rgba(214,140,80,.09),rgba(0,0,0,.3))}
+.license-bar{border-color:rgba(214,140,80,.45);background:linear-gradient(180deg,rgba(214,140,80,.1),rgba(0,0,0,.3))}
+.license-bar[data-state="licensed"]{border-color:rgba(128,202,180,.5);background:linear-gradient(180deg,rgba(128,202,180,.1),rgba(0,0,0,.3))}
+.export-safety{border-color:rgba(255,112,77,.6);background:rgba(255,112,77,.1)}
+.export-actions{background:rgba(7,5,4,.92)}
+.consequence{color:#e3d3c0!important}
+
+/* Numbers and small labels */
+.metric b,.score strong,.risk-segment span,.targeted-repair-delta b{font-family:var(--font-display);font-weight:600;color:var(--gold)}
+.metric b{font-size:1.45rem;line-height:1.2}
+.score strong{font-size:3.1rem;line-height:1;background:var(--lettering);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.targeted-repair-delta b{font-size:1.25rem}
+.risk-segment span{font-size:1.05rem}
+.metric span,.score span,.badge,.timeline-health,.targeted-repair-count,.targeted-repair-badge,.path-card em,.vocal-cleanup-section i,.timeline-marker i,
+.confirmation-list b,.targeted-repair-delta span,.mobile-onboard-kicker{font-family:var(--font-display);letter-spacing:.12em}
+.badge,.hypothesis-list span,.stem-consent-meta span{border-color:var(--line)}
+.risk-segment{border-color:rgba(128,202,180,.4);background:rgba(128,202,180,.08)}
+.risk-segment.flagged{border-color:rgba(240,194,122,.55);background:rgba(240,194,122,.12)}
+.ab-hint kbd,code{background:rgba(0,0,0,.4);border:1px solid var(--line-soft);color:var(--gold)}
+
+/* Buttons: polished metal for the main step, a hairline tube for the rest */
+button.primary,a.license-btn.primary,.library-rebuild-row .library-rebuild,.library-asset-actions .library-open.primary{
+  display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:9px 20px;border:0;border-radius:999px;background:var(--metal-gold);color:var(--on-metal);
+  font:700 .75rem/1.15 var(--font-display);letter-spacing:.14em;text-transform:uppercase;text-align:center;text-decoration:none;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 0 20px -6px rgba(240,194,122,.8)}
+button.secondary,a.license-btn.secondary,.transport-skip,.targeted-repair-ab button,.ab-btn,.candidate-choices button{
+  display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:8px 16px;border:1px solid var(--line);border-radius:999px;background:var(--well);color:var(--gold);
+  font:600 .72rem/1.15 var(--font-display);letter-spacing:.12em;text-transform:uppercase;text-decoration:none;box-shadow:none}
+.candidate-choices button{color:var(--muted)}
+button.secondary:hover:not(:disabled),a.license-btn.secondary:hover,.transport-skip:hover,.targeted-repair-ab button:hover,.ab-btn:hover,.candidate-choices button:hover:not(:disabled){border-color:var(--copper);background:var(--well)}
+button:hover:not(:disabled){filter:none;transform:none}
+button.primary:hover:not(:disabled){filter:brightness(1.05)}
+button.primary:active,button.secondary:active{filter:brightness(.92);transform:translateY(1px)}
+button:disabled{opacity:.4;box-shadow:none}
+.candidate-choices button.selected,.ab-btn.active,.targeted-repair-keep{background:var(--metal-copper)!important;color:var(--on-metal)!important;border-color:transparent!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 0 14px -3px rgba(214,140,80,.7)}
+.timeline-time{background:var(--well);border:1px solid var(--line);border-radius:999px;color:var(--gold);font-family:var(--font-body);font-weight:500}
+.timeline-time:hover,.timeline-time:focus-visible{border-color:var(--copper)}
+.path-card{border-radius:12px;color:var(--text)}
+.path-card strong{font:600 .95rem/1.2 var(--font-display);letter-spacing:.09em;text-transform:uppercase;color:var(--gold)}
+.path-card.recommended{border-color:rgba(128,202,180,.55);box-shadow:inset 0 0 0 1px rgba(128,202,180,.18)}
+.path-card.active,.path-card:hover{border-color:var(--copper);background:rgba(214,140,80,.1)}
+
+/* Song drop zone and fields */
+.dropzone{border:1px dashed rgba(208,135,74,.55);border-radius:12px;background:var(--well);color:var(--text)}
+.dropzone:hover,.dropzone.drag{border-color:var(--gold);background:rgba(214,140,80,.08)}
+.dropzone.loaded{border-style:solid;border-color:rgba(128,202,180,.6)}
+.dropzone strong{font:600 1rem/1.2 var(--font-display);letter-spacing:.09em;text-transform:uppercase;color:var(--gold)}
+.field-label,.controls-grid label{font-family:var(--font-display);font-weight:600;font-size:.6875rem;letter-spacing:.16em;text-transform:uppercase;color:var(--copper)}
+.field-label em{font-family:var(--font-body);letter-spacing:.02em;text-transform:none}
+textarea,select,.forensic-setup input,.library-toolbar input{background:rgba(0,0,0,.35);border:1px solid var(--line);color:var(--text);font:400 .9375rem/1.4 var(--font-body);letter-spacing:0;text-transform:none}
+textarea{border-radius:12px}
+select,.library-toolbar input,.forensic-setup input:not([type=file]){border-radius:999px;min-height:40px;padding:8px 14px}
+select{appearance:none;-webkit-appearance:none;padding-right:34px;text-overflow:ellipsis;
+  background-image:linear-gradient(45deg,transparent 50%,var(--gold) 50%),linear-gradient(135deg,var(--gold) 50%,transparent 50%);
+  background-position:calc(100% - 19px) 50%,calc(100% - 14px) 50%;background-size:5px 5px;background-repeat:no-repeat}
+select option{background:#17100c;color:#f6eadb}
+textarea:focus,select:focus,.library-toolbar input:focus,.forensic-setup input:focus{outline:2px solid rgba(240,194,122,.4);border-color:var(--copper)}
+input[type=file]{border:0!important;background:transparent!important;padding:6px 0!important;color:var(--muted)}
+input[type=file]::file-selector-button{margin-right:12px;min-height:36px;padding:7px 14px;border:1px solid var(--line);border-radius:999px;background:var(--well);color:var(--gold);font:600 .6875rem/1 var(--font-display);letter-spacing:.12em;text-transform:uppercase;cursor:pointer}
+
+/* Sliders: copper track, brass knob */
+input[type=range]{-webkit-appearance:none;appearance:none;height:30px;margin:0;background:transparent;accent-color:var(--copper)}
+input[type=range]::-webkit-slider-runnable-track,#previewSeek::-webkit-slider-runnable-track{height:6px;border:0;border-radius:3px;background:linear-gradient(90deg,#a3501f,#d68c50);box-shadow:inset 0 0 0 1px var(--line-soft)}
+input[type=range]::-moz-range-track{height:6px;border-radius:3px;background:linear-gradient(90deg,#a3501f,#d68c50);box-shadow:inset 0 0 0 1px var(--line-soft)}
+input[type=range]::-webkit-slider-thumb,#previewSeek::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;margin-top:-8px;border:0;border-radius:50%;background:var(--metal-gold);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 0 0 1px rgba(163,80,31,.9),0 0 12px -2px rgba(240,194,122,.8)}
+input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radius:50%;background:var(--metal-gold);box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 0 0 1px rgba(163,80,31,.9),0 0 12px -2px rgba(240,194,122,.8)}
+
+/* On/off: a slim pill whose dot lights and slides. One-of-several: a ring that lights. */
+input[type=checkbox]{-webkit-appearance:none;appearance:none;position:relative;flex:none;width:48px;height:28px;margin:0;border:1px solid var(--line);border-radius:999px;background:rgba(0,0,0,.4);cursor:pointer;vertical-align:middle}
+input[type=checkbox]::before{content:"";position:absolute;top:50%;left:8px;width:10px;height:10px;margin-top:-5px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--faint);transition:left .15s}
+input[type=checkbox]:checked{border-color:rgba(214,140,80,.62);background:rgba(214,140,80,.14)}
+input[type=checkbox]:checked::before{left:28px;background:var(--lit);box-shadow:0 0 9px 1px rgba(255,160,90,.75)}
+input[type=checkbox]:disabled{opacity:.45;cursor:not-allowed}
+.targeted-repair-card input[type=checkbox]{width:48px;height:28px;margin:0}
+input[type=radio]{-webkit-appearance:none;appearance:none;flex:none;width:16px;height:16px;margin:0 4px 0 0;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--faint);background:transparent;cursor:pointer;vertical-align:-3px}
+input[type=radio]:checked{background:var(--lit);box-shadow:0 0 9px 1px rgba(255,160,90,.75)}
+.preview-select{color:var(--muted);font-size:.875rem}
+.export-override{align-items:center}
+
+/* Meters and the timeline */
+.meter{background:rgba(0,0,0,.45);border-color:var(--line-soft)}
+.meter i{background:linear-gradient(90deg,var(--verdigris),var(--gold),var(--ember))}
+.timeline-track{border-color:var(--line-soft);background:rgba(0,0,0,.4)}
+.timeline-track:before{background:rgba(240,194,122,.16)}
+.timeline-pin.high{background:var(--ember)}
+.timeline-pin.medium{background:var(--gold)}
+.timeline-pin:hover,.timeline-pin:focus-visible{outline-color:rgba(246,234,219,.5)}
+.status.busy:before{border-color:var(--line);border-top-color:var(--gold)}
+.transport-seek-row{color:var(--muted)}
+audio{border-radius:999px}
+
+/* Song library page */
+.library-song>summary b{font:600 .95rem/1.25 var(--font-display);letter-spacing:.07em;color:var(--gold)}
+.library-chev{color:var(--gold)}
+.library-focus{outline:2px solid var(--gold)}
+.library-asset-actions button{min-height:36px;padding:7px 13px}
+
+/* Footer: the studio plate */
+footer{color:var(--faint);font-size:.8125rem}
+.pds-foot{display:block;width:min(300px,80%);height:auto;margin:6px auto 14px;mix-blend-mode:screen}
+
+@media (min-width:760px){
+  .pds-emblem{width:72px;height:72px}
+  .pds-mark,.hero .pds-mark{font-size:1.75rem}
+  .pds-mark span{display:inline}
+  .pds-mark .studio{font-size:1em;letter-spacing:.05em;margin:0}
+}
+@media (max-width:660px){
+  .pipeline span{font-size:.6rem;padding:6px 9px}
+  .score strong{font-size:2.6rem}
+}
+@media (prefers-reduced-motion:reduce){button.primary:active,button.secondary:active{transform:none}input[type=checkbox]::before{transition:none}}
+
+/* Phone welcome card: the bold words in its steps were set to sit on their own line, which broke each sentence into pieces */
+.mobile-onboard li strong,.mobile-onboard p strong{display:inline;margin:0;color:var(--ink)}
+.mobile-onboard-actions a:not(.license-btn){color:var(--gold)}
+
+/* 2.9: stem mixer, stem check and correction receipts */
+.rebuild-check{background:var(--well);border-color:var(--line-soft);border-left:4px solid var(--copper)}
+.rebuild-check.good{border-left-color:var(--verdigris)}
+.rebuild-check.review{border-left-color:var(--gold)}
+.rebuild-check.weak{border-left-color:var(--ember)}
+.rebuild-check>b{font-family:var(--font-display);letter-spacing:.14em;color:var(--copper)}
+.rebuild-check-numbers summary{color:var(--gold)}
+.rebuild-role{min-height:36px;padding:6px 30px 6px 12px;font-size:.84rem;border-radius:999px;background-color:rgba(0,0,0,.35)}
+.rebuild-row b{font-weight:500}
+.rebuild-toggles{gap:12px}
+.rebuild-toggles label,.rebuild-option{display:inline-flex;align-items:center;gap:7px}
+.rebuild-toggles input[type=checkbox]{width:40px;height:24px}
+.rebuild-toggles input[type=checkbox]::before{left:6px}
+.rebuild-toggles input[type=checkbox]:checked::before{left:22px}
+.rebuild-solo{color:var(--gold)}
+.rebuild-levels button,.rebuild-check-actions button,.stems-door button{min-height:38px;padding:7px 14px;font-size:.68rem}
+.critic-receipt{border:1px solid var(--line-soft);border-left:4px solid var(--verdigris);background:var(--well)}
+.critic-receipt.accepted-reduced{border-left-color:var(--gold)}
+.critic-receipt.rejected{border-left-color:var(--ember)}
+.critic-receipt.held{border-left-color:var(--faint)}
+.critic-receipt-top h4{font-size:.92rem;letter-spacing:.07em}
+.critic-verdict{font-family:var(--font-display);letter-spacing:.1em;font-size:.72rem;color:var(--gold)}
+.critic-copy-status,.critic-measurements{color:var(--muted)}
+/* A long badge (for example the stem source line after Mix and master) ran off the side of a phone and made the whole page scroll sideways */
+.stem-head{flex-wrap:wrap}
+.badge{white-space:normal;max-width:100%;overflow-wrap:anywhere}
+.rebuild-role{background-image:linear-gradient(45deg,transparent 50%,var(--gold) 50%),linear-gradient(135deg,var(--gold) 50%,transparent 50%);background-position:calc(100% - 17px) 50%,calc(100% - 12px) 50%;background-size:5px 5px;background-repeat:no-repeat}
