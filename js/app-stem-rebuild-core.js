@@ -103,7 +103,7 @@
   // One receipt for a whole "Mix and master" run: which stems at which levels, what the stem check found,
   // every correction the mix stage proposed with its verdict, what the master measured, and whether it was
   // saved to the song. Numbers and names only; no audio.
-  function buildRunReceipt({ song, parts, trimDb = 0, stemCheck = null, corrections = [], targetLufs = null, masterPlan = null, finalMetrics = null, truePeakDb = null, gate = null, saved = null, levels = null, sourceNote = undefined, generatedAt = new Date().toISOString() } = {}) {
+  function buildRunReceipt({ song, parts, trimDb = 0, stemCheck = null, corrections = [], vocalTuning = null, targetLufs = null, masterPlan = null, finalMetrics = null, truePeakDb = null, gate = null, saved = null, levels = null, sourceNote = undefined, generatedAt = new Date().toISOString() } = {}) {
     const ceiling = masterPlan ? (masterPlan.truePeakCeilingDb ?? masterPlan.ceilingDb ?? null) : null;
     return {
       schema: 'mixforge-run-receipt',
@@ -121,6 +121,8 @@
       },
       stemCheck,
       corrections: (corrections || []).map((c) => ({ ...c })),
+      // Snap to key, pitch shift or harmony the musician switched on for the vocal. null when none was.
+      vocalTuning: vocalTuning ? JSON.parse(JSON.stringify(vocalTuning)) : null,
       master: {
         targetLufs: num(targetLufs, 1),
         peakCeilingDb: num(ceiling, 1),

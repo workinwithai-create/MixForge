@@ -638,6 +638,7 @@
         levels: { fixedByMixForge: levelMoves.map((m) => ({ ...m })), vocalAgainstBandLu: levelsPlan?.lead || null },
         stemCheck: stemCheck?.receipt || null,
         corrections: globalThis.mixForgeCriticGate?.receipts || [],
+        vocalTuning: typeof globalThis.mixForgeVocalTuneApplied === 'function' ? globalThis.mixForgeVocalTuneApplied() : null,
         masterPlan: state.masterPlan, finalMetrics: state.finalMetrics,
         truePeakDb: state.masterConstraint?.truePeakDb ?? null,
       });

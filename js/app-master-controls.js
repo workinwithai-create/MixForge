@@ -81,7 +81,10 @@ function mfCtlApply(plan, user = {}) {
 function mfSongIdentity(appState) {
   const run = appState?.libraryRebuild;
   if (run?.file && appState.file === run.file) return `stems:${run.songId || 'local'}:${run.file.name}`;
-  return appState?.original || null;
+  // The vocal step swaps in a tuned copy of the loaded mix while it rebuilds; that is still the same song.
+  const original = appState?.original || null;
+  const aliases = typeof globalThis !== 'undefined' ? globalThis.mixForgeSongAliases : null;
+  return (original && aliases?.get(original)) || original;
 }
 
 // A short, stable description of the overrides, for the key a saved master is filed under. Empty when

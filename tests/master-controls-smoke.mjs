@@ -86,6 +86,11 @@ assert.notEqual(mfSongIdentity({ ...runTwo, libraryRebuild: { file: fileTwo, son
 // A different file loaded afterwards is no longer the stem run, even though the run record is still there.
 assert.equal(mfSongIdentity({ original: bufferB, file: { name: 'other.wav' }, libraryRebuild: runOne.libraryRebuild }), bufferB);
 assert.equal(mfSongIdentity(undefined), null);
+// A stand-in buffer registered as an alias (the vocal step's tuned copy of the mix) is the same song.
+const standIn = { id: 'tuned copy of a' };
+sandbox.globalThis = sandbox; sandbox.mixForgeSongAliases = new WeakMap([[standIn, bufferA]]);
+assert.equal(mfSongIdentity({ original: standIn }), bufferA);
+assert.equal(mfSongIdentity({ original: bufferB }), bufferB);
 
 // The saved-master key: empty when nothing moved, the same for the same settings, different otherwise.
 assert.equal(mfCtlRunKey({}), '');

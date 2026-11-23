@@ -29,6 +29,7 @@
   <link rel="stylesheet" href="/pipe-dreams.css?v=2.9.0">
   <link rel="stylesheet" href="/steps.css?v=2.9.0">
   <link rel="stylesheet" href="/master-controls.css?v=2.9.0">
+  <link rel="stylesheet" href="/vocal-tune.css?v=2.9.0">
 </head>
 <body>
   <main class="shell">
@@ -82,6 +83,9 @@
     <section class="panel hidden" id="stemPanel">
       <div class="panel-title"><span>3</span><div><h2>Isolated Demucs buckets and measured conditions</h2><p>A heuristic leakage/fit score is graded before processing — not lab SDR. Demucs separates vocals, bass, drums, and residual other; guitars/keys share residual other. That is not instrument confirmation. Vocal Layer Cleanup can preserve, reduce, or remove only high-confidence supporting-vocal clutter while locking the probable lead.</p></div></div>
       <div class="stem-grid" id="stemGrid"></div><div class="actions"><button class="primary" id="rebuildBtn">Apply selected repairs and rebuild mix</button></div><div class="status" id="rebuildStatus" aria-live="polite"></div>
+    </section>
+    <section class="panel hidden" id="vocalPanel">
+      <div class="panel-title"><span>♪</span><div><h2>Vocal tuning</h2><p>Snap to key, pitch shift and harmony, on the vocal stem only. The band is not touched. Everything here starts switched off. Small moves stay clean; big ones can warble, and if the vocal was split out of a finished mix, a little of the original that separation left in the band can show through.</p></div></div>
     </section>
     <section class="panel hidden" id="masterPanel">
       <div class="panel-title"><span>4</span><div><h2>Release master</h2><p>Conservative stereo master. Optional reference-bounded tonal balance only if a reference file is loaded. Surge-aware multiband dynamics, loudness, smooth-attack limiting, 4× oversampled peak safety, and regression-aware final processing. First value is hearing Original vs Master.</p></div></div>
@@ -137,6 +141,8 @@
   <script src="/js/app-stem-reliability-core.js?v=2.9.0" defer></script>
   <script src="/js/app-stem-rebuild.js?v=2.9.0" defer></script>
   <script src="/js/app-master-controls.js?v=2.9.0" defer></script>
+  <script src="/js/app-pitch-engine.js?v=2.9.0" defer></script>
+  <script src="/js/app-vocal-tune.js?v=2.9.0" defer></script>
   <script src="/js/app-steps.js?v=2.9.0" defer></script>
 </body>
 </html>
