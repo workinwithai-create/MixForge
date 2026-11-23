@@ -25,6 +25,40 @@ assert.match(page, /app-library-page\.js/);
 assert.doesNotMatch(readFileSync(new URL('../js/app-library-page.js', import.meta.url), 'utf8'), /innerHTML/, 'library page builds rows without innerHTML');
 console.log('song library smoke ok');
 
+// Sign-in comes back to the address it started from, when that address can hold the session.
+// The session cookie lives on workinwithai.com addresses only, and the Hub only returns to those.
+{
+  const next = (loc) => decodeURIComponent(new URL(lib.signInUrl(loc)).searchParams.get('next'));
+  const at = (href) => { const u = new URL(href); return { protocol: u.protocol, hostname: u.hostname, origin: u.origin, pathname: u.pathname, search: u.search }; };
+  assert.ok(lib.signInUrl(at('https://mixforge.workinwithai.com/')).startsWith('https://workinwithai.com/login?next='));
+  // Live site: same page, same song link.
+  assert.equal(next(at('https://mixforge.workinwithai.com/library.html')), 'https://mixforge.workinwithai.com/library.html');
+  assert.equal(next(at('https://mixforge.workinwithai.com/?song=0b2368f2-1111-4222-8333-444455556666&rebuild=stems')),
+    'https://mixforge.workinwithai.com/?song=0b2368f2-1111-4222-8333-444455556666&rebuild=stems');
+  // A preview served from a workinwithai.com address stays on that preview after sign-in.
+  assert.equal(next(at('https://mix.workinwithai.com/library.html?song=0b2368f2-1111-4222-8333-444455556666')),
+    'https://mix.workinwithai.com/library.html?song=0b2368f2-1111-4222-8333-444455556666');
+  assert.equal(next(at('https://mix.workinwithai.com/')), 'https://mix.workinwithai.com/');
+  // A vercel.app preview cannot hold the session, so sign-in goes to the live site (keeping the page and song).
+  assert.equal(next(at('https://mix-forge-git-some-branch-release-forge.vercel.app/library.html')), 'https://mixforge.workinwithai.com/library.html');
+  assert.equal(next(at('https://mix-forge.vercel.app/?song=0b2368f2-1111-4222-8333-444455556666')), 'https://mixforge.workinwithai.com/?song=0b2368f2-1111-4222-8333-444455556666');
+  // Lookalike hosts and plain http never count as first-party.
+  assert.equal(next(at('https://mixforge.workinwithai.com.evil.example/library.html')), 'https://mixforge.workinwithai.com/library.html');
+  assert.equal(next(at('https://evilworkinwithai.com/')), 'https://mixforge.workinwithai.com/');
+  assert.equal(next(at('http://mix.workinwithai.com/')), 'https://mixforge.workinwithai.com/');
+  assert.equal(next(at('http://localhost:4173/library.html')), 'https://mixforge.workinwithai.com/library.html');
+  assert.equal(next(undefined), 'https://mixforge.workinwithai.com/');
+  // The pages use it wherever they ask the member to sign in.
+  assert.match(page, /id="librarySignInLink"/);
+  const libraryPageSource = readFileSync(new URL('../js/app-library-page.js', import.meta.url), 'utf8');
+  assert.match(libraryPageSource, /\$\('librarySignInLink'\)[\s\S]{0,120}library\.signInUrl\(\)/, 'the library page returns to itself after sign-in');
+  const rebuildSource = readFileSync(new URL('../js/app-stem-rebuild.js', import.meta.url), 'utf8');
+  assert.match(rebuildSource, /error\.status === 401 && typeof library\.signInUrl === 'function'[\s\S]{0,200}href: library\.signInUrl\(\)/, 'a signed-out rebuild link offers sign-in back to the same song');
+  const handoffSource = readFileSync(new URL('../js/app-song-handoff.js', import.meta.url), 'utf8');
+  assert.match(handoffSource, /error\.status === 401 && typeof library\.signInUrl === 'function'[\s\S]{0,400}signIn\.href = library\.signInUrl\(\)/, 'a signed-out song link offers sign-in back to the same song');
+}
+console.log('song library sign-in return smoke ok');
+
 // Fast server copy: only MixForge stem links turn into a storage path.
 assert.equal(lib.mixforgeStoragePath('https://xbzypzgnwgrmmvtrmdzl.supabase.co/storage/v1/object/sign/audio/separated/68ad3a8e-06cc-4aaf-b258-b88f12aec2bb/vocals.wav?token=x'), 'separated/68ad3a8e-06cc-4aaf-b258-b88f12aec2bb/vocals.wav');
 assert.equal(lib.mixforgeStoragePath('https://evil.example.com/storage/v1/object/sign/audio/separated/68ad3a8e-06cc-4aaf-b258-b88f12aec2bb/vocals.wav'), null);

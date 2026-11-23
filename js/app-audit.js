@@ -198,8 +198,13 @@ async function separateRequiredStems(stems, onProgress) {
 }
 
 $('separateBtn').addEventListener('click', async () => {
-  const stems = state.audit?.stemsToInspect || [];
-  if (!stems.length) return;
+  const asked = state.audit?.stemsToInspect || [];
+  if (!asked.length) return;
+  // A song is split once, into all four parts. The splitter computes all four on every job anyway;
+  // keeping only the ones the scan pointed at left saved songs that could not be put back together.
+  if (!state.audit.stemSuspects) state.audit.stemSuspects = [...asked];
+  const stems = ['vocals', 'drums', 'bass', 'other'];
+  state.audit.stemsToInspect = stems;
   $('separateBtn').disabled = true;
   setStatus('separationStatus', 'Preparing stem separation…', 'busy');
   try {
