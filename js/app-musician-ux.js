@@ -399,17 +399,20 @@ function mfStartForensicPath() {
     $('forensicPathBtn')?.classList.add('active');
   }
 
-  const normalized = mfNormalizeDemucsStems(state.audit?.stemsToInspect || []);
+  const normalized = mfNormalizeDemucsStems(state.audit?.stemSuspects || state.audit?.stemsToInspect || []);
   state.audit = {
     ...(state.audit || {}),
-    stemsToInspect: normalized.stems.length ? normalized.stems : ['other'],
+    // What the scan points at, and what is split: always all four parts, so the stems saved on the
+    // song can put the whole song back together later.
+    stemSuspects: normalized.stems,
+    stemsToInspect: ['vocals', 'drums', 'bass', 'other'],
     stemRoutes: normalized.routes,
   };
   mfRenderStemConsent(state.audit);
   reveal('separateActions');
   $('stemListLabel').textContent = normalized.routes.length
-    ? `Honest Demucs routes: ${normalized.routes.map((route) => route.honest).join(' · ')}`
-    : 'Stereo residual investigation';
+    ? `Splits all four parts · the scan points at: ${normalized.routes.map((route) => route.honest).join(' · ')}`
+    : 'Splits all four parts: vocals, drums, bass, other';
   setStatus('auditStatus', 'Forensic path armed. Review stem cost/ETA, or skip to Quick Master.', 'ok');
   $('stemConsent')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
@@ -423,6 +426,7 @@ function mfRenderStemConsent(audit) {
   root.replaceChildren();
   root.append(mfMusicianEl('h3', '', 'Before source investigation'));
   root.append(mfMusicianEl('p', '', 'Demucs htdemucs returns vocals, bass, drums, and one residual “other” bucket. Guitars and keys are not separate confirmable stems — they land in other.'));
+  root.append(mfMusicianEl('p', '', 'The song is split once into all four parts and all four are kept, so you can save them and put the song back together later without splitting again. One split counts as four stems.'));
   const meta = mfMusicianEl('div', 'stem-consent-meta');
   meta.innerHTML = `<span>${framing.etaLabel}</span><span>${framing.costLabel}</span>`;
   root.append(meta);

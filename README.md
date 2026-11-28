@@ -7,7 +7,7 @@ LANDR, eMastered, BandLab Mastering, CloudBounce, and RoEx win on making a file 
 1. Audit a stereo mix. Measurements are ground truth for clip %, LUFS, sample peak, correlation, and DC.
 2. Optional Gemini listening pass hears a compact mix excerpt (not a vocal performance take). Performance / pitch / timing lives in [AuraMix](https://auramix.workinwithai.com).
 3. Choose **Quick Master** (stereo release master + Original vs Master A/B) or **Forensic Fix** (timeline + opt-in stems + targeted repair). Quick Master skips Isolate / Confirm / Repair.
-4. Separate only the stems needed (Demucs via RunPod: vocals / bass / drums / other). Guitars and keys are not confirmable stems — they share residual other.
+4. When a mix needs stem work, split it once into all four parts (Demucs via RunPod: vocals / bass / drums / other) and keep all four. Guitars and keys are not confirmable stems — they share residual other. A song opened from the library with its stems already saved is never split again.
 5. Measure and repair affected stems conservatively.
 6. Rebuild the original mix with the corrected stem deltas.
 7. Master the corrected mix conservatively. Reference-bounded tonal language is used only when a reference file is loaded.
@@ -15,6 +15,44 @@ LANDR, eMastered, BandLab Mastering, CloudBounce, and RoEx win on making a file 
 9. Export a 24-bit or 16-bit WAV. Stale masters cannot export. Clipping or true-peak over ceiling blocks export unless you explicitly override.
 
 Thesis: evidence-first, conservative repairs, show measured change (loudness, peak, remaining risks). MixForge is mix repair + release master; dedicated vocal production lives in AuraMix.
+
+## Two ways in, one mix stage
+
+1. **One finished mix.** Drop it in and scan it. Quick Master masters the stereo file. If the mix needs stem work, MixForge splits it once into all four parts (vocals, drums, bass, other), keeps all four, and mixes from those.
+2. **Your own stems from your DAW.** "Or bring your stems" in the load panel, or drop several files at once. Each file is read in the browser (nothing is uploaded, nothing is split), given one of the four mix groups from its name (you can change it), and mixed from there. Up to 24 files; export each one from the very start of the song.
+
+Either way the same mix stage runs before mastering, so the master has something that is ready for it:
+
+- **Levels.** A part that is clearly out of range is moved on its fader, where you can see, hear and undo it: a band part that is close to inaudible, or a vocal more than 6 LU under or over the band. At most 6 dB in total, with the reason in words. A fader you set yourself is never moved.
+- **EQ and dynamics.** Each group is placed against the ones already placed: the lead first, then what competes with it, then the low end, then the groove. A move that leaves the mix measuring worse is halved, then undone.
+- **Automation.** The lead vocal's level is ridden phrase by phrase: lifted where it drops under the band, eased where it jumps out, up to +3 / −2 dB, ramped. Kept only if the mix does not measure worse.
+- Every stage can be auditioned, and every move has a receipt.
+
+The level ranges and ride limits are product heuristics, written down in `js/app-auto-mix-core.js`. They fix what is measurably off; they are not a taste engine, and MixForge does not claim the result is how an engineer would have mixed it.
+
+## Songs and stems
+
+A song lives in the shared WorkinWithAI song library with its mix, stems and masters attached. MixForge works on that song and saves back to it, so a track is uploaded once and split once.
+
+1. **Save.** After a separation, "Save mix + stems to my song library" keeps the original mix and every stem on one song (`library.html` lists them).
+2. **Open.** `/?song=<id>&asset=<id>` opens one file of a song; stems saved afterwards join the same song.
+3. **Put back together.** `/?song=<id>&rebuild=stems` loads the song's stems into a small mixer: a level, Mute and Solo per stem, and Play together. Solo is for listening only.
+4. **Stem check.** As soon as the stems load they are checked against each other (same length, none near-empty, no two carrying the same part). If the song still has its original mix, "Compare with the original mix" says whether the stems add back up to it, and "Hear what the stems leave out" plays the leftover. It runs in the browser on the first 90 seconds; nothing is uploaded. A good result does not prove a stem holds only its own part.
+5. **Mix and master.** The saved stems go straight to the stem stage (no upload, no separation job), the sequential mix is built, the release master is rendered, and the master is saved to the same song. It is saved only if it passes the same hard checks as Download release WAV (no clipping, peak under the ceiling).
+6. **Receipts.** Every stage of the mix shows a correction receipt: the measured problem, the exact settings proposed, before/after measurements, both attempts, and an accepted / reduced / held / rejected verdict. "Download the receipt for this run" gives one JSON file with the stems and levels, the stem check, those corrections, the master's measurements and whether it was saved. Names and numbers only, no audio.
+
+`stem-reliability-lab.html` is the same stem check as a standalone page for comparing separators: load any mix and its stems from disk (up to six buses plus residual) and download an audit report. Both use `js/app-stem-reliability-core.js`.
+
+## Testing a preview while signed in
+
+Sign-in is a cookie on `.workinwithai.com`. A Vercel preview address ends in `vercel.app`, so the browser never sends that cookie from it and the Hub does not accept it as a place to return to. That is why Sign in on a `vercel.app` preview lands on the live site: such a preview can only test the free, signed-out parts.
+
+To test a branch signed in, serve it from an address on the same domain. `mix.workinwithai.com` is already attached to the Vercel project and already allowed everywhere the live address is (Hub sign-in return, entitlements, product token, checkout, song library, and the `separate-stem` and `stem-library` functions), so nothing needs redeploying:
+
+1. DNS for `workinwithai.com`: a `CNAME` record for `mix` pointing to `cname.vercel-dns.com` (once).
+2. Vercel → mix-forge → Settings → Domains → `mix.workinwithai.com` → Edit → set **Git Branch** to the branch under test.
+
+Open `https://mix.workinwithai.com`, sign in, and you stay on that address. Every sign-in link in the app returns to the address it was opened from when that address is on `workinwithai.com`, and to the live site otherwise. The version in the page header tells you which build you are looking at. The address is public once it has a DNS record (Vercel's own login only guards `vercel.app` previews), and whatever branch it points at runs with the signed-in member's session, so point it only at branches you trust.
 
 ## Competitor benchmarking
 
