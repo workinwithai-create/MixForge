@@ -146,8 +146,8 @@
       const row = el('div', { class: 'actions library-rebuild-row' });
       row.append(el('a', { class: 'primary library-rebuild', href: `/?song=${encodeURIComponent(song.id)}&rebuild=stems` }, 'Put back together in MixForge'));
       row.append(el('small', {}, song.assets.some((a) => a.kind === 'mix')
-        ? 'Mix the stems at your own levels into a new full version.'
-        : 'This song has stems but no full mix yet. Rebuild one from them.'));
+        ? 'Mix and master the stems in MixForge. No splitting needed.'
+        : 'Stems but no full mix yet. MixForge mixes and masters them, no splitting needed.'));
       body.append(row);
     }
     details.append(body);

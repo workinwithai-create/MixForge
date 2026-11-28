@@ -4,10 +4,13 @@
 //   https://mixforge.workinwithai.com/?song=<songId>&rebuild=stems
 // MixForge fetches the song's stems (short-lived signed links), lines them up, and shows a small stem mixer:
 // a level and mute per stem, and Play together. Then the member can
-//   - "Mix it in MixForge": the rebuilt mix becomes the loaded mix (Scan, Quick Master, Forensic Fix, export),
-//     and Forensic Fix uses these same stems instead of paying for a new separation;
-//   - "Save rebuilt mix to this song": a 16-bit WAV is added to the same library song as its mix.
-// Nothing is saved until the member taps Save, and the song keeps its id (no new song is made).
+//   - "Mix and master": the stems are already split, so MixForge skips separation entirely. It measures each
+//     stem, applies its stem repairs, rebuilds the mix, renders the release master, and saves that master
+//     to the same library song;
+//   - "Load as one mix only": the summed stems become the loaded mix for the normal Scan / Quick Master path;
+//     Forensic Fix on it reuses these stems and never splits the song again;
+//   - "Save rebuilt mix to this song": a 16-bit WAV of the plain sum is added to the same song as its mix.
+// The song keeps its id (no new song is made).
 (() => {
   const library = globalThis.MixForgeSongLibrary;
   const core = globalThis.MixForgeStemRebuildCore;
@@ -42,10 +45,11 @@
   const note = make('p', { class: 'rebuild-note hidden', id: 'rebuildMissing' });
   const actions = make('div', { class: 'actions rebuild-actions hidden', id: 'rebuildActions' });
   const playBtn = make('button', { class: 'secondary', type: 'button', id: 'rebuildPlayBtn' }, '▶ Play together');
-  const useBtn = make('button', { class: 'primary', type: 'button', id: 'rebuildUseBtn' }, 'Mix it in MixForge');
+  const masterBtn = make('button', { class: 'primary', type: 'button', id: 'rebuildMasterBtn' }, 'Mix and master');
+  const useBtn = make('button', { class: 'secondary', type: 'button', id: 'rebuildUseBtn' }, 'Load as one mix only');
   const saveBtn = make('button', { class: 'secondary', type: 'button', id: 'rebuildSaveBtn' }, 'Save rebuilt mix to this song');
   const libLink = make('a', { class: 'library-link', href: `/library.html?song=${encodeURIComponent(songId)}` }, 'Back to this song in my library');
-  actions.append(playBtn, useBtn, saveBtn, libLink);
+  actions.append(playBtn, masterBtn, useBtn, saveBtn, libLink);
   const saveStatus = make('div', { class: 'status', id: 'rebuildSaveStatus', 'aria-live': 'polite' });
   panel.append(titleRow, status, rows, note, actions, saveStatus);
   const loadPanel = $('loadPanel');
@@ -171,33 +175,127 @@
     }
   }
 
+  // Sum the stems at their levels and make that the loaded mix. Returns the even turn-down in dB.
+  async function loadRebuilt() {
+    stopPreviewTogether();
+    say('Putting the stems back together…');
+    const { buffer, trimDb } = renderMix();
+    const blob = await encodeWav(buffer, 24, (p) => say(`Preparing the rebuilt mix… ${p}%`));
+    const file = new File([blob], `${song.title || 'Song'} - rebuilt from stems.wav`, { type: 'audio/wav', lastModified: Date.now() });
+    await loadFile(file);
+    if (state.file !== file) throw new Error('MixForge could not open the rebuilt mix.');
+    // Later saves in this page go to this song, and Forensic Fix reuses these stems (see the wrapper below).
+    state.librarySong = { id: song.id, title: song.title, sourceAssetId: null };
+    state.libraryRebuild = {
+      file,
+      songId: song.id,
+      stems: Object.fromEntries(parts.filter((p) => !p.muted).map((p) => [p.name, p.blob])),
+      // Each stem's level in the rebuilt mix, including any even turn-down, so MixForge measures
+      // and repairs the stems at the level they actually play in this mix.
+      gains: Object.fromEntries(parts.filter((p) => !p.muted).map((p) => [p.name, p.gainDb + trimDb])),
+      applyGainsPending: false,
+    };
+    return trimDb;
+  }
+
+  const trimNote = (trimDb) => (trimDb < -0.05 ? ` (turned down ${Math.abs(trimDb).toFixed(1)} dB so it does not clip)` : '');
+
   async function useInMixForge() {
     useBtn.disabled = true;
     try {
-      stopPreviewTogether();
-      say('Putting the stems back together…');
-      const { buffer, trimDb } = renderMix();
-      const blob = await encodeWav(buffer, 24, (p) => say(`Preparing the rebuilt mix… ${p}%`));
-      const file = new File([blob], `${song.title || 'Song'} - rebuilt from stems.wav`, { type: 'audio/wav', lastModified: Date.now() });
-      await loadFile(file);
-      if (state.file !== file) throw new Error('MixForge could not open the rebuilt mix.');
-      // Later saves in this page go to this song, and Forensic Fix reuses these stems (see the wrapper below).
-      state.librarySong = { id: song.id, title: song.title, sourceAssetId: null };
-      state.libraryRebuild = {
-        file,
-        songId: song.id,
-        stems: Object.fromEntries(parts.filter((p) => !p.muted).map((p) => [p.name, p.blob])),
-        // Each stem's level in the rebuilt mix, including any even turn-down, so Forensic Fix measures
-        // and repairs the stems at the level they actually play in this mix.
-        gains: Object.fromEntries(parts.filter((p) => !p.muted).map((p) => [p.name, p.gainDb + trimDb])),
-        applyGainsPending: false,
-      };
-      say(`The rebuilt mix is loaded below${trimDb < -0.05 ? ` (turned down ${Math.abs(trimDb).toFixed(1)} dB so it does not clip)` : ''}. Scan it to pick Quick Master or Forensic Fix.`, 'ok');
+      const trimDb = await loadRebuilt();
+      say(`The rebuilt mix is loaded below${trimNote(trimDb)}. Scan it to pick Quick Master or Forensic Fix.`, 'ok');
       loadPanel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (error) {
       console.error('[MixForge] rebuild failed', error);
       say(`Could not rebuild the mix: ${error.message}`, 'error');
     } finally {
+      useBtn.disabled = false;
+    }
+  }
+
+  // One stem at its level in the rebuilt mix, the same length and width as the loaded mix.
+  function stemAtMixLevel(part, gainDb) {
+    const mix = state.original;
+    const out = state.audioCtx.createBuffer(mix.numberOfChannels, mix.length, mix.sampleRate);
+    const g = dbToGain(gainDb);
+    for (let c = 0; c < mix.numberOfChannels; c++) {
+      const src = part.buffer.getChannelData(Math.min(c, part.buffer.numberOfChannels - 1));
+      const dest = out.getChannelData(c);
+      const n = Math.min(src.length, dest.length);
+      for (let i = 0; i < n; i++) dest[i] = src[i] * g;
+    }
+    return out;
+  }
+
+  // The stems are already split, so this skips separation completely: it hands MixForge's stem stage
+  // the saved stems, applies the stem repairs, rebuilds the mix, renders the release master,
+  // and saves that master to the same library song.
+  async function mixAndMaster() {
+    const gate = globalThis.MixForgeHub?.requireEntitlement?.('forensicStems') || { ok: false, reason: 'login' };
+    if (!gate.ok) {
+      say(`Mix and master needs a MixForge or Forge Pass license (${gate.reason}). Sign in at the top of the page.`, 'error');
+      return;
+    }
+    masterBtn.disabled = true;
+    useBtn.disabled = true;
+    try {
+      const trimDb = await loadRebuilt();
+      const run = state.libraryRebuild;
+      const live = parts.filter((p) => !p.muted);
+
+      say('Measuring the rebuilt mix…');
+      state.mixMetrics = measureBuffer(state.original);
+      const audit = typeof fallbackMixAudit === 'function'
+        ? fallbackMixAudit(state.mixMetrics, $('notes')?.value.trim() || '', Number($('targetLufs')?.value || -12))
+        : {};
+      state.audit = { ...audit, stemsToInspect: live.map((p) => p.name) };
+      state.mixforgePath = 'forensic';
+      if (typeof mfSetPipeline === 'function') mfSetPipeline('forensic');
+
+      // Stem stage, straight from the library: no upload, no separation job.
+      state.stemBuffers = Object.fromEntries(live.map((p) => [p.name, stemAtMixLevel(p, run.gains[p.name])]));
+      state.separationInfo = { engine: 'song library', mode: 'saved stems' };
+      say(`Planning repairs for ${live.map((p) => p.name).join(', ')}…`);
+      await buildStemPlans();
+      renderStemPlans();
+      reveal('stemPanel');
+
+      say('Mixing: applying the stem repairs and rebuilding the song…');
+      state.corrected = await rebuildCorrectedMix();
+      state.correctedMetrics = measureBuffer(state.corrected);
+      prepareMastering();
+
+      say('Mastering for release…');
+      setStatus('masterStatus', 'Rendering tonal balance, dynamics, loudness and look-ahead limiting…', 'busy');
+      state.master = null;
+      state.finalMetrics = null;
+      state.masterDirty = true;
+      state.master = await renderReleaseMaster();
+      markMasterRendered(state.master);
+      state.finalMetrics = measureBuffer(state.master);
+      renderMetrics('finalMetrics', state.finalMetrics);
+      renderVerification(state.finalMetrics, state.masterPlan);
+      reveal('previewBox');
+      reveal('verifyPanel');
+      setStatus('masterStatus', 'Release master rendered from the saved stems and measured again after limiting.', 'ok');
+
+      // Save the master to the same song (16-bit keeps the upload small; Download release WAV still gives 24-bit).
+      say(`Saving the master to “${song.title || 'this song'}”…`);
+      const target = Number($('targetLufs')?.value || -12);
+      const blob = await encodeWav(state.master, 16, (p) => say(`Preparing the master WAV… ${p}%`));
+      const source = core.rebuildSourceKey(parts.map((p) => ({ assetId: p.asset.id, gainDb: p.gainDb, muted: p.muted })), { kind: 'master', extra: String(target) });
+      await library.saveFile(song.id, {
+        kind: 'master', blob: new File([blob], 'mixforge-master.wav', { type: 'audio/wav' }),
+        label: 'MixForge master', durationSec: state.master.duration, source,
+      });
+      say(`Mixed and mastered${trimNote(trimDb)}, and saved to “${song.title || 'this song'}” as its release master. Listen below, or download the 24-bit WAV.`, 'ok');
+      $('verifyPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (error) {
+      console.error('[MixForge] mix and master failed', error);
+      say(`Mix and master stopped: ${error.message}`, 'error');
+    } finally {
+      masterBtn.disabled = false;
       useBtn.disabled = false;
     }
   }
@@ -254,7 +352,7 @@
       renderRows();
       actions.classList.remove('hidden');
       const minutes = Math.max(...parts.map((p) => p.buffer.duration)) / 60;
-      say(`${parts.length} stem${parts.length === 1 ? '' : 's'} ready (${minutes.toFixed(1)} min). Set the levels, press Play together, then mix it in MixForge or save it to the song.`, 'ok');
+      say(`${parts.length} stem${parts.length === 1 ? '' : 's'} ready (${minutes.toFixed(1)} min). Set the levels, press Play together, then Mix and master. No splitting needed.`, 'ok');
     } catch (error) {
       console.error('[MixForge] rebuild open failed', error);
       if (error.status === 401 || error.status === 402) say(error.message, 'error');
@@ -264,25 +362,29 @@
   }
 
   playBtn.addEventListener('click', () => { void playTogether().catch((error) => say(`Could not play: ${error.message}`, 'error')); });
+  masterBtn.addEventListener('click', () => { void mixAndMaster(); });
   useBtn.addEventListener('click', () => { void useInMixForge(); });
   saveBtn.addEventListener('click', () => { void saveToSong(); });
 
-  // Forensic Fix on a rebuilt mix: hand over the stems this song already has instead of a new (paid) separation.
-  // Stems the scan asks for that the song lacks still go to the normal separation.
+  // Forensic Fix on a rebuilt mix: hand over the stems this song already has. The song is never split again:
+  // the stem list becomes exactly the saved stems (a scan asking for a stem the song lacks just works without it).
   if (typeof separateRequiredStems === 'function') {
     const previousSeparate = separateRequiredStems;
     separateRequiredStems = async function separateFromLibraryStems(stems, onProgress) {
       const run = state.libraryRebuild;
-      const names = (stems || []).map((s) => (typeof normalizeStemName === 'function' ? normalizeStemName(s) : s) || s);
-      if (!run || state.file !== run.file || !core.coversStems(names, Object.keys(run.stems))) {
+      const saved = run ? Object.keys(run.stems) : [];
+      if (!run || state.file !== run.file || !saved.length || !Array.isArray(stems)) {
         return previousSeparate(stems, onProgress);
       }
-      onProgress?.('Using the stems already saved on this song. No new separation needed.');
+      const asked = stems.map((s) => (typeof normalizeStemName === 'function' ? normalizeStemName(s) : s) || s);
+      const missing = asked.filter((n) => !saved.includes(n));
+      // The caller loops over this same list, so set it to the saved stems in place.
+      stems.splice(0, stems.length, ...saved);
+      onProgress?.(`Using the stems already saved on this song. No new separation${missing.length ? ` (this song has no ${missing.join(', ')} stem)` : ''}.`);
       const outputs = {};
-      (stems || []).forEach((raw, i) => {
-        const url = URL.createObjectURL(run.stems[names[i]]);
-        outputs[raw] = url;
-        outputs[names[i]] = url;
+      stems.forEach((name) => {
+        const url = URL.createObjectURL(run.stems[name]);
+        outputs[name] = url;
         setTimeout(() => URL.revokeObjectURL(url), 30 * 60 * 1000);
       });
       // The separate step decodes each stem once; the upload module's decode hook lines them up with the mix.

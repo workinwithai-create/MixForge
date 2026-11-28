@@ -78,7 +78,11 @@ const page = readFileSync(new URL('../js/app-stem-rebuild.js', import.meta.url),
 assert.match(page, /params\.get\('rebuild'\) !== 'stems'/);
 assert.match(page, /kind: 'mix'[\s\S]*label: 'Rebuilt from stems'[\s\S]*source/, 'the rebuilt mix is saved to the same song as its mix, once');
 assert.match(page, /state\.librarySong = \{ id: song\.id/, 'later saves stay on the same song');
-assert.match(page, /return previousSeparate\(stems, onProgress\)/, 'stems the song lacks still go to a real separation');
+assert.match(page, /return previousSeparate\(stems, onProgress\)/, 'files other than the rebuilt mix still go to a real separation');
+const mixAndMasterBody = page.slice(page.indexOf('async function mixAndMaster'), page.indexOf('playBtn.addEventListener'));
+assert.ok(mixAndMasterBody.length > 200, 'Mix and master exists');
+assert.doesNotMatch(mixAndMasterBody, /separateRequiredStems|callStemFunction|uploadOriginal/, 'Mix and master never splits or uploads');
+assert.match(mixAndMasterBody, /renderReleaseMaster\(\)[\s\S]*kind: 'master'/, 'the release master is saved to the song');
 assert.match(page, /state\.file !== run\.file/, 'saved stems are used only for the rebuilt mix itself');
 assert.doesNotMatch(page, /innerHTML/, 'the rebuild panel builds its rows without innerHTML');
 assert.doesNotMatch(page, /create-song/, 'rebuilding never makes a second song');
