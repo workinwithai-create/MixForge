@@ -1,0 +1,27 @@
+# MixForge
+
+> MixForge is a browser tool for independent musicians that fixes problems in a finished mix and then masters it for release. Upload a mix, get a free stereo audit with a timeline of exactly when problems happen, then choose Quick Master for a fast original-versus-master comparison or Forensic Fix to separate stems and repair specific sources.
+
+MixForge is part of Pipe Dreams Studio by WorkinWithAI (https://workinwithai.com). One WorkinWithAI account works across every tool, and songs saved in the shared library can be opened here.
+
+## What it does
+
+- Stereo audit (free): measures loudness, peaks, tone, stereo width and dynamics, and lists problems with time windows.
+- Quick Master: observe, locate, master and verify, with an A/B between the original and the master.
+- Forensic Fix: separates the mix into vocals, bass, drums and other with Demucs, scores each stem, and lets you apply targeted repairs before rebuilding the mix.
+- Release master: loudness targets from -14 to -9 LUFS, multiband dynamics, oversampled peak limiting, and a release check before export.
+- Export: 24-bit or 16-bit WAV.
+- Song library: play back saved mixes and stems, and rebuild a song from its stems.
+
+MixForge reports what it measures and does not judge vocal performance; vocals are handled in the recording tool.
+
+## Pricing
+
+- Stereo audit: free.
+- MixForge license: $9 a month for Quick Master, Forensic Fix and WAV export.
+- Forge Pass: $24 a month for all the Forge tools, including MixForge.
+
+## Pages
+
+- [MixForge](https://mixforge.workinwithai.com/): the app
+- [Get MixForge](https://workinwithai.com/get-mix-forge): buy a license
